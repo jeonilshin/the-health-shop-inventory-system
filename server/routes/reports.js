@@ -12,8 +12,8 @@ router.get('/inventory-summary', auth, async (req, res) => {
         l.name as location_name,
         l.type as location_type,
         COUNT(i.id) as total_items,
-        SUM(i.quantity) as total_quantity,
-        SUM(i.quantity * i.unit_cost) as total_value
+        COALESCE(SUM(i.quantity), 0) as total_quantity,
+        COALESCE(SUM(i.quantity * i.unit_cost), 0) as total_value
       FROM locations l
       LEFT JOIN inventory i ON l.id = i.location_id
       GROUP BY l.id, l.name, l.type
@@ -35,10 +35,10 @@ router.get('/sales-summary', auth, async (req, res) => {
         l.id as location_id,
         l.name as location_name,
         COUNT(s.id) as total_transactions,
-        SUM(s.quantity) as total_items_sold,
-        SUM(s.total_amount) as total_revenue,
-        SUM(s.quantity * s.unit_cost) as total_cost,
-        SUM(s.total_amount - (s.quantity * s.unit_cost)) as total_profit
+        COALESCE(SUM(s.quantity), 0) as total_items_sold,
+        COALESCE(SUM(s.total_amount), 0) as total_revenue,
+        COALESCE(SUM(s.quantity * s.unit_cost), 0) as total_cost,
+        COALESCE(SUM(s.total_amount - (s.quantity * s.unit_cost)), 0) as total_profit
       FROM locations l
       LEFT JOIN sales s ON l.id = s.location_id
       WHERE l.type = 'branch'
