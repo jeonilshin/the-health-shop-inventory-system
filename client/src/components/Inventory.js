@@ -75,6 +75,19 @@ function Inventory() {
 
   const canEdit = user.role === 'admin' || user.role === 'warehouse' || user.role === 'branch_manager';
 
+  const handleDeleteInventory = async (id) => {
+    if (!window.confirm('Are you sure you want to delete this inventory item?')) {
+      return;
+    }
+    try {
+      await api.delete(`/inventory/${id}`);
+      alert('Inventory item deleted successfully!');
+      fetchInventory();
+    } catch (error) {
+      alert(error.response?.data?.error || 'Error deleting inventory item');
+    }
+  };
+
   return (
     <div className="container">
       <h2>Inventory Management</h2>
@@ -166,6 +179,7 @@ function Inventory() {
               <th>Unit Cost</th>
               <th>Suggested Price</th>
               <th>Total Value</th>
+              {user.role === 'admin' && <th>Actions</th>}
             </tr>
           </thead>
           <tbody>
@@ -177,6 +191,17 @@ function Inventory() {
                 <td>₱{parseFloat(item.unit_cost).toFixed(2)}</td>
                 <td>₱{parseFloat(item.suggested_selling_price || 0).toFixed(2)}</td>
                 <td>₱{(parseFloat(item.quantity) * parseFloat(item.unit_cost)).toFixed(2)}</td>
+                {user.role === 'admin' && (
+                  <td>
+                    <button
+                      className="btn btn-danger"
+                      style={{ padding: '6px 12px', fontSize: '12px' }}
+                      onClick={() => handleDeleteInventory(item.id)}
+                    >
+                      Delete
+                    </button>
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>

@@ -47,54 +47,24 @@ function ChangePassword({ onClose }) {
       left: 0,
       right: 0,
       bottom: 0,
-      backgroundColor: 'rgba(0,0,0,0.6)',
+      backgroundColor: 'rgba(0,0,0,0.5)',
       display: 'flex',
       justifyContent: 'center',
       alignItems: 'center',
-      zIndex: 1000,
-      backdropFilter: 'blur(5px)',
-      animation: 'fadeIn 0.3s ease'
+      zIndex: 1000
     }}>
       <div style={{
         backgroundColor: 'white',
-        padding: '40px',
-        borderRadius: '16px',
-        maxWidth: '500px',
+        padding: '30px',
+        borderRadius: '8px',
+        maxWidth: '450px',
         width: '90%',
-        boxShadow: '0 20px 60px rgba(0, 0, 0, 0.3)',
-        animation: 'slideUp 0.3s ease'
+        boxShadow: '0 4px 20px rgba(0, 0, 0, 0.15)'
       }}>
-        <div style={{ textAlign: 'center', marginBottom: '30px' }}>
-          <div style={{
-            width: '60px',
-            height: '60px',
-            margin: '0 auto 15px',
-            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-            borderRadius: '50%',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontSize: '28px'
-          }}>
-            🔐
-          </div>
-          <h3 style={{ margin: 0 }}>Change Password</h3>
-          <p style={{ color: '#718096', fontSize: '14px', marginTop: '8px' }}>
-            Update your account password
-          </p>
-        </div>
+        <h3 style={{ marginTop: 0, marginBottom: '20px' }}>Change Password</h3>
         
-        {error && (
-          <div className="error" style={{ marginBottom: '20px' }}>
-            ❌ {error}
-          </div>
-        )}
-
-        {success && (
-          <div className="success" style={{ marginBottom: '20px' }}>
-            ✅ Password changed successfully!
-          </div>
-        )}
+        {error && <div className="error" style={{ marginBottom: '15px' }}>{error}</div>}
+        {success && <div className="success" style={{ marginBottom: '15px' }}>Password changed successfully!</div>}
 
         <form onSubmit={handleSubmit}>
           <div className="form-group">
@@ -134,21 +104,17 @@ function ChangePassword({ onClose }) {
             />
           </div>
 
-          <div style={{ display: 'flex', gap: '10px', marginTop: '30px' }}>
+          <div style={{ display: 'flex', gap: '10px', marginTop: '20px' }}>
             <button type="submit" className="btn btn-primary" style={{ flex: 1 }}>
-              🔄 Change Password
+              Change Password
             </button>
             <button
               type="button"
               className="btn"
               onClick={onClose}
-              style={{
-                flex: 1,
-                background: '#e2e8f0',
-                color: '#2d3748'
-              }}
+              style={{ flex: 1, backgroundColor: '#95a5a6', color: 'white' }}
             >
-              ❌ Cancel
+              Cancel
             </button>
           </div>
         </form>

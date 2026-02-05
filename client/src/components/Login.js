@@ -32,31 +32,11 @@ function Login() {
       minHeight: '100vh',
       padding: '20px'
     }}>
-      <div className="card" style={{
-        width: '100%',
-        maxWidth: '450px',
-        boxShadow: '0 20px 60px rgba(0, 0, 0, 0.3)'
-      }}>
-        <div style={{ textAlign: 'center', marginBottom: '30px' }}>
-          <div style={{
-            width: '80px',
-            height: '80px',
-            margin: '0 auto 20px',
-            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-            borderRadius: '50%',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontSize: '36px',
-            color: 'white',
-            fontWeight: 'bold',
-            boxShadow: '0 10px 30px rgba(102, 126, 234, 0.4)'
-          }}>
-            🏥
-          </div>
-          <h2 style={{ marginBottom: '10px', fontSize: '28px' }}>The Health Shop</h2>
-          <p style={{ color: '#718096', fontSize: '14px' }}>Inventory Management System</p>
-        </div>
+      <div className="card" style={{ width: '100%', maxWidth: '400px' }}>
+        <h2 style={{ textAlign: 'center', marginBottom: '10px' }}>The Health Shop</h2>
+        <p style={{ textAlign: 'center', color: '#777', fontSize: '14px', marginBottom: '30px' }}>
+          Inventory Management System
+        </p>
 
         <form onSubmit={handleSubmit}>
           <div className="form-group">
@@ -80,43 +60,16 @@ function Login() {
               required
             />
           </div>
-          {error && <div className="error">❌ {error}</div>}
+          {error && <div className="error">{error}</div>}
           <button
             type="submit"
             className="btn btn-primary"
-            style={{ width: '100%', marginTop: '20px', padding: '14px' }}
+            style={{ width: '100%', marginTop: '15px' }}
             disabled={loading}
           >
-            {loading ? (
-              <span>
-                <span className="spinner" style={{
-                  width: '16px',
-                  height: '16px',
-                  borderWidth: '2px',
-                  display: 'inline-block',
-                  verticalAlign: 'middle',
-                  marginRight: '8px'
-                }}></span>
-                Logging in...
-              </span>
-            ) : (
-              '🔐 Login'
-            )}
+            {loading ? 'Logging in...' : 'Login'}
           </button>
         </form>
-
-        <div style={{
-          marginTop: '30px',
-          padding: '20px',
-          background: '#f7fafc',
-          borderRadius: '8px',
-          fontSize: '13px',
-          color: '#718096'
-        }}>
-          <p style={{ marginBottom: '8px' }}><strong>Default Credentials:</strong></p>
-          <p>Username: <code style={{ background: 'white', padding: '2px 6px', borderRadius: '4px' }}>admin</code></p>
-          <p>Password: <code style={{ background: 'white', padding: '2px 6px', borderRadius: '4px' }}>admin123</code></p>
-        </div>
       </div>
     </div>
   );
