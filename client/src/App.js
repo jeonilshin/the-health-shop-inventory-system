@@ -6,6 +6,7 @@ import Inventory from './components/Inventory';
 import Transfers from './components/Transfers';
 import Sales from './components/Sales';
 import Reports from './components/Reports';
+import Admin from './components/Admin';
 import Navbar from './components/Navbar';
 import { AuthContext } from './context/AuthContext';
 
@@ -50,6 +51,7 @@ function App() {
           <Route path="/transfers" element={user ? <Transfers /> : <Navigate to="/login" />} />
           <Route path="/sales" element={user ? <Sales /> : <Navigate to="/login" />} />
           <Route path="/reports" element={user ? <Reports /> : <Navigate to="/login" />} />
+          <Route path="/admin" element={user?.role === 'admin' ? <Admin /> : <Navigate to="/" />} />
         </Routes>
       </Router>
     </AuthContext.Provider>

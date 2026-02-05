@@ -23,6 +23,9 @@ function Navbar() {
           <Link to="/sales" style={{ color: 'white', textDecoration: 'none' }}>Sales</Link>
         )}
         <Link to="/reports" style={{ color: 'white', textDecoration: 'none' }}>Reports</Link>
+        {user?.role === 'admin' && (
+          <Link to="/admin" style={{ color: 'white', textDecoration: 'none', fontWeight: 'bold' }}>Admin</Link>
+        )}
         <button onClick={logout}>Logout</button>
       </div>
     </nav>
