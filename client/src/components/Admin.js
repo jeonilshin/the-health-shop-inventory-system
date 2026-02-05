@@ -241,37 +241,6 @@ function Admin() {
 
       {/* LOCATIONS TAB */}
       {activeTab === 'locations' && (
-        <button
-          onClick={() => setActiveTab('locations')}
-          style={{
-            padding: '10px 20px',
-            marginRight: '10px',
-            border: 'none',
-            borderBottom: activeTab === 'locations' ? '3px solid #007bff' : 'none',
-            background: 'none',
-            cursor: 'pointer',
-            fontWeight: activeTab === 'locations' ? 'bold' : 'normal'
-          }}
-        >
-          Locations Management
-        </button>
-        <button
-          onClick={() => setActiveTab('users')}
-          style={{
-            padding: '10px 20px',
-            border: 'none',
-            borderBottom: activeTab === 'users' ? '3px solid #007bff' : 'none',
-            background: 'none',
-            cursor: 'pointer',
-            fontWeight: activeTab === 'users' ? 'bold' : 'normal'
-          }}
-        >
-          User Management
-        </button>
-      </div>
-
-      {/* LOCATIONS TAB */}
-      {activeTab === 'locations' && (
         <div className="card">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
             <h3>Locations ({locations.length})</h3>
