@@ -18,12 +18,14 @@ function Inventory() {
 
   useEffect(() => {
     fetchLocations();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
     if (selectedLocation) {
       fetchInventory();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedLocation]);
 
   const fetchLocations = async () => {

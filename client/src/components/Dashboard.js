@@ -1,14 +1,13 @@
-import React, { useState, useEffect, useContext } from 'react';
+import React, { useState, useEffect } from 'react';
 import api from '../utils/api';
-import { AuthContext } from '../context/AuthContext';
 
 function Dashboard() {
-  const { user } = useContext(AuthContext);
   const [summary, setSummary] = useState([]);
   const [lowStock, setLowStock] = useState([]);
 
   useEffect(() => {
     fetchData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const fetchData = async () => {

@@ -20,6 +20,7 @@ function Transfers() {
   useEffect(() => {
     fetchLocations();
     fetchTransfers();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const fetchLocations = async () => {
@@ -103,7 +104,7 @@ function Transfers() {
                 required
               >
                 <option value="">Select destination location</option>
-                {locations.filter(loc => loc.id != formData.from_location_id).map((loc) => (
+                {locations.filter(loc => loc.id !== formData.from_location_id).map((loc) => (
                   <option key={loc.id} value={loc.id}>
                     {loc.name} ({loc.type})
                   </option>
