@@ -77,4 +77,4 @@ CREATE INDEX idx_users_location ON users(location_id);
 
 -- Insert default admin user (password: admin123 - CHANGE THIS!)
 INSERT INTO users (username, password, full_name, role) 
-VALUES ('admin', '$2a$10$rQZ9vXqZ9vXqZ9vXqZ9vXuK8YqZ9vXqZ9vXqZ9vXqZ9vXqZ9vXqZ9', 'System Administrator', 'admin');
+VALUES ('admin', '$2a$10$ao/iy01D9JyaqQmbdeKvfeOybBWj1psjzqF99wgJdT0tIzFYQdfPC', 'System Administrator', 'admin');

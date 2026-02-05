@@ -47,42 +47,52 @@ function ChangePassword({ onClose }) {
       left: 0,
       right: 0,
       bottom: 0,
-      backgroundColor: 'rgba(0,0,0,0.5)',
+      backgroundColor: 'rgba(0,0,0,0.6)',
       display: 'flex',
       justifyContent: 'center',
       alignItems: 'center',
-      zIndex: 1000
+      zIndex: 1000,
+      backdropFilter: 'blur(5px)',
+      animation: 'fadeIn 0.3s ease'
     }}>
       <div style={{
         backgroundColor: 'white',
-        padding: '30px',
-        borderRadius: '8px',
-        maxWidth: '400px',
-        width: '90%'
+        padding: '40px',
+        borderRadius: '16px',
+        maxWidth: '500px',
+        width: '90%',
+        boxShadow: '0 20px 60px rgba(0, 0, 0, 0.3)',
+        animation: 'slideUp 0.3s ease'
       }}>
-        <h3 style={{ marginTop: 0 }}>Change Password</h3>
+        <div style={{ textAlign: 'center', marginBottom: '30px' }}>
+          <div style={{
+            width: '60px',
+            height: '60px',
+            margin: '0 auto 15px',
+            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+            borderRadius: '50%',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: '28px'
+          }}>
+            🔐
+          </div>
+          <h3 style={{ margin: 0 }}>Change Password</h3>
+          <p style={{ color: '#718096', fontSize: '14px', marginTop: '8px' }}>
+            Update your account password
+          </p>
+        </div>
         
         {error && (
-          <div style={{
-            padding: '10px',
-            backgroundColor: '#f8d7da',
-            color: '#721c24',
-            borderRadius: '4px',
-            marginBottom: '15px'
-          }}>
-            {error}
+          <div className="error" style={{ marginBottom: '20px' }}>
+            ❌ {error}
           </div>
         )}
 
         {success && (
-          <div style={{
-            padding: '10px',
-            backgroundColor: '#d4edda',
-            color: '#155724',
-            borderRadius: '4px',
-            marginBottom: '15px'
-          }}>
-            Password changed successfully!
+          <div className="success" style={{ marginBottom: '20px' }}>
+            ✅ Password changed successfully!
           </div>
         )}
 
@@ -93,6 +103,7 @@ function ChangePassword({ onClose }) {
               type="password"
               value={formData.currentPassword}
               onChange={(e) => setFormData({ ...formData, currentPassword: e.target.value })}
+              placeholder="Enter current password"
               required
               autoFocus
             />
@@ -104,10 +115,11 @@ function ChangePassword({ onClose }) {
               type="password"
               value={formData.newPassword}
               onChange={(e) => setFormData({ ...formData, newPassword: e.target.value })}
+              placeholder="Enter new password"
               required
               minLength="6"
             />
-            <small style={{ color: '#666' }}>Minimum 6 characters</small>
+            <small>Minimum 6 characters</small>
           </div>
 
           <div className="form-group">
@@ -116,22 +128,27 @@ function ChangePassword({ onClose }) {
               type="password"
               value={formData.confirmPassword}
               onChange={(e) => setFormData({ ...formData, confirmPassword: e.target.value })}
+              placeholder="Confirm new password"
               required
               minLength="6"
             />
           </div>
 
-          <div style={{ display: 'flex', gap: '10px', marginTop: '20px' }}>
+          <div style={{ display: 'flex', gap: '10px', marginTop: '30px' }}>
             <button type="submit" className="btn btn-primary" style={{ flex: 1 }}>
-              Change Password
+              🔄 Change Password
             </button>
             <button
               type="button"
               className="btn"
               onClick={onClose}
-              style={{ flex: 1 }}
+              style={{
+                flex: 1,
+                background: '#e2e8f0',
+                color: '#2d3748'
+              }}
             >
-              Cancel
+              ❌ Cancel
             </button>
           </div>
         </form>
