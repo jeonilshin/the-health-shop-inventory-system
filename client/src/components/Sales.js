@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useContext } from 'react';
 import api from '../utils/api';
 import { AuthContext } from '../context/AuthContext';
+import { formatQuantity, formatPrice } from '../utils/formatNumber';
 
 function Sales() {
   const { user } = useContext(AuthContext);
@@ -174,9 +175,9 @@ function Sales() {
                 <td>{new Date(sale.sale_date).toLocaleString()}</td>
                 <td>{sale.location_name}</td>
                 <td>{sale.description}</td>
-                <td>{parseFloat(sale.quantity).toFixed(2)} {sale.unit}</td>
-                <td>₱{parseFloat(sale.selling_price).toFixed(2)}</td>
-                <td>₱{parseFloat(sale.total_amount).toFixed(2)}</td>
+                <td>{formatQuantity(sale.quantity)} {sale.unit}</td>
+                <td>₱{formatPrice(sale.selling_price)}</td>
+                <td>₱{formatPrice(sale.total_amount)}</td>
                 <td>{sale.customer_name || '-'}</td>
                 <td>{sale.sold_by_name}</td>
               </tr>

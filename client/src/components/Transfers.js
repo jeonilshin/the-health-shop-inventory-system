@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useContext } from 'react';
 import api from '../utils/api';
 import { AuthContext } from '../context/AuthContext';
+import { formatQuantity, formatPrice } from '../utils/formatNumber';
 
 function Transfers() {
   const { user } = useContext(AuthContext);
@@ -180,8 +181,8 @@ function Transfers() {
                 <td>{transfer.from_location_name}</td>
                 <td>{transfer.to_location_name}</td>
                 <td>{transfer.description}</td>
-                <td>{parseFloat(transfer.quantity).toFixed(2)} {transfer.unit}</td>
-                <td>₱{parseFloat(transfer.unit_cost).toFixed(2)}</td>
+                <td>{formatQuantity(transfer.quantity)} {transfer.unit}</td>
+                <td>₱{formatPrice(transfer.unit_cost)}</td>
                 <td>{transfer.transferred_by_name}</td>
               </tr>
             ))}

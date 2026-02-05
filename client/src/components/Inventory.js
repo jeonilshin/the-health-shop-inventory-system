@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useContext } from 'react';
 import api from '../utils/api';
 import { AuthContext } from '../context/AuthContext';
+import { formatQuantity, formatPrice } from '../utils/formatNumber';
 
 function Inventory() {
   const { user } = useContext(AuthContext);
@@ -187,10 +188,10 @@ function Inventory() {
               <tr key={item.id}>
                 <td>{item.description}</td>
                 <td>{item.unit}</td>
-                <td>{parseFloat(item.quantity).toFixed(2)}</td>
-                <td>₱{parseFloat(item.unit_cost).toFixed(2)}</td>
-                <td>₱{parseFloat(item.suggested_selling_price || 0).toFixed(2)}</td>
-                <td>₱{(parseFloat(item.quantity) * parseFloat(item.unit_cost)).toFixed(2)}</td>
+                <td>{formatQuantity(item.quantity)}</td>
+                <td>₱{formatPrice(item.unit_cost)}</td>
+                <td>₱{formatPrice(item.suggested_selling_price || 0)}</td>
+                <td>₱{formatPrice(parseFloat(item.quantity) * parseFloat(item.unit_cost))}</td>
                 {user.role === 'admin' && (
                   <td>
                     <button

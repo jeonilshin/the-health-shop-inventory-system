@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import api from '../utils/api';
+import { formatQuantity, formatPrice } from '../utils/formatNumber';
 
 function Reports() {
   const [salesSummary, setSalesSummary] = useState([]);
@@ -77,11 +78,11 @@ function Reports() {
                 <tr key={item.location_id}>
                   <td>{item.location_name}</td>
                   <td>{item.total_transactions || 0}</td>
-                  <td>{parseFloat(item.total_items_sold || 0).toFixed(2)}</td>
-                  <td>₱{parseFloat(item.total_revenue || 0).toFixed(2)}</td>
-                  <td>₱{parseFloat(item.total_cost || 0).toFixed(2)}</td>
-                  <td style={{ color: parseFloat(item.total_profit || 0) >= 0 ? '#28a745' : '#dc3545', fontWeight: 'bold' }}>
-                    ₱{parseFloat(item.total_profit || 0).toFixed(2)}
+                  <td>{formatQuantity(item.total_items_sold || 0)}</td>
+                  <td>₱{formatPrice(item.total_revenue || 0)}</td>
+                  <td>₱{formatPrice(item.total_cost || 0)}</td>
+                  <td style={{ color: parseFloat(item.total_profit || 0) >= 0 ? '#27ae60' : '#e74c3c', fontWeight: 'bold' }}>
+                    ₱{formatPrice(item.total_profit || 0)}
                   </td>
                 </tr>
               ))}
@@ -113,8 +114,8 @@ function Reports() {
                   <td>{item.location_name}</td>
                   <td>{item.location_type}</td>
                   <td>{item.total_items || 0}</td>
-                  <td>{parseFloat(item.total_quantity || 0).toFixed(2)}</td>
-                  <td>₱{parseFloat(item.total_value || 0).toFixed(2)}</td>
+                  <td>{formatQuantity(item.total_quantity || 0)}</td>
+                  <td>₱{formatPrice(item.total_value || 0)}</td>
                 </tr>
               ))}
             </tbody>

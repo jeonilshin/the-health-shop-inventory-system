@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import api from '../utils/api';
+import { formatQuantity, formatPrice } from '../utils/formatNumber';
 
 function Dashboard() {
   const [summary, setSummary] = useState([]);
@@ -45,8 +46,8 @@ function Dashboard() {
                 <td>{item.location_name}</td>
                 <td>{item.location_type}</td>
                 <td>{item.total_items || 0}</td>
-                <td>{parseFloat(item.total_quantity || 0).toFixed(2)}</td>
-                <td>₱{parseFloat(item.total_value || 0).toFixed(2)}</td>
+                <td>{formatQuantity(item.total_quantity || 0)}</td>
+                <td>₱{formatPrice(item.total_value || 0)}</td>
               </tr>
             ))}
           </tbody>
@@ -55,7 +56,7 @@ function Dashboard() {
 
       {lowStock.length > 0 && (
         <div className="card">
-          <h3 style={{ color: '#dc3545' }}>Low Stock Alert</h3>
+          <h3 style={{ color: '#e74c3c' }}>Low Stock Alert</h3>
           <table>
             <thead>
               <tr>
@@ -71,8 +72,8 @@ function Dashboard() {
                   <td>{item.location_name}</td>
                   <td>{item.description}</td>
                   <td>{item.unit}</td>
-                  <td style={{ color: '#dc3545', fontWeight: 'bold' }}>
-                    {parseFloat(item.quantity).toFixed(2)}
+                  <td style={{ color: '#e74c3c', fontWeight: 'bold' }}>
+                    {formatQuantity(item.quantity)}
                   </td>
                 </tr>
               ))}

@@ -5,8 +5,6 @@ function Admin() {
   const [activeTab, setActiveTab] = useState('locations');
   const [locations, setLocations] = useState([]);
   const [users, setUsers] = useState([]);
-  const [inventory, setInventory] = useState([]);
-  const [selectedLocation, setSelectedLocation] = useState('');
   const [showLocationForm, setShowLocationForm] = useState(false);
   const [showUserForm, setShowUserForm] = useState(false);
   const [editingLocation, setEditingLocation] = useState(null);
@@ -33,20 +31,10 @@ function Admin() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useEffect(() => {
-    if (selectedLocation && activeTab === 'inventory') {
-      fetchInventory();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedLocation, activeTab]);
-
   const fetchLocations = async () => {
     try {
       const response = await api.get('/locations');
       setLocations(response.data);
-      if (response.data.length > 0 && !selectedLocation) {
-        setSelectedLocation(response.data[0].id);
-      }
     } catch (error) {
       console.error('Error fetching locations:', error);
     }
@@ -58,15 +46,6 @@ function Admin() {
       setUsers(response.data);
     } catch (error) {
       console.error('Error fetching users:', error);
-    }
-  };
-
-  const fetchInventory = async () => {
-    try {
-      const response = await api.get(`/inventory/location/${selectedLocation}`);
-      setInventory(response.data);
-    } catch (error) {
-      console.error('Error fetching inventory:', error);
     }
   };
 
@@ -163,19 +142,6 @@ function Admin() {
     }
   };
 
-  const handleDeleteInventory = async (id) => {
-    if (!window.confirm('Are you sure you want to delete this inventory item?')) {
-      return;
-    }
-    try {
-      await api.delete(`/inventory/${id}`);
-      alert('Inventory item deleted successfully!');
-      fetchInventory();
-    } catch (error) {
-      alert(error.response?.data?.error || 'Error deleting inventory item');
-    }
-  };
-
   const cancelForm = () => {
     setShowLocationForm(false);
     setShowUserForm(false);
@@ -196,46 +162,30 @@ function Admin() {
             padding: '12px 24px',
             marginRight: '10px',
             border: 'none',
-            borderBottom: activeTab === 'locations' ? '3px solid #667eea' : 'none',
+            borderBottom: activeTab === 'locations' ? '3px solid #3498db' : 'none',
             background: 'none',
             cursor: 'pointer',
             fontWeight: activeTab === 'locations' ? 'bold' : 'normal',
-            color: activeTab === 'locations' ? '#667eea' : '#4a5568',
-            transition: 'all 0.3s ease'
+            color: activeTab === 'locations' ? '#3498db' : '#555',
+            transition: 'all 0.2s ease'
           }}
         >
-          📍 Locations
+          Locations
         </button>
         <button
           onClick={() => setActiveTab('users')}
           style={{
             padding: '12px 24px',
-            marginRight: '10px',
             border: 'none',
-            borderBottom: activeTab === 'users' ? '3px solid #667eea' : 'none',
+            borderBottom: activeTab === 'users' ? '3px solid #3498db' : 'none',
             background: 'none',
             cursor: 'pointer',
             fontWeight: activeTab === 'users' ? 'bold' : 'normal',
-            color: activeTab === 'users' ? '#667eea' : '#4a5568',
-            transition: 'all 0.3s ease'
+            color: activeTab === 'users' ? '#3498db' : '#555',
+            transition: 'all 0.2s ease'
           }}
         >
-          👥 Users
-        </button>
-        <button
-          onClick={() => setActiveTab('inventory')}
-          style={{
-            padding: '12px 24px',
-            border: 'none',
-            borderBottom: activeTab === 'inventory' ? '3px solid #667eea' : 'none',
-            background: 'none',
-            cursor: 'pointer',
-            fontWeight: activeTab === 'inventory' ? 'bold' : 'normal',
-            color: activeTab === 'inventory' ? '#667eea' : '#4a5568',
-            transition: 'all 0.3s ease'
-          }}
-        >
-          📦 Inventory
+          Users
         </button>
       </div>
 
@@ -515,108 +465,6 @@ function Admin() {
             <p style={{ textAlign: 'center', color: '#999', padding: '40px' }}>
               No users yet. Click "Add User" to create your first user.
             </p>
-          )}
-        </div>
-      )}
-
-      {/* INVENTORY TAB */}
-      {activeTab === 'inventory' && (
-        <div className="card">
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-            <h3>📦 Inventory Management</h3>
-            <div className="form-group" style={{ marginBottom: 0, width: '300px' }}>
-              <label>Select Location</label>
-              <select
-                value={selectedLocation}
-                onChange={(e) => setSelectedLocation(e.target.value)}
-              >
-                <option value="">Select location</option>
-                {locations.map((loc) => (
-                  <option key={loc.id} value={loc.id}>
-                    {loc.name} ({loc.type})
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          {selectedLocation ? (
-            <>
-              <div style={{
-                padding: '15px',
-                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                borderRadius: '8px',
-                color: 'white',
-                marginBottom: '20px'
-              }}>
-                <p style={{ margin: 0, fontSize: '14px' }}>
-                  <strong>Location:</strong> {locations.find(l => l.id === parseInt(selectedLocation))?.name}
-                </p>
-                <p style={{ margin: '5px 0 0 0', fontSize: '14px' }}>
-                  <strong>Total Items:</strong> {inventory.length}
-                </p>
-              </div>
-
-              {inventory.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '60px 20px', color: '#718096' }}>
-                  <div style={{ fontSize: '48px', marginBottom: '20px' }}>📦</div>
-                  <p>No inventory items at this location yet.</p>
-                  <p style={{ fontSize: '14px' }}>Go to Inventory page to add items.</p>
-                </div>
-              ) : (
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Description</th>
-                      <th>Unit</th>
-                      <th>Quantity</th>
-                      <th>Unit Cost</th>
-                      <th>Selling Price</th>
-                      <th>Total Value</th>
-                      <th>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {inventory.map((item) => (
-                      <tr key={item.id}>
-                        <td>{item.description}</td>
-                        <td>{item.unit}</td>
-                        <td>
-                          <span style={{
-                            padding: '4px 8px',
-                            borderRadius: '4px',
-                            background: parseFloat(item.quantity) < 10 ? '#feb2b2' : '#c6f6d5',
-                            color: parseFloat(item.quantity) < 10 ? '#742a2a' : '#22543d',
-                            fontWeight: 'bold'
-                          }}>
-                            {parseFloat(item.quantity).toFixed(2)}
-                          </span>
-                        </td>
-                        <td>₱{parseFloat(item.unit_cost).toFixed(2)}</td>
-                        <td>₱{parseFloat(item.suggested_selling_price || 0).toFixed(2)}</td>
-                        <td>
-                          <strong>₱{(parseFloat(item.quantity) * parseFloat(item.unit_cost)).toFixed(2)}</strong>
-                        </td>
-                        <td>
-                          <button
-                            className="btn btn-danger"
-                            style={{ padding: '5px 10px', fontSize: '12px' }}
-                            onClick={() => handleDeleteInventory(item.id)}
-                          >
-                            🗑️ Delete
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </>
-          ) : (
-            <div style={{ textAlign: 'center', padding: '60px 20px', color: '#718096' }}>
-              <div style={{ fontSize: '48px', marginBottom: '20px' }}>📍</div>
-              <p>Please select a location to view inventory.</p>
-            </div>
           )}
         </div>
       )}
