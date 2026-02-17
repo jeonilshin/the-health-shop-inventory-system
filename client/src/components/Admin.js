@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import api from '../utils/api';
+import { FiMapPin, FiUsers, FiEdit2, FiTrash2, FiShield } from 'react-icons/fi';
 
 function Admin() {
   const [activeTab, setActiveTab] = useState('locations');
@@ -153,7 +154,10 @@ function Admin() {
 
   return (
     <div className="container">
-      <h2>🎯 Admin Dashboard</h2>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '20px' }}>
+        <FiShield size={28} color="#3498db" />
+        <h2>Admin Dashboard</h2>
+      </div>
 
       <div style={{ marginBottom: '20px', borderBottom: '2px solid #e2e8f0' }}>
         <button
@@ -167,9 +171,13 @@ function Admin() {
             cursor: 'pointer',
             fontWeight: activeTab === 'locations' ? 'bold' : 'normal',
             color: activeTab === 'locations' ? '#3498db' : '#555',
-            transition: 'all 0.2s ease'
+            transition: 'all 0.2s ease',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px'
           }}
         >
+          <FiMapPin size={18} />
           Locations
         </button>
         <button
@@ -182,9 +190,13 @@ function Admin() {
             cursor: 'pointer',
             fontWeight: activeTab === 'users' ? 'bold' : 'normal',
             color: activeTab === 'users' ? '#3498db' : '#555',
-            transition: 'all 0.2s ease'
+            transition: 'all 0.2s ease',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px'
           }}
         >
+          <FiUsers size={18} />
           Users
         </button>
       </div>
@@ -293,16 +305,18 @@ function Admin() {
                 <div style={{ display: 'flex', gap: '10px', marginTop: '15px' }}>
                   <button
                     className="btn btn-primary"
-                    style={{ flex: 1, padding: '5px' }}
+                    style={{ flex: 1, padding: '5px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px' }}
                     onClick={() => handleEditLocation(location)}
                   >
+                    <FiEdit2 size={14} />
                     Edit
                   </button>
                   <button
                     className="btn"
-                    style={{ flex: 1, padding: '5px', backgroundColor: '#dc3545', color: 'white' }}
+                    style={{ flex: 1, padding: '5px', backgroundColor: '#dc3545', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px' }}
                     onClick={() => handleDeleteLocation(location.id)}
                   >
+                    <FiTrash2 size={14} />
                     Delete
                   </button>
                 </div>
@@ -436,24 +450,34 @@ function Admin() {
                       {user.role.replace('_', ' ').toUpperCase()}
                     </span>
                   </td>
-                  <td>{user.location_name || 'N/A'}</td>
+                  <td>{user.location_name || (user.role === 'admin' ? 'Administrator' : 'N/A')}</td>
                   <td>{new Date(user.created_at).toLocaleDateString()}</td>
                   <td>
                     <div style={{ display: 'flex', gap: '5px' }}>
                       <button
                         className="btn btn-primary"
-                        style={{ padding: '5px 10px', fontSize: '12px' }}
+                        style={{ padding: '5px 10px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '5px' }}
                         onClick={() => handleEditUser(user)}
                       >
+                        <FiEdit2 size={12} />
                         Edit
                       </button>
-                      <button
-                        className="btn"
-                        style={{ padding: '5px 10px', fontSize: '12px', backgroundColor: '#dc3545', color: 'white' }}
-                        onClick={() => handleDeleteUser(user.id)}
-                      >
-                        Delete
-                      </button>
+                      {user.username !== 'admin' && (
+                        <button
+                          className="btn"
+                          style={{ padding: '5px 10px', fontSize: '12px', backgroundColor: '#dc3545', color: 'white', display: 'flex', alignItems: 'center', gap: '5px' }}
+                          onClick={() => handleDeleteUser(user.id)}
+                        >
+                          <FiTrash2 size={12} />
+                          Delete
+                        </button>
+                      )}
+                      {user.username === 'admin' && (
+                        <span style={{ padding: '5px 10px', fontSize: '12px', color: '#999', fontStyle: 'italic', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                          <FiShield size={12} />
+                          Protected
+                        </span>
+                      )}
                     </div>
                   </td>
                 </tr>

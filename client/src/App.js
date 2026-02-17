@@ -6,7 +6,10 @@ import Inventory from './components/Inventory';
 import Transfers from './components/Transfers';
 import Sales from './components/Sales';
 import Reports from './components/Reports';
+import Analytics from './components/Analytics';
+import Deliveries from './components/Deliveries';
 import Admin from './components/Admin';
+import AuditLog from './components/AuditLog';
 import Navbar from './components/Navbar';
 import { AuthContext } from './context/AuthContext';
 
@@ -49,9 +52,33 @@ function App() {
           <Route path="/" element={user ? <Dashboard /> : <Navigate to="/login" />} />
           <Route path="/inventory" element={user ? <Inventory /> : <Navigate to="/login" />} />
           <Route path="/transfers" element={user ? <Transfers /> : <Navigate to="/login" />} />
-          <Route path="/sales" element={user ? <Sales /> : <Navigate to="/login" />} />
-          <Route path="/reports" element={user ? <Reports /> : <Navigate to="/login" />} />
+          <Route 
+            path="/sales" 
+            element={
+              user && (user.role === 'admin' || user.role === 'branch_manager') 
+                ? <Sales /> 
+                : <Navigate to="/" />
+            } 
+          />
+          <Route 
+            path="/reports" 
+            element={
+              user && (user.role === 'admin' || user.role === 'branch_manager' || user.role === 'branch_staff') 
+                ? <Reports /> 
+                : <Navigate to="/" />
+            } 
+          />
+          <Route 
+            path="/analytics" 
+            element={
+              user && (user.role === 'admin' || user.role === 'branch_manager' || user.role === 'branch_staff') 
+                ? <Analytics /> 
+                : <Navigate to="/" />
+            } 
+          />
+          <Route path="/deliveries" element={user ? <Deliveries /> : <Navigate to="/login" />} />
           <Route path="/admin" element={user?.role === 'admin' ? <Admin /> : <Navigate to="/" />} />
+          <Route path="/audit" element={user?.role === 'admin' ? <AuditLog /> : <Navigate to="/" />} />
         </Routes>
       </Router>
     </AuthContext.Provider>

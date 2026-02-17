@@ -4,7 +4,7 @@ const pool = require('../config/database');
 const { auth, authorize } = require('../middleware/auth');
 
 // Record sale
-router.post('/', auth, authorize('admin', 'branch_manager'), async (req, res) => {
+router.post('/', auth, authorize('admin', 'branch_manager', 'branch_staff'), async (req, res) => {
   const client = await pool.connect();
   
   try {
@@ -75,7 +75,12 @@ router.get('/', auth, async (req, res) => {
     const params = [];
     let paramCount = 1;
 
-    if (location_id) {
+    // Branch managers and staff can only see their own branch sales
+    if (req.user.role === 'branch_manager' || req.user.role === 'branch_staff') {
+      query += ` AND s.location_id = $${paramCount}`;
+      params.push(req.user.location_id);
+      paramCount++;
+    } else if (location_id) {
       query += ` AND s.location_id = $${paramCount}`;
       params.push(location_id);
       paramCount++;

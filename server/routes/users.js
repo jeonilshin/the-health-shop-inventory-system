@@ -86,6 +86,13 @@ router.delete('/:id', auth, authorize('admin'), async (req, res) => {
   try {
     const { id } = req.params;
 
+    // Check if trying to delete the admin account
+    const userToDelete = await pool.query('SELECT username FROM users WHERE id = $1', [id]);
+    
+    if (userToDelete.rows.length > 0 && userToDelete.rows[0].username === 'admin') {
+      return res.status(403).json({ error: 'Cannot delete the admin account. This account is protected.' });
+    }
+
     // Prevent deleting yourself
     if (parseInt(id) === req.user.id) {
       return res.status(400).json({ error: 'Cannot delete your own account' });
