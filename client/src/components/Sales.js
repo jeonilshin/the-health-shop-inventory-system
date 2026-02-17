@@ -20,7 +20,6 @@ function Sales() {
   const [locations, setLocations] = useState([]);
   const [sales, setSales] = useState([]);
   const [showForm, setShowForm] = useState(false);
-  const [inventory, setInventory] = useState([]);
   const [loading, setLoading] = useState(true);
   const [formData, setFormData] = useState({
     location_id: '',
@@ -66,21 +65,16 @@ function Sales() {
     }
   };
 
-  const fetchInventory = async (locationId) => {
-    if (!locationId) {
-      setInventory([]);
-      return;
-    }
-    try {
-      const response = await api.get('/inventory');
-      const locationInventory = response.data.filter(
-        item => item.location_id === parseInt(locationId) && parseFloat(item.quantity) > 0
-      );
-      setInventory(locationInventory);
-    } catch (error) {
-      console.error('Error fetching inventory:', error);
-      setInventory([]);
-    }
+  const handleLocationChange = (locationId) => {
+    setFormData({ 
+      ...formData, 
+      location_id: locationId,
+      inventory_id: '',
+      description: '',
+      unit: '',
+      quantity: '',
+      selling_price: ''
+    });
   };
 
   const fetchSales = async () => {
@@ -127,32 +121,6 @@ function Sales() {
     });
   };
 
-  const handleLocationChange = (locationId) => {
-    setFormData({ 
-      ...formData, 
-      location_id: locationId,
-      inventory_id: '',
-      description: '',
-      unit: '',
-      quantity: '',
-      selling_price: ''
-    });
-    fetchInventory(locationId);
-  };
-
-  const handleInventorySelect = (inventoryId) => {
-    const selectedItem = inventory.find(item => item.id === parseInt(inventoryId));
-    if (selectedItem) {
-      setFormData({
-        ...formData,
-        inventory_id: inventoryId,
-        description: selectedItem.description,
-        unit: selectedItem.unit,
-        selling_price: selectedItem.selling_price || ''
-      });
-    }
-  };
-
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
@@ -170,7 +138,7 @@ function Sales() {
       });
       fetchSales();
       if (user.location_id) {
-        fetchInventory(user.location_id);
+        setFormData(prev => ({ ...prev, location_id: user.location_id }));
       }
       alert('Sale recorded successfully!');
     } catch (error) {
