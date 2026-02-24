@@ -149,3 +149,31 @@ router.get('/expired', auth, async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+
+// Get inventory history (all unique items ever in inventory - for branch managers to request)
+router.get('/history', auth, authorize('admin', 'branch_manager'), async (req, res) => {
+  try {
+    // Get unique items from inventory, transfers, and sales history
+    const query = `
+      SELECT DISTINCT 
+        description, 
+        unit,
+        MAX(unit_cost) as unit_cost,
+        MAX(suggested_selling_price) as suggested_selling_price
+      FROM (
+        SELECT description, unit, unit_cost, suggested_selling_price FROM inventory
+        UNION
+        SELECT description, unit, unit_cost, NULL as suggested_selling_price FROM transfers
+        UNION
+        SELECT description, unit, unit_cost, NULL as suggested_selling_price FROM sales
+      ) AS all_items
+      GROUP BY description, unit
+      ORDER BY description, unit
+    `;
+    
+    const result = await pool.query(query);
+    res.json(result.rows);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});

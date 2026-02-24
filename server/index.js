@@ -22,6 +22,8 @@ app.use('/api/deliveries', require('./routes/deliveries'));
 app.use('/api/export', require('./routes/export'));
 app.use('/api/search', require('./routes/search'));
 app.use('/api/audit', require('./routes/audit'));
+app.use('/api/notifications', require('./routes/notifications'));
+app.use('/api/system-check', require('./routes/system-check'));
 
 const PORT = process.env.PORT || 5000;
 
