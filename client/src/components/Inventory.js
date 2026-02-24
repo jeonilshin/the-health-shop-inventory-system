@@ -149,7 +149,14 @@ function Inventory() {
       {user.role === 'branch_manager' && (
         <div className="alert alert-info" style={{ marginBottom: '20px' }}>
           <FiAlertCircle size={16} />
-          Branch managers cannot add inventory directly. Please request transfers from the warehouse.
+          Branch managers cannot add inventory directly. Use the Transfers page to request items from the warehouse.
+        </div>
+      )}
+      
+      {user.role === 'branch_staff' && (
+        <div className="alert alert-info" style={{ marginBottom: '20px' }}>
+          <FiAlertCircle size={16} />
+          You have view-only access to inventory. Contact your branch manager to request items.
         </div>
       )}
       

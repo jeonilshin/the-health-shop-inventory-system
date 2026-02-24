@@ -165,10 +165,18 @@ function Dashboard() {
           Quick Actions
         </h3>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}>
-          <Link to="/inventory" className="btn btn-primary" style={{ justifyContent: 'center' }}>
-            <FiPlus size={16} />
-            Add Inventory
-          </Link>
+          {(user?.role === 'admin' || user?.role === 'warehouse') && (
+            <Link to="/inventory" className="btn btn-primary" style={{ justifyContent: 'center' }}>
+              <FiPlus size={16} />
+              Add Inventory
+            </Link>
+          )}
+          {(user?.role === 'branch_manager' || user?.role === 'branch_staff') && (
+            <Link to="/inventory" className="btn btn-primary" style={{ justifyContent: 'center' }}>
+              <FiPackage size={16} />
+              View Inventory
+            </Link>
+          )}
           {(user?.role === 'admin' || user?.role === 'warehouse' || user?.role === 'branch_manager') && (
             <Link to="/transfers" className="btn btn-success" style={{ justifyContent: 'center' }}>
               <FiArrowRight size={16} />

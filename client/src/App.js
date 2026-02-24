@@ -12,6 +12,8 @@ import Admin from './components/Admin';
 import AuditLog from './components/AuditLog';
 import Navbar from './components/Navbar';
 import { AuthContext } from './context/AuthContext';
+import { NotificationProvider } from './context/NotificationContext';
+import { ToastProvider } from './context/ToastContext';
 
 function App() {
   const [user, setUser] = useState(null);
@@ -45,42 +47,46 @@ function App() {
 
   return (
     <AuthContext.Provider value={{ user, login, logout }}>
-      <Router>
-        {user && <Navbar />}
-        <Routes>
-          <Route path="/login" element={!user ? <Login /> : <Navigate to="/" />} />
-          <Route path="/" element={user ? <Dashboard /> : <Navigate to="/login" />} />
-          <Route path="/inventory" element={user ? <Inventory /> : <Navigate to="/login" />} />
-          <Route path="/transfers" element={user ? <Transfers /> : <Navigate to="/login" />} />
-          <Route 
-            path="/sales" 
-            element={
-              user && (user.role === 'admin' || user.role === 'branch_manager') 
-                ? <Sales /> 
-                : <Navigate to="/" />
-            } 
-          />
-          <Route 
-            path="/reports" 
-            element={
-              user && (user.role === 'admin' || user.role === 'branch_manager' || user.role === 'branch_staff') 
-                ? <Reports /> 
-                : <Navigate to="/" />
-            } 
-          />
-          <Route 
-            path="/analytics" 
-            element={
-              user && (user.role === 'admin' || user.role === 'branch_manager' || user.role === 'branch_staff') 
-                ? <Analytics /> 
-                : <Navigate to="/" />
-            } 
-          />
-          <Route path="/deliveries" element={user ? <Deliveries /> : <Navigate to="/login" />} />
-          <Route path="/admin" element={user?.role === 'admin' ? <Admin /> : <Navigate to="/" />} />
-          <Route path="/audit" element={user?.role === 'admin' ? <AuditLog /> : <Navigate to="/" />} />
-        </Routes>
-      </Router>
+      <ToastProvider>
+        <NotificationProvider>
+          <Router>
+          {user && <Navbar />}
+          <Routes>
+            <Route path="/login" element={!user ? <Login /> : <Navigate to="/" />} />
+            <Route path="/" element={user ? <Dashboard /> : <Navigate to="/login" />} />
+            <Route path="/inventory" element={user ? <Inventory /> : <Navigate to="/login" />} />
+            <Route path="/transfers" element={user ? <Transfers /> : <Navigate to="/login" />} />
+            <Route 
+              path="/sales" 
+              element={
+                user && (user.role === 'admin' || user.role === 'branch_manager') 
+                  ? <Sales /> 
+                  : <Navigate to="/" />
+              } 
+            />
+            <Route 
+              path="/reports" 
+              element={
+                user && (user.role === 'admin' || user.role === 'branch_manager' || user.role === 'branch_staff') 
+                  ? <Reports /> 
+                  : <Navigate to="/" />
+              } 
+            />
+            <Route 
+              path="/analytics" 
+              element={
+                user && (user.role === 'admin' || user.role === 'branch_manager' || user.role === 'branch_staff') 
+                  ? <Analytics /> 
+                  : <Navigate to="/" />
+              } 
+            />
+            <Route path="/deliveries" element={user ? <Deliveries /> : <Navigate to="/login" />} />
+            <Route path="/admin" element={user?.role === 'admin' ? <Admin /> : <Navigate to="/" />} />
+            <Route path="/audit" element={user?.role === 'admin' ? <AuditLog /> : <Navigate to="/" />} />
+          </Routes>
+        </Router>
+      </NotificationProvider>
+    </ToastProvider>
     </AuthContext.Provider>
   );
 }

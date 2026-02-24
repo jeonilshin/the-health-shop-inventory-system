@@ -2,6 +2,7 @@ import React, { useContext, useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { AuthContext } from '../context/AuthContext';
 import ChangePassword from './ChangePassword';
+import NotificationBell from './NotificationBell';
 import api from '../utils/api';
 import { 
   FiHome, 
@@ -146,7 +147,8 @@ function Navbar() {
           </div>
 
           {/* Action Buttons */}
-          <div style={{ display: 'flex', gap: '6px' }}>
+          <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+            <NotificationBell />
             <button 
               onClick={() => setShowChangePassword(true)}
               title="Change Password"
