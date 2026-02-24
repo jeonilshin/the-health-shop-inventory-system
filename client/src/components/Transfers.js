@@ -23,7 +23,6 @@ function Transfers() {
     notes: '',
     items: [{ inventory_item_id: '', quantity: '', selectedItem: null }]
   });
-  const [selectedItem, setSelectedItem] = useState(null);
   const [requestFormData, setRequestFormData] = useState({
     description: '',
     unit: '',
@@ -59,7 +58,6 @@ function Transfers() {
       fetchInventory(formData.from_location_id);
     } else {
       setInventory([]);
-      setSelectedItem(null);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [formData.from_location_id]);
@@ -275,7 +273,6 @@ function Transfers() {
         notes: '',
         items: [{ inventory_item_id: '', quantity: '', selectedItem: null }]
       });
-      setSelectedItem(null);
       fetchTransfers();
       if (user.role === 'admin' || user.role === 'warehouse') {
         fetchPendingApprovals();
