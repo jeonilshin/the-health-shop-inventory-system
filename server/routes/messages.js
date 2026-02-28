@@ -1,10 +1,10 @@
 const express = require('express');
 const router = express.Router();
 const pool = require('../config/database');
-const { authenticateToken } = require('../middleware/auth');
+const { auth } = require('../middleware/auth');
 
 // Get all conversations (inbox)
-router.get('/conversations', authenticateToken, async (req, res) => {
+router.get('/conversations', auth, async (req, res) => {
   try {
     const query = `
       SELECT DISTINCT ON (other_user_id)
@@ -56,7 +56,7 @@ router.get('/conversations', authenticateToken, async (req, res) => {
 });
 
 // Get messages with a specific user
-router.get('/conversation/:userId', authenticateToken, async (req, res) => {
+router.get('/conversation/:userId', auth, async (req, res) => {
   try {
     const { userId } = req.params;
     
@@ -94,7 +94,7 @@ router.get('/conversation/:userId', authenticateToken, async (req, res) => {
 });
 
 // Send a message
-router.post('/send', authenticateToken, async (req, res) => {
+router.post('/send', auth, async (req, res) => {
   try {
     const { recipient_id, subject, message } = req.body;
     
@@ -127,7 +127,7 @@ router.post('/send', authenticateToken, async (req, res) => {
 });
 
 // Get unread message count
-router.get('/unread-count', authenticateToken, async (req, res) => {
+router.get('/unread-count', auth, async (req, res) => {
   try {
     const query = 'SELECT COUNT(*) as count FROM messages WHERE recipient_id = $1 AND read = false';
     const result = await pool.query(query, [req.user.userId]);
@@ -138,7 +138,7 @@ router.get('/unread-count', authenticateToken, async (req, res) => {
 });
 
 // Get list of users to message (admin can message everyone, others can only message admin)
-router.get('/users', authenticateToken, async (req, res) => {
+router.get('/users', auth, async (req, res) => {
   try {
     let query;
     let params;
@@ -185,7 +185,7 @@ router.get('/users', authenticateToken, async (req, res) => {
 });
 
 // Mark conversation as read
-router.put('/mark-read/:userId', authenticateToken, async (req, res) => {
+router.put('/mark-read/:userId', auth, async (req, res) => {
   try {
     const { userId } = req.params;
     
