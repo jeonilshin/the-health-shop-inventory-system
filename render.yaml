@@ -1,0 +1,21 @@
+services:
+  # Backend API Service
+  - type: web
+    name: health-shop-api
+    env: node
+    region: singapore
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3000
+      - key: DATABASE_URL
+        sync: false  # You'll add this manually in Render dashboard
+      - key: JWT_SECRET
+        generateValue: true  # Render will auto-generate a secure secret
+      - key: CORS_ORIGIN
+        value: https://your-frontend-url.vercel.app  # Update this after Vercel deployment
+    healthCheckPath: /api/health
