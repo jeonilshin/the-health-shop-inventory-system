@@ -1,7 +1,7 @@
 import { useState, useEffect, useContext, useRef } from 'react';
 import api from '../utils/api';
 import { AuthContext } from '../context/AuthContext';
-import { FiMessageSquare, FiSend, FiUser, FiSearch, FiX, FiEdit } from 'react-icons/fi';
+import { FiMessageSquare, FiSend, FiUser, FiSearch, FiEdit } from 'react-icons/fi';
 
 function Messages() {
   const { user } = useContext(AuthContext);
