@@ -67,9 +67,10 @@ function Messages() {
   const fetchUsers = async () => {
     try {
       const response = await api.get('/messages/users');
+      console.log('Fetched users:', response.data); // Debug log
       setUsers(response.data);
     } catch (error) {
-      // Error fetching users
+      console.error('Error fetching users:', error); // Debug log
     }
   };
 
@@ -211,45 +212,56 @@ function Messages() {
                 borderRadius: '6px',
                 backgroundColor: 'white'
               }}>
-                {filteredUsers.map(u => (
-                  <div
-                    key={u.id}
-                    onClick={() => handleNewConversation(u.id, u.full_name, u.role)}
-                    style={{
-                      padding: '10px',
-                      cursor: 'pointer',
-                      borderBottom: '1px solid var(--border-color)',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '8px'
-                    }}
-                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--bg-secondary)'}
-                    onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'white'}
-                  >
-                    <FiUser size={14} />
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: '13px', fontWeight: 500 }}>{u.full_name}</div>
-                      <div style={{ 
-                        fontSize: '11px', 
-                        color: getRoleBadgeColor(u.role),
-                        textTransform: 'uppercase',
-                        fontWeight: 600
-                      }}>
-                        {u.role.replace('_', ' ')}
-                        {u.location_name && (
-                          <span style={{ 
-                            color: 'var(--text-secondary)', 
-                            fontWeight: 400,
-                            textTransform: 'none',
-                            marginLeft: '4px'
-                          }}>
-                            • {u.location_name}
-                          </span>
-                        )}
+                {filteredUsers.length === 0 ? (
+                  <div style={{ 
+                    padding: '20px', 
+                    textAlign: 'center',
+                    color: 'var(--text-secondary)',
+                    fontSize: '13px'
+                  }}>
+                    {users.length === 0 ? 'Loading users...' : 'No users found'}
+                  </div>
+                ) : (
+                  filteredUsers.map(u => (
+                    <div
+                      key={u.id}
+                      onClick={() => handleNewConversation(u.id, u.full_name, u.role)}
+                      style={{
+                        padding: '10px',
+                        cursor: 'pointer',
+                        borderBottom: '1px solid var(--border-color)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px'
+                      }}
+                      onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--bg-secondary)'}
+                      onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'white'}
+                    >
+                      <FiUser size={14} />
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: '13px', fontWeight: 500 }}>{u.full_name}</div>
+                        <div style={{ 
+                          fontSize: '11px', 
+                          color: getRoleBadgeColor(u.role),
+                          textTransform: 'uppercase',
+                          fontWeight: 600
+                        }}>
+                          {u.role.replace('_', ' ')}
+                          {u.location_name && (
+                            <span style={{ 
+                              color: 'var(--text-secondary)', 
+                              fontWeight: 400,
+                              textTransform: 'none',
+                              marginLeft: '4px'
+                            }}>
+                              • {u.location_name}
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  ))
+                )}
               </div>
             </div>
           )}
