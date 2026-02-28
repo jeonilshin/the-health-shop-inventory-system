@@ -8,7 +8,6 @@ import {
   FiHome, 
   FiPackage, 
   FiSend, 
-  FiShoppingCart, 
   FiFileText, 
   FiBarChart2,
   FiTruck,
@@ -49,7 +48,7 @@ function Navbar() {
         setLocationName(location.name);
       }
     } catch (error) {
-      console.error('Error fetching location:', error);
+      // Error fetching location
     }
   };
 
@@ -57,7 +56,6 @@ function Navbar() {
     { to: '/', icon: FiHome, label: 'Dashboard', roles: ['admin', 'warehouse', 'branch_manager', 'branch_staff'] },
     { to: '/inventory', icon: FiPackage, label: 'Inventory', roles: ['admin', 'warehouse', 'branch_manager', 'branch_staff'] },
     { to: '/transfers', icon: FiSend, label: 'Transfers', roles: ['admin', 'warehouse', 'branch_manager'] },
-    { to: '/sales', icon: FiShoppingCart, label: 'Sales', roles: ['admin', 'branch_manager'] },
     { to: '/reports', icon: FiFileText, label: 'Reports', roles: ['admin', 'branch_manager', 'branch_staff'] },
     { to: '/analytics', icon: FiBarChart2, label: 'Analytics', roles: ['admin', 'branch_manager', 'branch_staff'] },
     { to: '/deliveries', icon: FiTruck, label: 'Deliveries', roles: ['admin', 'warehouse'] },

@@ -70,7 +70,7 @@ function Dashboard() {
         expiringCount: filteredExpiring.length
       });
     } catch (error) {
-      console.error('Error fetching dashboard data:', error);
+      // Error fetching dashboard data
     } finally {
       setLoading(false);
     }

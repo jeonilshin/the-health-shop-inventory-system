@@ -29,7 +29,7 @@ function Analytics() {
       const response = await api.get('/export/analytics');
       setAnalytics(response.data);
     } catch (error) {
-      console.error('Error fetching analytics:', error);
+      // Error fetching analytics
     } finally {
       setLoading(false);
     }

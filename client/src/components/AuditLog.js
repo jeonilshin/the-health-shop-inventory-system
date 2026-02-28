@@ -51,7 +51,7 @@ function AuditLog() {
       setLogs(response.data.logs);
       setPagination(prev => ({ ...prev, total: response.data.total }));
     } catch (error) {
-      console.error('Error fetching audit logs:', error);
+      // Error fetching audit logs
     } finally {
       setLoading(false);
     }
@@ -62,7 +62,7 @@ function AuditLog() {
       const response = await api.get('/audit/stats');
       setStats(response.data);
     } catch (error) {
-      console.error('Error fetching audit stats:', error);
+      // Error fetching audit stats
     }
   };
 

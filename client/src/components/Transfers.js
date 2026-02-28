@@ -71,7 +71,7 @@ function Transfers() {
         setFormData(prev => ({ ...prev, from_location_id: user.location_id }));
       }
     } catch (error) {
-      console.error('Error fetching locations:', error);
+      // Error fetching locations
     }
   };
 
@@ -81,7 +81,7 @@ function Transfers() {
       const response = await api.get(`/inventory/location/${locationId}`);
       setInventory(response.data);
     } catch (error) {
-      console.error('Error fetching inventory:', error);
+      // Error fetching inventory
     } finally {
       setLoading(false);
     }
@@ -90,12 +90,8 @@ function Transfers() {
   const fetchTransfers = async () => {
     try {
       const response = await api.get('/transfers');
-      console.log('Fetched transfers:', response.data); // Debug log
-      console.log('In transit transfers:', response.data.filter(t => t.status === 'in_transit')); // Debug log
       setTransfers(response.data);
     } catch (error) {
-      console.error('Error fetching transfers:', error);
-      console.error('Error details:', error.response?.data);
       // Set empty array on error to prevent crashes
       setTransfers([]);
       if (error.response?.status === 500) {
@@ -109,7 +105,7 @@ function Transfers() {
       const response = await api.get('/transfers/pending');
       setPendingApprovals(response.data);
     } catch (error) {
-      console.error('Error fetching pending approvals:', error);
+      // Error fetching pending approvals
     }
   };
 
@@ -118,7 +114,7 @@ function Transfers() {
       const response = await api.get('/inventory/history');
       setInventoryHistory(response.data);
     } catch (error) {
-      console.error('Error fetching inventory history:', error);
+      // Error fetching inventory history
     }
   };
 

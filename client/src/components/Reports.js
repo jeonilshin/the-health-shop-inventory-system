@@ -43,7 +43,6 @@ function Reports() {
       setSalesSummary(filteredSales);
       setInventorySummary(filteredInventory);
     } catch (error) {
-      console.error('Error fetching reports:', error);
       setError(error.response?.data?.error || 'Error loading reports');
     } finally {
       setLoading(false);

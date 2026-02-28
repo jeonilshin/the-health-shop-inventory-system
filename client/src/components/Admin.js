@@ -37,7 +37,7 @@ function Admin() {
       const response = await api.get('/locations');
       setLocations(response.data);
     } catch (error) {
-      console.error('Error fetching locations:', error);
+      // Error fetching locations
     }
   };
 
@@ -46,7 +46,7 @@ function Admin() {
       const response = await api.get('/users');
       setUsers(response.data);
     } catch (error) {
-      console.error('Error fetching users:', error);
+      // Error fetching users
     }
   };
 

@@ -35,7 +35,7 @@ export function NotificationProvider({ children }) {
       setPreviousCount(newUnreadCount);
       setUnreadCount(newUnreadCount);
     } catch (error) {
-      console.error('Error fetching notifications:', error);
+      // Error fetching notifications
     }
   };
 
@@ -72,7 +72,7 @@ export function NotificationProvider({ children }) {
       await api.put(`/notifications/${id}/read`);
       fetchNotifications();
     } catch (error) {
-      console.error('Error marking notification as read:', error);
+      // Error marking notification as read
     }
   };
 
@@ -81,7 +81,7 @@ export function NotificationProvider({ children }) {
       await api.put('/notifications/read-all');
       fetchNotifications();
     } catch (error) {
-      console.error('Error marking all as read:', error);
+      // Error marking all as read
     }
   };
 

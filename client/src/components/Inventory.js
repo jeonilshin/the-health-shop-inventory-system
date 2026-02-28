@@ -43,7 +43,6 @@ function Inventory() {
   const fetchLocations = async () => {
     try {
       const response = await api.get('/locations');
-      console.log('Fetched locations:', response.data); // Debug log
       setLocations(response.data);
       
       if (user.role !== 'admin' && user.location_id) {
@@ -52,7 +51,6 @@ function Inventory() {
         setSelectedLocation(response.data[0].id);
       }
     } catch (error) {
-      console.error('Error fetching locations:', error);
       alert('Error loading locations: ' + (error.response?.data?.error || error.message));
     }
   };
@@ -63,7 +61,7 @@ function Inventory() {
       setInventory(response.data);
       setFilteredInventory(response.data);
     } catch (error) {
-      console.error('Error fetching inventory:', error);
+      // Error fetching inventory
     }
   };
 

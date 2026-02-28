@@ -24,9 +24,6 @@ function Deliveries() {
       const response = await api.get('/deliveries');
       const allDeliveries = response.data;
       
-      console.log('Fetched deliveries:', allDeliveries); // Debug log
-      console.log('Awaiting admin:', allDeliveries.filter(d => d.status === 'awaiting_admin')); // Debug log
-      
       setDeliveries(allDeliveries);
       
       // Filter awaiting admin confirmation (for admin only)
@@ -41,7 +38,6 @@ function Deliveries() {
         ));
       }
     } catch (error) {
-      console.error('Error fetching deliveries:', error);
       if (error.response?.status === 500) {
         alert('Database error: Please ensure all migrations have been run. Check SETUP_DELIVERY_SYSTEM.md');
       }
