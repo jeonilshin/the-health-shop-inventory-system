@@ -48,7 +48,7 @@ router.get('/conversations', auth, async (req, res) => {
       ORDER BY other_user_id, last_message_time DESC
     `;
     
-    const result = await pool.query(query, [req.user.userId]);
+    const result = await pool.query(query, [req.user.id]);
     res.json(result.rows);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -79,12 +79,12 @@ router.get('/conversation/:userId', auth, async (req, res) => {
       ORDER BY m.created_at ASC
     `;
     
-    const result = await pool.query(query, [req.user.userId, userId]);
+    const result = await pool.query(query, [req.user.id, userId]);
     
     // Mark messages as read
     await pool.query(
       'UPDATE messages SET read = true, read_at = CURRENT_TIMESTAMP WHERE recipient_id = $1 AND sender_id = $2 AND read = false',
-      [req.user.userId, userId]
+      [req.user.id, userId]
     );
     
     res.json(result.rows);
@@ -109,7 +109,7 @@ router.post('/send', auth, async (req, res) => {
     `;
     
     const result = await pool.query(query, [
-      req.user.userId,
+      req.user.id,
       recipient_id,
       subject || null,
       message
@@ -130,7 +130,7 @@ router.post('/send', auth, async (req, res) => {
 router.get('/unread-count', auth, async (req, res) => {
   try {
     const query = 'SELECT COUNT(*) as count FROM messages WHERE recipient_id = $1 AND read = false';
-    const result = await pool.query(query, [req.user.userId]);
+    const result = await pool.query(query, [req.user.id]);
     res.json({ count: parseInt(result.rows[0].count) });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -158,7 +158,7 @@ router.get('/users', auth, async (req, res) => {
         WHERE u.id != $1
         ORDER BY l.name, u.full_name
       `;
-      params = [req.user.userId];
+      params = [req.user.id];
     } else {
       // Non-admin can only message admins
       query = `
@@ -174,7 +174,7 @@ router.get('/users', auth, async (req, res) => {
         WHERE u.role = 'admin' AND u.id != $1
         ORDER BY u.full_name
       `;
-      params = [req.user.userId];
+      params = [req.user.id];
     }
     
     const result = await pool.query(query, params);
@@ -191,7 +191,7 @@ router.put('/mark-read/:userId', auth, async (req, res) => {
     
     await pool.query(
       'UPDATE messages SET read = true, read_at = CURRENT_TIMESTAMP WHERE recipient_id = $1 AND sender_id = $2 AND read = false',
-      [req.user.userId, userId]
+      [req.user.id, userId]
     );
     
     res.json({ success: true });

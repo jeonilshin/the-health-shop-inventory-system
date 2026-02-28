@@ -68,6 +68,8 @@ function Messages() {
     try {
       const response = await api.get('/messages/users');
       console.log('Fetched users:', response.data); // Debug log
+      console.log('Current user role:', user.role); // Debug log
+      console.log('Current user id:', user.id); // Debug log
       setUsers(response.data);
     } catch (error) {
       console.error('Error fetching users:', error); // Debug log
@@ -195,13 +197,17 @@ function Messages() {
                 />
                 <input
                   type="text"
+                  className="form-control"
                   placeholder="Search users..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   style={{ 
                     width: '100%', 
                     paddingLeft: '35px',
-                    fontSize: '13px'
+                    fontSize: '13px',
+                    padding: '8px 8px 8px 35px',
+                    border: '1px solid var(--border-color)',
+                    borderRadius: '6px'
                   }}
                 />
               </div>
