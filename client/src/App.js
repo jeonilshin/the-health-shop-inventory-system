@@ -4,7 +4,6 @@ import Login from './components/Login';
 import Dashboard from './components/Dashboard';
 import Inventory from './components/Inventory';
 import Transfers from './components/Transfers';
-import Sales from './components/Sales';
 import Reports from './components/Reports';
 import Analytics from './components/Analytics';
 import Deliveries from './components/Deliveries';
@@ -50,45 +49,35 @@ function App() {
       <ToastProvider>
         <NotificationProvider>
           <Router>
-            {user && <Navbar />}
-            <div className="main-content with-sidebar">
-              <Routes>
-                <Route path="/login" element={!user ? <Login /> : <Navigate to="/" />} />
-                <Route path="/" element={user ? <Dashboard /> : <Navigate to="/login" />} />
-                <Route path="/inventory" element={user ? <Inventory /> : <Navigate to="/login" />} />
-                <Route path="/transfers" element={user ? <Transfers /> : <Navigate to="/login" />} />
-                <Route 
-                  path="/sales" 
-                  element={
-                    user && (user.role === 'admin' || user.role === 'branch_manager') 
-                      ? <Sales /> 
-                      : <Navigate to="/" />
-                  } 
-                />
-                <Route 
-                  path="/reports" 
-                  element={
-                    user && (user.role === 'admin' || user.role === 'branch_manager' || user.role === 'branch_staff') 
-                      ? <Reports /> 
-                      : <Navigate to="/" />
-                  } 
-                />
-                <Route 
-                  path="/analytics" 
-                  element={
-                    user && (user.role === 'admin' || user.role === 'branch_manager' || user.role === 'branch_staff') 
-                      ? <Analytics /> 
-                      : <Navigate to="/" />
-                  } 
-                />
-                <Route path="/deliveries" element={user ? <Deliveries /> : <Navigate to="/login" />} />
-                <Route path="/admin" element={user?.role === 'admin' ? <Admin /> : <Navigate to="/" />} />
-                <Route path="/audit" element={user?.role === 'admin' ? <AuditLog /> : <Navigate to="/" />} />
-              </Routes>
-            </div>
-          </Router>
-        </NotificationProvider>
-      </ToastProvider>
+          {user && <Navbar />}
+          <Routes>
+            <Route path="/login" element={!user ? <Login /> : <Navigate to="/" />} />
+            <Route path="/" element={user ? <Dashboard /> : <Navigate to="/login" />} />
+            <Route path="/inventory" element={user ? <Inventory /> : <Navigate to="/login" />} />
+            <Route path="/transfers" element={user ? <Transfers /> : <Navigate to="/login" />} />
+            <Route 
+              path="/reports" 
+              element={
+                user && (user.role === 'admin' || user.role === 'branch_manager' || user.role === 'branch_staff') 
+                  ? <Reports /> 
+                  : <Navigate to="/" />
+              } 
+            />
+            <Route 
+              path="/analytics" 
+              element={
+                user && (user.role === 'admin' || user.role === 'branch_manager' || user.role === 'branch_staff') 
+                  ? <Analytics /> 
+                  : <Navigate to="/" />
+              } 
+            />
+            <Route path="/deliveries" element={user ? <Deliveries /> : <Navigate to="/login" />} />
+            <Route path="/admin" element={user?.role === 'admin' ? <Admin /> : <Navigate to="/" />} />
+            <Route path="/audit" element={user?.role === 'admin' ? <AuditLog /> : <Navigate to="/" />} />
+          </Routes>
+        </Router>
+      </NotificationProvider>
+    </ToastProvider>
     </AuthContext.Provider>
   );
 }

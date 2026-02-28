@@ -1,5 +1,4 @@
 import { useState, useEffect, useContext } from 'react';
-import { useLocation } from 'react-router-dom';
 import api from '../utils/api';
 import { AuthContext } from '../context/AuthContext';
 import { formatQuantity, formatPrice } from '../utils/formatNumber';
@@ -7,7 +6,6 @@ import { FiTruck, FiPackage, FiCheck, FiClock, FiAlertCircle, FiCheckCircle } fr
 
 function Deliveries() {
   const { user } = useContext(AuthContext);
-  const location = useLocation();
   const [deliveries, setDeliveries] = useState([]);
   const [awaitingAdmin, setAwaitingAdmin] = useState([]);
   const [incomingDeliveries, setIncomingDeliveries] = useState([]);
@@ -15,15 +13,19 @@ function Deliveries() {
   useEffect(() => {
     fetchDeliveries();
     
-    // Auto-refresh every 10 seconds
+    // Auto-refresh every 10 seconds (more frequent for real-time feel)
     const interval = setInterval(fetchDeliveries, 10000);
     return () => clearInterval(interval);
-  }, [location, user.role, user.location_id]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const fetchDeliveries = async () => {
     try {
       const response = await api.get('/deliveries');
       const allDeliveries = response.data;
+      
+      console.log('Fetched deliveries:', allDeliveries); // Debug log
+      console.log('Awaiting admin:', allDeliveries.filter(d => d.status === 'awaiting_admin')); // Debug log
       
       setDeliveries(allDeliveries);
       
