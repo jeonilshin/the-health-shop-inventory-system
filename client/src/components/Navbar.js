@@ -3,7 +3,6 @@ import { NavLink, useLocation } from 'react-router-dom';
 import { AuthContext } from '../context/AuthContext';
 import ChangePassword from './ChangePassword';
 import NotificationBell from './NotificationBell';
-import MessageBell from './MessageBell';
 import api from '../utils/api';
 import { 
   FiHome, 
@@ -27,6 +26,7 @@ function Navbar() {
   const [showChangePassword, setShowChangePassword] = useState(false);
   const [locationName, setLocationName] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [unreadMessages, setUnreadMessages] = useState(0);
   const location = useLocation();
 
   const fetchLocationName = useCallback(async () => {
@@ -41,11 +41,25 @@ function Navbar() {
     }
   }, [user]);
 
+  const fetchUnreadMessages = useCallback(async () => {
+    try {
+      const response = await api.get('/messages/unread-count');
+      setUnreadMessages(response.data.count);
+    } catch (error) {
+      // Error fetching unread messages
+    }
+  }, []);
+
   useEffect(() => {
     if (user?.location_id) {
       fetchLocationName();
     }
-  }, [user, fetchLocationName]);
+    fetchUnreadMessages();
+    
+    // Poll for unread messages every 10 seconds
+    const interval = setInterval(fetchUnreadMessages, 10000);
+    return () => clearInterval(interval);
+  }, [user, fetchLocationName, fetchUnreadMessages]);
 
   // Close sidebar on mobile when route changes
   useEffect(() => {
@@ -93,7 +107,6 @@ function Navbar() {
             </div>
           </div>
           <NotificationBell />
-          <MessageBell />
           <button 
             className="header-btn"
             onClick={() => setShowChangePassword(true)}
@@ -123,6 +136,21 @@ function Navbar() {
             >
               <item.icon size={20} />
               <span>{item.label}</span>
+              {item.to === '/messages' && unreadMessages > 0 && (
+                <span style={{
+                  marginLeft: 'auto',
+                  backgroundColor: '#ef4444',
+                  color: 'white',
+                  borderRadius: '10px',
+                  padding: '2px 8px',
+                  fontSize: '11px',
+                  fontWeight: '600',
+                  minWidth: '20px',
+                  textAlign: 'center'
+                }}>
+                  {unreadMessages > 99 ? '99+' : unreadMessages}
+                </span>
+              )}
             </NavLink>
           ))}
         </nav>

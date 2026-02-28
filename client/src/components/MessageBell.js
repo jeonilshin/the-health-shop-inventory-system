@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FiMessageSquare } from 'react-icons/fi';
 import api from '../utils/api';
@@ -8,16 +8,7 @@ function MessageBell() {
   const [unreadCount, setUnreadCount] = useState(0);
   const [previousCount, setPreviousCount] = useState(0);
 
-  useEffect(() => {
-    fetchUnreadCount();
-    
-    // Poll every 10 seconds
-    const interval = setInterval(fetchUnreadCount, 10000);
-    return () => clearInterval(interval);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const fetchUnreadCount = async () => {
+  const fetchUnreadCount = useCallback(async () => {
     try {
       const response = await api.get('/messages/unread-count');
       const newCount = response.data.count;
@@ -32,7 +23,15 @@ function MessageBell() {
     } catch (error) {
       // Error fetching unread count
     }
-  };
+  }, [previousCount]);
+
+  useEffect(() => {
+    fetchUnreadCount();
+    
+    // Poll every 10 seconds
+    const interval = setInterval(fetchUnreadCount, 10000);
+    return () => clearInterval(interval);
+  }, [fetchUnreadCount]);
 
   const playNotificationSound = () => {
     try {
