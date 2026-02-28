@@ -115,7 +115,8 @@ function Messages() {
 
   const filteredUsers = users.filter(u => 
     u.full_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    u.role.toLowerCase().includes(searchQuery.toLowerCase())
+    u.role.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    (u.location_name && u.location_name.toLowerCase().includes(searchQuery.toLowerCase()))
   );
 
   const getRoleBadgeColor = (role) => {
@@ -235,6 +236,16 @@ function Messages() {
                         fontWeight: 600
                       }}>
                         {u.role.replace('_', ' ')}
+                        {u.location_name && (
+                          <span style={{ 
+                            color: 'var(--text-secondary)', 
+                            fontWeight: 400,
+                            textTransform: 'none',
+                            marginLeft: '4px'
+                          }}>
+                            • {u.location_name}
+                          </span>
+                        )}
                       </div>
                     </div>
                   </div>

@@ -144,21 +144,35 @@ router.get('/users', authenticateToken, async (req, res) => {
     let params;
     
     if (req.user.role === 'admin') {
-      // Admin can message everyone
+      // Admin can message everyone with their location info
       query = `
-        SELECT id, full_name, role, username
-        FROM users
-        WHERE id != $1
-        ORDER BY full_name
+        SELECT 
+          u.id, 
+          u.full_name, 
+          u.role, 
+          u.username,
+          u.location_id,
+          l.name as location_name
+        FROM users u
+        LEFT JOIN locations l ON u.location_id = l.id
+        WHERE u.id != $1
+        ORDER BY l.name, u.full_name
       `;
       params = [req.user.userId];
     } else {
       // Non-admin can only message admins
       query = `
-        SELECT id, full_name, role, username
-        FROM users
-        WHERE role = 'admin' AND id != $1
-        ORDER BY full_name
+        SELECT 
+          u.id, 
+          u.full_name, 
+          u.role, 
+          u.username,
+          u.location_id,
+          l.name as location_name
+        FROM users u
+        LEFT JOIN locations l ON u.location_id = l.id
+        WHERE u.role = 'admin' AND u.id != $1
+        ORDER BY u.full_name
       `;
       params = [req.user.userId];
     }
