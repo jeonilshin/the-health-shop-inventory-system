@@ -1,4 +1,5 @@
 import { useState, useEffect, useContext } from 'react';
+import { useLocation } from 'react-router-dom';
 import api from '../utils/api';
 import { AuthContext } from '../context/AuthContext';
 import { formatQuantity, formatPrice } from '../utils/formatNumber';
@@ -17,6 +18,7 @@ import {
 
 function Sales() {
   const { user } = useContext(AuthContext);
+  const location = useLocation();
   const [locations, setLocations] = useState([]);
   const [sales, setSales] = useState([]);
   const [showForm, setShowForm] = useState(false);
@@ -40,21 +42,17 @@ function Sales() {
       setLoading(false);
     };
     initializeData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [location, user.location_id]);
 
   const fetchLocations = async () => {
     try {
       const response = await api.get('/locations');
-      console.log('Fetched locations:', response.data); // Debug log
       const branches = response.data.filter(loc => loc.type === 'branch');
-      console.log('Filtered branches:', branches); // Debug log
       setLocations(branches);
       
       // Auto-select location for branch managers/staff
       if (user.location_id) {
         const userLocation = branches.find(loc => loc.id === user.location_id);
-        console.log('User location:', userLocation); // Debug log
         if (userLocation) {
           setFormData(prev => ({ ...prev, location_id: user.location_id }));
         }

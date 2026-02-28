@@ -1,5 +1,5 @@
 import React, { useContext, useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { NavLink, useLocation } from 'react-router-dom';
 import { AuthContext } from '../context/AuthContext';
 import ChangePassword from './ChangePassword';
 import NotificationBell from './NotificationBell';
@@ -16,156 +16,155 @@ import {
   FiKey,
   FiLogOut,
   FiActivity,
-  FiShield
+  FiShield,
+  FiMenu,
+  FiX
 } from 'react-icons/fi';
 
 function Navbar() {
   const { user, logout } = useContext(AuthContext);
   const [showChangePassword, setShowChangePassword] = useState(false);
   const [locationName, setLocationName] = useState('');
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const location = useLocation();
 
   useEffect(() => {
     if (user?.location_id) {
       fetchLocationName();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
+
+  // Close sidebar on mobile when route changes
+  useEffect(() => {
+    if (window.innerWidth < 768) {
+      setSidebarOpen(false);
+    }
+  }, [location]);
 
   const fetchLocationName = async () => {
     try {
       const response = await api.get('/locations');
-      const location = response.data.find(loc => loc.id === user.location_id);
-      if (location) {
-        setLocationName(location.name);
+      const loc = response.data.find(l => l.id === user.location_id);
+      if (loc) {
+        setLocationName(loc.name);
       }
     } catch (error) {
       console.error('Error fetching location:', error);
     }
   };
 
+  const navItems = [
+    { path: '/', icon: FiHome, label: 'Dashboard', roles: ['admin', 'warehouse', 'branch_manager', 'branch_staff'] },
+    { path: '/inventory', icon: FiPackage, label: 'Inventory', roles: ['admin', 'warehouse', 'branch_manager', 'branch_staff'] },
+    { path: '/transfers', icon: FiSend, label: 'Transfers', roles: ['admin', 'warehouse', 'branch_manager'] },
+    { path: '/sales', icon: FiShoppingCart, label: 'Sales', roles: ['admin', 'branch_manager'] },
+    { path: '/reports', icon: FiFileText, label: 'Reports', roles: ['admin', 'branch_manager', 'branch_staff'] },
+    { path: '/analytics', icon: FiBarChart2, label: 'Analytics', roles: ['admin', 'branch_manager', 'branch_staff'] },
+    { path: '/deliveries', icon: FiTruck, label: 'Deliveries', roles: ['admin', 'warehouse'] },
+    { path: '/admin', icon: FiSettings, label: 'Admin', roles: ['admin'] },
+    { path: '/audit', icon: FiShield, label: 'Audit Log', roles: ['admin'] },
+  ];
+
+  const filteredNavItems = navItems.filter(item => item.roles.includes(user?.role));
+
   return (
     <>
-      <nav className="navbar">
-        <div style={{ display: 'flex', alignItems: 'center', gap: '20px', flex: 1 }}>
-          {/* Logo and Title */}
+      {/* Top Header */}
+      <div className="top-header">
+        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+          <button 
+            className="sidebar-toggle"
+            onClick={() => setSidebarOpen(!sidebarOpen)}
+            title={sidebarOpen ? 'Close Sidebar' : 'Open Sidebar'}
+          >
+            {sidebarOpen ? <FiX size={20} /> : <FiMenu size={20} />}
+          </button>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <FiActivity size={32} />
+            <FiActivity size={28} />
             <div>
-              <h1 style={{ fontSize: '18px', fontWeight: 700, margin: 0, lineHeight: 1.2 }}>
+              <h1 style={{ fontSize: '16px', fontWeight: 700, margin: 0, lineHeight: 1.2 }}>
                 The Health Shop
               </h1>
-              <div style={{ fontSize: '11px', opacity: 0.85, marginTop: '2px' }}>
+              <div style={{ fontSize: '10px', opacity: 0.85, marginTop: '2px' }}>
                 Inventory System
               </div>
             </div>
           </div>
-
-          {/* Navigation Links */}
-          <div style={{ 
-            display: 'flex', 
-            gap: '4px', 
-            alignItems: 'center',
-            flex: 1,
-            justifyContent: 'center',
-            flexWrap: 'wrap'
-          }}>
-            <Link to="/">
-              <FiHome size={16} />
-              Dashboard
-            </Link>
-            <Link to="/inventory">
-              <FiPackage size={16} />
-              Inventory
-            </Link>
-            {(user?.role === 'admin' || user?.role === 'warehouse' || user?.role === 'branch_manager') && (
-              <Link to="/transfers">
-                <FiSend size={16} />
-                Transfers
-              </Link>
-            )}
-            {(user?.role === 'admin' || user?.role === 'branch_manager') && (
-              <Link to="/sales">
-                <FiShoppingCart size={16} />
-                Sales
-              </Link>
-            )}
-            {(user?.role === 'admin' || user?.role === 'branch_manager' || user?.role === 'branch_staff') && (
-              <>
-                <Link to="/reports">
-                  <FiFileText size={16} />
-                  Reports
-                </Link>
-                <Link to="/analytics">
-                  <FiBarChart2 size={16} />
-                  Analytics
-                </Link>
-              </>
-            )}
-            {(user?.role === 'admin' || user?.role === 'warehouse') && (
-              <Link to="/deliveries">
-                <FiTruck size={16} />
-                Deliveries
-              </Link>
-            )}
-            {user?.role === 'admin' && (
-              <>
-                <Link to="/admin" style={{ fontWeight: 'bold' }}>
-                  <FiSettings size={16} />
-                  Admin
-                </Link>
-                <Link to="/audit">
-                  <FiShield size={16} />
-                  Audit
-                </Link>
-              </>
-            )}
-          </div>
         </div>
 
-        {/* User Info and Actions */}
-        <div style={{ 
-          display: 'flex', 
-          alignItems: 'center', 
-          gap: '12px',
-          borderLeft: '1px solid rgba(255, 255, 255, 0.2)',
-          paddingLeft: '20px'
-        }}>
-          {/* User Info */}
-          <div style={{ textAlign: 'right' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <div className="user-info-desktop">
             <div style={{ fontSize: '13px', fontWeight: 600, lineHeight: 1.3 }}>
               {user?.full_name}
             </div>
-            <div style={{ fontSize: '11px', opacity: 0.85, display: 'flex', alignItems: 'center', gap: '6px', justifyContent: 'flex-end' }}>
-              <span>{user?.role.replace('_', ' ').toUpperCase()}</span>
-              {locationName && (
-                <>
-                  <span>•</span>
-                  <span style={{ fontWeight: 600 }}>{locationName}</span>
-                </>
-              )}
+            <div style={{ fontSize: '11px', opacity: 0.85 }}>
+              {user?.role.replace('_', ' ').toUpperCase()}
+              {locationName && ` • ${locationName}`}
             </div>
           </div>
-
-          {/* Action Buttons */}
           <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
             <NotificationBell />
             <button 
+              className="header-btn"
               onClick={() => setShowChangePassword(true)}
               title="Change Password"
-              style={{ padding: '8px' }}
             >
               <FiKey size={16} />
             </button>
             <button 
+              className="header-btn"
               onClick={logout}
               title="Logout"
-              style={{ padding: '8px' }}
             >
               <FiLogOut size={16} />
             </button>
           </div>
         </div>
-      </nav>
+      </div>
+
+      {/* Sidebar */}
+      <aside className={`sidebar ${sidebarOpen ? 'open' : 'closed'}`}>
+        <nav className="sidebar-nav">
+          {filteredNavItems.map((item) => {
+            const Icon = item.icon;
+            return (
+              <NavLink
+                key={item.path}
+                to={item.path}
+                end={item.path === '/'}
+                className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}
+                title={item.label}
+              >
+                <Icon size={20} />
+                <span className="sidebar-label">{item.label}</span>
+              </NavLink>
+            );
+          })}
+        </nav>
+
+        {/* User Info in Sidebar (Mobile) */}
+        <div className="sidebar-footer">
+          <div style={{ fontSize: '12px', fontWeight: 600, marginBottom: '4px' }}>
+            {user?.full_name}
+          </div>
+          <div style={{ fontSize: '10px', opacity: 0.7 }}>
+            {user?.role.replace('_', ' ').toUpperCase()}
+          </div>
+          {locationName && (
+            <div style={{ fontSize: '10px', opacity: 0.7, marginTop: '2px' }}>
+              {locationName}
+            </div>
+          )}
+        </div>
+      </aside>
+
+      {/* Sidebar Overlay (Mobile) */}
+      {sidebarOpen && (
+        <div 
+          className="sidebar-overlay"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
 
       {showChangePassword && (
         <ChangePassword onClose={() => setShowChangePassword(false)} />
