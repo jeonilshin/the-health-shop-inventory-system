@@ -29,6 +29,7 @@ app.use('/api/search', require('./routes/search'));
 app.use('/api/audit', require('./routes/audit'));
 app.use('/api/notifications', require('./routes/notifications'));
 app.use('/api/system-check', require('./routes/system-check'));
+app.use('/api/messages', require('./routes/messages'));
 
 const PORT = process.env.PORT || 5000;
 
