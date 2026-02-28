@@ -19,19 +19,23 @@ function Messages() {
     fetchConversations();
     fetchUsers();
     fetchUnreadCount();
-    
-    // Auto-refresh every 10 seconds
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Separate effect for auto-refresh that depends on selectedUser
+  useEffect(() => {
+    // Auto-refresh every 5 seconds for better real-time feel
     const interval = setInterval(() => {
       fetchConversations();
       fetchUnreadCount();
       if (selectedUser) {
         fetchMessages(selectedUser.id);
       }
-    }, 10000);
+    }, 5000); // Reduced to 5 seconds for faster updates
     
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [selectedUser]); // Now it will update when selectedUser changes
 
   useEffect(() => {
     scrollToBottom();

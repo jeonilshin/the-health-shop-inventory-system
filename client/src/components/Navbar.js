@@ -3,6 +3,7 @@ import { NavLink, useLocation } from 'react-router-dom';
 import { AuthContext } from '../context/AuthContext';
 import ChangePassword from './ChangePassword';
 import NotificationBell from './NotificationBell';
+import MessageBell from './MessageBell';
 import api from '../utils/api';
 import { 
   FiHome, 
@@ -92,6 +93,7 @@ function Navbar() {
             </div>
           </div>
           <NotificationBell />
+          <MessageBell />
           <button 
             className="header-btn"
             onClick={() => setShowChangePassword(true)}
