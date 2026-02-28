@@ -31,6 +31,7 @@ function Navbar() {
     if (user?.location_id) {
       fetchLocationName();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
   // Close sidebar on mobile when route changes
