@@ -1,4 +1,4 @@
-import React, { useContext, useState, useEffect } from 'react';
+import React, { useContext, useState, useEffect, useCallback } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { AuthContext } from '../context/AuthContext';
 import ChangePassword from './ChangePassword';
@@ -27,21 +27,7 @@ function Navbar() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const location = useLocation();
 
-  useEffect(() => {
-    if (user?.location_id) {
-      fetchLocationName();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user]);
-
-  // Close sidebar on mobile when route changes
-  useEffect(() => {
-    if (window.innerWidth < 768) {
-      setSidebarOpen(false);
-    }
-  }, [location]);
-
-  const fetchLocationName = async () => {
+  const fetchLocationName = useCallback(async () => {
     try {
       const response = await api.get('/locations');
       const location = response.data.find(loc => loc.id === user.location_id);
@@ -51,7 +37,20 @@ function Navbar() {
     } catch (error) {
       // Error fetching location
     }
-  };
+  }, [user]);
+
+  useEffect(() => {
+    if (user?.location_id) {
+      fetchLocationName();
+    }
+  }, [user, fetchLocationName]);
+
+  // Close sidebar on mobile when route changes
+  useEffect(() => {
+    if (window.innerWidth < 768) {
+      setSidebarOpen(false);
+    }
+  }, [location]);
 
   const navItems = [
     { to: '/', icon: FiHome, label: 'Dashboard', roles: ['admin', 'warehouse', 'branch_manager', 'branch_staff'] },
