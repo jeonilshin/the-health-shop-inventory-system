@@ -72,7 +72,7 @@ body {
 }
 
 .main-content.with-sidebar {
-  padding-top: 64px;
+  /* No extra padding needed, container handles it */
 }
 
 /* Top Header */
@@ -230,13 +230,18 @@ body {
   max-width: 1400px;
   margin: 0 auto;
   padding: var(--spacing-xl);
-  margin-left: 260px;
-  margin-top: 64px;
-  transition: margin-left 0.3s ease;
+  padding-top: calc(64px + var(--spacing-xl));
+  transition: padding-left 0.3s ease;
 }
 
-body:has(.sidebar.closed) .container {
-  margin-left: 0;
+@media (min-width: 769px) {
+  .container {
+    padding-left: calc(260px + var(--spacing-xl));
+  }
+  
+  .sidebar.closed ~ * .container {
+    padding-left: var(--spacing-xl);
+  }
 }
 
 .container h2 {
@@ -665,6 +670,7 @@ tbody tr:last-child td {
 @media (max-width: 1024px) {
   .container {
     padding: var(--spacing-lg);
+    padding-top: calc(64px + var(--spacing-lg));
   }
   
   .stats-grid {
@@ -713,9 +719,9 @@ tbody tr:last-child td {
   }
   
   .container {
-    margin-left: 0;
     padding: var(--spacing-md);
-    margin-top: 64px;
+    padding-top: calc(64px + var(--spacing-md));
+    padding-left: var(--spacing-md) !important;
   }
   
   .container h2 {
@@ -803,6 +809,8 @@ tbody tr:last-child td {
   
   .container {
     padding: var(--spacing-sm);
+    padding-top: calc(64px + var(--spacing-sm));
+    padding-left: var(--spacing-sm) !important;
   }
   
   .container h2 {
