@@ -3,6 +3,7 @@ const router = express.Router();
 const pool = require('../config/database');
 const { auth, authorize } = require('../middleware/auth');
 const { notifyAdmins, notifyLocation } = require('./notifications');
+const { logAudit } = require('../middleware/auditLog');
 
 // Create transfer request (branch manager requests, warehouse/admin creates)
 router.post('/', auth, authorize('admin', 'warehouse', 'branch_manager'), async (req, res) => {
@@ -59,10 +60,14 @@ router.post('/', auth, authorize('admin', 'warehouse', 'branch_manager'), async 
         return res.status(404).json({ error: 'Item not found in source location inventory' });
       }
 
-      if (sourceInventory.rows[0].quantity < quantity) {
+      // Convert to numbers for comparison
+      const availableQty = parseFloat(sourceInventory.rows[0].quantity);
+      const requestedQty = parseFloat(quantity);
+
+      if (availableQty < requestedQty) {
         await client.query('ROLLBACK');
         return res.status(400).json({ 
-          error: `Insufficient quantity. Available: ${sourceInventory.rows[0].quantity}, Requested: ${quantity}` 
+          error: `Insufficient quantity. Available: ${availableQty}, Requested: ${requestedQty}` 
         });
       }
     }
@@ -85,6 +90,19 @@ router.post('/', auth, authorize('admin', 'warehouse', 'branch_manager'), async 
     );
 
     await client.query('COMMIT');
+    
+    // Log audit
+    await logAudit({
+      userId: req.user.id,
+      username: req.user.username,
+      action: 'TRANSFER_CREATE',
+      tableName: 'transfers',
+      recordId: transfer.rows[0].id,
+      newValues: transfer.rows[0],
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+      description: `Created transfer request: ${quantity} ${unit} of ${description}`
+    });
     
     // Notify admins about new transfer request (skip if part of multi-item batch)
     if (!skip_notification) {
@@ -144,11 +162,23 @@ router.delete('/clean-history', auth, authorize('admin'), async (req, res) => {
   try {
     await client.query('BEGIN');
     
-    // Delete all transfers
-    const result = await client.query('DELETE FROM transfers');
+    // Delete in correct order due to foreign key constraints
+    // 1. Delete deliveries first (references transfers)
+    const deliveriesResult = await client.query('DELETE FROM deliveries');
+    
+    // 2. Delete transfer_items (has CASCADE, but explicit for clarity)
+    const itemsResult = await client.query('DELETE FROM transfer_items');
+    
+    // 3. Delete transfers
+    const transfersResult = await client.query('DELETE FROM transfers');
     
     await client.query('COMMIT');
-    res.json({ message: `Deleted ${result.rowCount} transfer records`, count: result.rowCount });
+    res.json({ 
+      message: `Deleted ${transfersResult.rowCount} transfers, ${itemsResult.rowCount} transfer items, and ${deliveriesResult.rowCount} deliveries`, 
+      transfers: transfersResult.rowCount,
+      items: itemsResult.rowCount,
+      deliveries: deliveriesResult.rowCount
+    });
   } catch (error) {
     await client.query('ROLLBACK');
     console.error('Error cleaning transfer history:', error);
@@ -193,10 +223,14 @@ router.post('/:id/approve', auth, authorize('admin'), async (req, res) => {
       [transferData.from_location_id, transferData.description, transferData.unit]
     );
 
-    if (inventory.rows.length === 0 || inventory.rows[0].quantity < transferData.quantity) {
+    // Convert to numbers for comparison
+    const availableQty = parseFloat(inventory.rows[0]?.quantity || 0);
+    const requiredQty = parseFloat(transferData.quantity);
+
+    if (inventory.rows.length === 0 || availableQty < requiredQty) {
       await client.query('ROLLBACK');
       return res.status(400).json({ 
-        error: 'Insufficient inventory to approve this transfer' 
+        error: `Insufficient inventory to approve this transfer. Available: ${availableQty}, Required: ${requiredQty}` 
       });
     }
 
@@ -210,6 +244,19 @@ router.post('/:id/approve', auth, authorize('admin'), async (req, res) => {
     );
 
     await client.query('COMMIT');
+    
+    // Log audit
+    await logAudit({
+      userId: req.user.id,
+      username: req.user.username,
+      action: 'TRANSFER_APPROVE',
+      tableName: 'transfers',
+      recordId: id,
+      newValues: result.rows[0],
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+      description: `Approved transfer: ${transferData.description} (${transferData.quantity} ${transferData.unit})`
+    });
     
     // Notify requester about approval
     await notifyLocation(
@@ -277,6 +324,19 @@ router.post('/:id/reject', auth, authorize('admin'), async (req, res) => {
 
     await client.query('COMMIT');
     
+    // Log audit
+    await logAudit({
+      userId: req.user.id,
+      username: req.user.username,
+      action: 'TRANSFER_REJECT',
+      tableName: 'transfers',
+      recordId: id,
+      newValues: result.rows[0],
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+      description: `Rejected transfer: ${transferData.description} - ${rejection_reason || 'No reason provided'}`
+    });
+    
     // Notify requester about rejection
     await notifyLocation(
       transferData.from_location_id,
@@ -327,10 +387,14 @@ router.post('/:id/ship', auth, authorize('admin', 'warehouse'), async (req, res)
       [transferData.from_location_id, transferData.description, transferData.unit]
     );
 
-    if (inventory.rows.length === 0 || inventory.rows[0].quantity < transferData.quantity) {
+    // Convert to numbers for comparison
+    const availableQty = parseFloat(inventory.rows[0]?.quantity || 0);
+    const requiredQty = parseFloat(transferData.quantity);
+
+    if (inventory.rows.length === 0 || availableQty < requiredQty) {
       await client.query('ROLLBACK');
       return res.status(400).json({ 
-        error: `Insufficient inventory. Available: ${inventory.rows[0]?.quantity || 0}, Required: ${transferData.quantity}` 
+        error: `Insufficient inventory. Available: ${availableQty}, Required: ${requiredQty}` 
       });
     }
 
@@ -340,7 +404,46 @@ router.post('/:id/ship', auth, authorize('admin', 'warehouse'), async (req, res)
       [transferData.quantity, transferData.from_location_id, transferData.description, transferData.unit]
     );
 
-    // Update transfer status to in_transit (no delivery record needed)
+    // Create delivery record
+    const delivery = await client.query(
+      `INSERT INTO deliveries (
+        transfer_id, 
+        from_location_id, 
+        to_location_id, 
+        status,
+        unit_cost,
+        created_by
+      ) VALUES ($1, $2, $3, $4, $5, $6)
+      RETURNING *`,
+      [
+        id,
+        transferData.from_location_id,
+        transferData.to_location_id,
+        'in_transit',
+        transferData.unit_cost,
+        req.user.id
+      ]
+    );
+
+    // Create delivery item
+    await client.query(
+      `INSERT INTO delivery_items (
+        delivery_id,
+        description,
+        unit,
+        quantity,
+        unit_cost
+      ) VALUES ($1, $2, $3, $4, $5)`,
+      [
+        delivery.rows[0].id,
+        transferData.description,
+        transferData.unit,
+        transferData.quantity,
+        transferData.unit_cost
+      ]
+    );
+
+    // Update transfer status to in_transit
     const result = await client.query(
       `UPDATE transfers 
        SET status = 'in_transit', updated_at = CURRENT_TIMESTAMP
@@ -350,6 +453,19 @@ router.post('/:id/ship', auth, authorize('admin', 'warehouse'), async (req, res)
     );
 
     await client.query('COMMIT');
+    
+    // Log audit
+    await logAudit({
+      userId: req.user.id,
+      username: req.user.username,
+      action: 'TRANSFER_SHIP',
+      tableName: 'transfers',
+      recordId: id,
+      newValues: result.rows[0],
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+      description: `Shipped transfer: ${transferData.description} (${transferData.quantity} ${transferData.unit}) - Inventory deducted, delivery created`
+    });
     
     // Get location names for notification
     const locationInfo = await client.query(
@@ -411,13 +527,26 @@ router.post('/:id/deliver', auth, authorize('admin', 'branch_manager'), async (r
       return res.status(403).json({ error: 'Access denied to destination location' });
     }
 
-    // ADD to destination inventory
+    // Get the source inventory item to copy batch_number and expiry_date
+    const sourceInventory = await client.query(
+      'SELECT batch_number, expiry_date FROM inventory WHERE location_id = $1 AND description = $2 AND unit = $3',
+      [transferData.from_location_id, transferData.description, transferData.unit]
+    );
+
+    const batchNumber = sourceInventory.rows[0]?.batch_number || null;
+    const expiryDate = sourceInventory.rows[0]?.expiry_date || null;
+
+    // ADD to destination inventory with batch_number and expiry_date
     await client.query(
-      `INSERT INTO inventory (location_id, description, unit, quantity, unit_cost, suggested_selling_price) 
-       VALUES ($1, $2, $3, $4, $5, $5) 
+      `INSERT INTO inventory (location_id, description, unit, quantity, unit_cost, suggested_selling_price, batch_number, expiry_date) 
+       VALUES ($1, $2, $3, $4, $5, $5, $6, $7) 
        ON CONFLICT (location_id, description, unit) 
-       DO UPDATE SET quantity = inventory.quantity + $4, updated_at = CURRENT_TIMESTAMP`,
-      [transferData.to_location_id, transferData.description, transferData.unit, transferData.quantity, transferData.unit_cost]
+       DO UPDATE SET 
+         quantity = inventory.quantity + $4, 
+         batch_number = COALESCE($6, inventory.batch_number),
+         expiry_date = COALESCE($7, inventory.expiry_date),
+         updated_at = CURRENT_TIMESTAMP`,
+      [transferData.to_location_id, transferData.description, transferData.unit, transferData.quantity, transferData.unit_cost, batchNumber, expiryDate]
     );
 
     // Update transfer status to delivered (completed)
@@ -430,6 +559,19 @@ router.post('/:id/deliver', auth, authorize('admin', 'branch_manager'), async (r
     );
 
     await client.query('COMMIT');
+    
+    // Log audit
+    await logAudit({
+      userId: req.user.id,
+      username: req.user.username,
+      action: 'TRANSFER_DELIVER',
+      tableName: 'transfers',
+      recordId: id,
+      newValues: result.rows[0],
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+      description: `Delivered transfer: ${transferData.description} (${transferData.quantity} ${transferData.unit}) - Inventory added`
+    });
     
     // Notify source location (warehouse) that transfer is complete
     await notifyLocation(
@@ -493,6 +635,20 @@ router.post('/:id/cancel', auth, async (req, res) => {
     );
 
     await client.query('COMMIT');
+    
+    // Log audit
+    await logAudit({
+      userId: req.user.id,
+      username: req.user.username,
+      action: 'TRANSFER_CANCEL',
+      tableName: 'transfers',
+      recordId: id,
+      newValues: result.rows[0],
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+      description: `Cancelled transfer: ${transferData.description} (${transferData.quantity} ${transferData.unit})`
+    });
+    
     res.json(result.rows[0]);
   } catch (error) {
     await client.query('ROLLBACK');

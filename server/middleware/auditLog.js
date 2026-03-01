@@ -10,13 +10,14 @@ async function logAudit({
   oldValues = null,
   newValues = null,
   ipAddress = null,
-  userAgent = null
+  userAgent = null,
+  description = null
 }) {
   try {
     await pool.query(
       `INSERT INTO audit_log 
-        (user_id, username, action, table_name, record_id, old_values, new_values, ip_address, user_agent)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+        (user_id, username, action, table_name, record_id, old_values, new_values, ip_address, user_agent, description)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
       [
         userId,
         username,
@@ -26,7 +27,8 @@ async function logAudit({
         oldValues ? JSON.stringify(oldValues) : null,
         newValues ? JSON.stringify(newValues) : null,
         ipAddress,
-        userAgent
+        userAgent,
+        description
       ]
     );
   } catch (error) {

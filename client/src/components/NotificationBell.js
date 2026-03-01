@@ -1,7 +1,7 @@
 import { useState, useContext, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { NotificationContext } from '../context/NotificationContext';
-import { FiBell, FiCheck } from 'react-icons/fi';
+import { FiBell, FiCheck, FiTruck, FiCheckCircle, FiPackage, FiClock, FiAlertCircle } from 'react-icons/fi';
 
 function NotificationBell() {
   const navigate = useNavigate();
@@ -30,25 +30,31 @@ function NotificationBell() {
   };
 
   const getNotificationIcon = (type) => {
-    const icons = {
-      delivery_awaiting_admin: '🚚',
-      delivery_confirmed: '✅',
-      delivery_incoming: '📦',
-      delivery_completed: '🎉',
-      transfer_pending: '⏳',
-      transfer_approved: '✅',
+    const iconMap = {
+      delivery_awaiting_admin: { Icon: FiTruck, color: '#f59e0b' },
+      delivery_confirmed: { Icon: FiCheckCircle, color: '#10b981' },
+      delivery_incoming: { Icon: FiPackage, color: '#3b82f6' },
+      delivery_completed: { Icon: FiCheckCircle, color: '#10b981' },
+      transfer_pending: { Icon: FiClock, color: '#f59e0b' },
+      transfer_approved: { Icon: FiCheckCircle, color: '#10b981' },
     };
-    return icons[type] || '📢';
+    const config = iconMap[type] || { Icon: FiAlertCircle, color: '#6b7280' };
+    return <config.Icon size={24} color={config.color} />;
   };
 
   const formatTime = (timestamp) => {
+    // Parse timestamp - PostgreSQL returns timestamps in ISO format
     const date = new Date(timestamp);
     const now = new Date();
-    const diff = Math.floor((now - date) / 1000); // seconds
+    
+    // Calculate difference in milliseconds
+    const diffMs = now.getTime() - date.getTime();
+    const diff = Math.floor(diffMs / 1000); // Convert to seconds
 
-    if (diff < 60) return 'Just now';
+    if (diff < 0 || diff < 60) return 'Just now';
     if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
     if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+    if (diff < 604800) return `${Math.floor(diff / 86400)}d ago`;
     return date.toLocaleDateString();
   };
 
@@ -115,7 +121,7 @@ function NotificationBell() {
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'center',
-            backgroundColor: 'var(--bg-secondary)',
+            backgroundColor: '#f9fafb',
           }}>
             <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 600 }}>
               Notifications {unreadCount > 0 && `(${unreadCount})`}
@@ -126,7 +132,7 @@ function NotificationBell() {
                 style={{
                   background: 'transparent',
                   border: 'none',
-                  color: 'var(--primary)',
+                  color: '#2563eb',
                   cursor: 'pointer',
                   fontSize: '12px',
                   fontWeight: 600,
@@ -149,7 +155,7 @@ function NotificationBell() {
               <div style={{
                 padding: '40px 20px',
                 textAlign: 'center',
-                color: 'var(--text-muted)',
+                color: '#9ca3af',
               }}>
                 <FiBell size={40} style={{ opacity: 0.3, marginBottom: '12px' }} />
                 <p style={{ margin: 0 }}>No notifications yet</p>
@@ -163,12 +169,12 @@ function NotificationBell() {
                     padding: '16px',
                     borderBottom: '1px solid var(--border)',
                     cursor: 'pointer',
-                    backgroundColor: notification.read ? 'white' : 'rgba(37, 99, 235, 0.05)',
+                    backgroundColor: notification.read ? 'white' : '#eff6ff',
                     transition: 'background-color 0.2s',
                     position: 'relative',
                   }}
-                  onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--bg-secondary)'}
-                  onMouseLeave={(e) => e.currentTarget.style.backgroundColor = notification.read ? 'white' : 'rgba(37, 99, 235, 0.05)'}
+                  onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f3f4f6'}
+                  onMouseLeave={(e) => e.currentTarget.style.backgroundColor = notification.read ? 'white' : '#eff6ff'}
                 >
                   {!notification.read && (
                     <div style={{
@@ -179,11 +185,11 @@ function NotificationBell() {
                       width: '8px',
                       height: '8px',
                       borderRadius: '50%',
-                      backgroundColor: 'var(--primary)',
+                      backgroundColor: '#2563eb',
                     }} />
                   )}
                   <div style={{ display: 'flex', gap: '12px', paddingLeft: !notification.read ? '16px' : 0 }}>
-                    <div style={{ fontSize: '24px', flexShrink: 0 }}>
+                    <div style={{ flexShrink: 0, display: 'flex', alignItems: 'flex-start', paddingTop: '2px' }}>
                       {getNotificationIcon(notification.type)}
                     </div>
                     <div style={{ flex: 1, minWidth: 0 }}>
@@ -191,13 +197,13 @@ function NotificationBell() {
                         fontWeight: 600, 
                         fontSize: '14px', 
                         marginBottom: '4px',
-                        color: 'var(--text-primary)',
+                        color: '#1f2937',
                       }}>
                         {notification.title}
                       </div>
                       <div style={{ 
                         fontSize: '13px', 
-                        color: 'var(--text-secondary)',
+                        color: '#4b5563',
                         marginBottom: '6px',
                         lineHeight: '1.4',
                       }}>
@@ -205,7 +211,7 @@ function NotificationBell() {
                       </div>
                       <div style={{ 
                         fontSize: '11px', 
-                        color: 'var(--text-muted)',
+                        color: '#9ca3af',
                       }}>
                         {formatTime(notification.created_at)}
                       </div>

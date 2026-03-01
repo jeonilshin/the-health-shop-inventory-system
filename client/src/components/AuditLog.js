@@ -68,14 +68,15 @@ function AuditLog() {
 
   const handleExport = () => {
     const csvContent = [
-      ['Date/Time', 'User', 'Action', 'Table', 'Record ID', 'Details'],
+      ['Date/Time', 'User', 'Action', 'Description', 'Table', 'Record ID', 'IP Address'],
       ...logs.map(log => [
         new Date(log.created_at).toLocaleString(),
         log.full_name || log.username,
         log.action,
+        log.description || '-',
         log.table_name,
         log.record_id || '-',
-        JSON.stringify(log.new_values || {})
+        log.ip_address || '-'
       ])
     ].map(row => row.join(',')).join('\n');
 
@@ -116,10 +117,13 @@ function AuditLog() {
   };
 
   const getActionColor = (action) => {
-    if (action.includes('CREATE')) return '#10b981';
-    if (action.includes('UPDATE')) return '#3b82f6';
+    if (action.includes('CREATE') || action.includes('ADD')) return '#10b981';
+    if (action.includes('UPDATE') || action.includes('CHANGE')) return '#3b82f6';
     if (action.includes('DELETE')) return '#ef4444';
     if (action.includes('LOGIN')) return '#8b5cf6';
+    if (action.includes('APPROVE') || action.includes('ACCEPT') || action.includes('CONFIRM')) return '#10b981';
+    if (action.includes('REJECT') || action.includes('CANCEL')) return '#f59e0b';
+    if (action.includes('SHIP') || action.includes('DELIVER')) return '#06b6d4';
     return 'var(--text-primary)';
   };
 
@@ -203,11 +207,27 @@ function AuditLog() {
               onChange={(e) => handleFilterChange('action', e.target.value)}
             >
               <option value="">All Actions</option>
-              <option value="CREATE">Create</option>
-              <option value="UPDATE">Update</option>
-              <option value="DELETE">Delete</option>
               <option value="LOGIN">Login</option>
-              <option value="LOGOUT">Logout</option>
+              <option value="PASSWORD_CHANGE">Password Change</option>
+              <option value="USER_CREATE">User Create</option>
+              <option value="USER_UPDATE">User Update</option>
+              <option value="USER_DELETE">User Delete</option>
+              <option value="INVENTORY_ADD">Inventory Add</option>
+              <option value="INVENTORY_UPDATE">Inventory Update</option>
+              <option value="INVENTORY_DELETE">Inventory Delete</option>
+              <option value="SALE_CREATE">Sale</option>
+              <option value="TRANSFER_CREATE">Transfer Create</option>
+              <option value="TRANSFER_APPROVE">Transfer Approve</option>
+              <option value="TRANSFER_REJECT">Transfer Reject</option>
+              <option value="TRANSFER_SHIP">Transfer Ship</option>
+              <option value="TRANSFER_DELIVER">Transfer Deliver</option>
+              <option value="TRANSFER_CANCEL">Transfer Cancel</option>
+              <option value="DELIVERY_CREATE">Delivery Create</option>
+              <option value="DELIVERY_UPDATE">Delivery Update</option>
+              <option value="DELIVERY_COMPLETE">Delivery Complete</option>
+              <option value="DELIVERY_ADMIN_CONFIRM">Delivery Admin Confirm</option>
+              <option value="DELIVERY_ACCEPT">Delivery Accept</option>
+              <option value="DELIVERY_DELETE">Delivery Delete</option>
             </select>
           </div>
 
@@ -218,12 +238,14 @@ function AuditLog() {
               onChange={(e) => handleFilterChange('table_name', e.target.value)}
             >
               <option value="">All Tables</option>
-              <option value="inventory">Inventory</option>
-              <option value="transfers">Transfers</option>
-              <option value="sales">Sales</option>
               <option value="users">Users</option>
-              <option value="locations">Locations</option>
+              <option value="inventory">Inventory</option>
+              <option value="sales">Sales</option>
+              <option value="transfers">Transfers</option>
               <option value="deliveries">Deliveries</option>
+              <option value="locations">Locations</option>
+              <option value="messages">Messages</option>
+              <option value="notifications">Notifications</option>
             </select>
           </div>
 
@@ -278,6 +300,7 @@ function AuditLog() {
                     <th>Date/Time</th>
                     <th>User</th>
                     <th>Action</th>
+                    <th>Description</th>
                     <th>Table</th>
                     <th>Record ID</th>
                     <th>IP Address</th>
@@ -300,6 +323,9 @@ function AuditLog() {
                         }}>
                           {log.action}
                         </span>
+                      </td>
+                      <td style={{ fontSize: '13px', maxWidth: '300px' }}>
+                        {log.description || '-'}
                       </td>
                       <td>
                         <span className="badge badge-info">

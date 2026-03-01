@@ -34,7 +34,7 @@ function Deliveries() {
       // Filter incoming deliveries (for branch managers)
       if (user.role === 'branch_manager' || user.role === 'branch_staff') {
         setIncomingDeliveries(allDeliveries.filter(d => 
-          d.status === 'admin_confirmed' && d.to_location_id === user.location_id
+          (d.status === 'admin_confirmed' || d.status === 'in_transit') && d.to_location_id === user.location_id
         ));
       }
     } catch (error) {
@@ -68,13 +68,15 @@ function Deliveries() {
 
   const getStatusBadge = (status) => {
     const badges = {
+      pending: { color: '#9ca3af', icon: <FiClock size={12} />, text: 'Pending' },
       awaiting_admin: { color: '#f59e0b', icon: <FiClock size={12} />, text: 'Awaiting Admin' },
       admin_confirmed: { color: '#3b82f6', icon: <FiCheck size={12} />, text: 'Admin Confirmed' },
+      in_transit: { color: '#8b5cf6', icon: <FiTruck size={12} />, text: 'Shipped' },
       delivered: { color: '#10b981', icon: <FiCheckCircle size={12} />, text: 'Delivered' },
       cancelled: { color: '#6b7280', icon: <FiAlertCircle size={12} />, text: 'Cancelled' }
     };
     
-    const badge = badges[status] || badges.awaiting_admin;
+    const badge = badges[status] || badges.pending;
     
     return (
       <span className="badge" style={{ 

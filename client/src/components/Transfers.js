@@ -852,7 +852,15 @@ function Transfers() {
                 </tr>
               </thead>
               <tbody>
-                {transfers.map((transfer) => (
+                {transfers
+                  .filter(transfer => {
+                    // For admin, exclude pending transfers from history (they're shown in Pending Approvals section)
+                    if (user.role === 'admin' && transfer.status === 'pending') {
+                      return false;
+                    }
+                    return true;
+                  })
+                  .map((transfer) => (
                   <tr key={transfer.id}>
                     <td>{new Date(transfer.transfer_date).toLocaleDateString()}</td>
                     <td>{getStatusBadge(transfer.status)}</td>

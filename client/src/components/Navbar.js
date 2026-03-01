@@ -11,6 +11,7 @@ import {
   FiFileText, 
   FiBarChart2,
   FiTruck,
+  FiDollarSign,
   FiMessageSquare,
   FiSettings,
   FiKey,
@@ -18,7 +19,8 @@ import {
   FiActivity,
   FiShield,
   FiMenu,
-  FiX
+  FiX,
+  FiRefreshCw
 } from 'react-icons/fi';
 
 function Navbar() {
@@ -75,9 +77,11 @@ function Navbar() {
     { to: '/reports', icon: FiFileText, label: 'Reports', roles: ['admin', 'branch_manager', 'branch_staff'] },
     { to: '/analytics', icon: FiBarChart2, label: 'Analytics', roles: ['admin', 'branch_manager', 'branch_staff'] },
     { to: '/deliveries', icon: FiTruck, label: 'Deliveries', roles: ['admin', 'warehouse'] },
+    { to: '/sales', icon: FiDollarSign, label: 'Sales', roles: ['admin', 'warehouse', 'branch_manager', 'branch_staff'] },
     { to: '/messages', icon: FiMessageSquare, label: 'Messages', roles: ['admin', 'warehouse', 'branch_manager', 'branch_staff'] },
     { to: '/admin', icon: FiSettings, label: 'Admin', roles: ['admin'] },
     { to: '/audit', icon: FiShield, label: 'Audit Log', roles: ['admin'] },
+    { to: '/unit-conversions', icon: FiRefreshCw, label: 'Unit Conversions', roles: ['admin'] },
   ];
 
   const filteredNavItems = navItems.filter(item => item.roles.includes(user?.role));

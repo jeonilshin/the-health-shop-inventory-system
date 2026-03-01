@@ -2,6 +2,22 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../config/database');
 const { auth, authorize } = require('../middleware/auth');
+const { logAudit } = require('../middleware/auditLog');
+
+// Get all inventory across all locations (admin only)
+router.get('/all', auth, authorize('admin'), async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT i.*, l.name as location_name, l.type as location_type
+       FROM inventory i
+       JOIN locations l ON i.location_id = l.id
+       ORDER BY l.type DESC, l.name, i.description`
+    );
+    res.json(result.rows);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
 
 // Get inventory by location
 router.get('/location/:locationId', auth, async (req, res) => {
@@ -47,6 +63,20 @@ router.post('/', auth, authorize('admin', 'warehouse'), async (req, res) => {
        RETURNING *`,
       [location_id, description, unit, quantity, unit_cost, suggested_selling_price, expiry_date, batch_number]
     );
+    
+    // Log audit
+    await logAudit({
+      userId: req.user.id,
+      username: req.user.username,
+      action: 'INVENTORY_ADD',
+      tableName: 'inventory',
+      recordId: result.rows[0].id,
+      newValues: result.rows[0],
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+      description: `Added ${quantity} ${unit} of ${description} to inventory`
+    });
+    
     res.status(201).json(result.rows[0]);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -58,6 +88,9 @@ router.put('/:id', auth, authorize('admin'), async (req, res) => {
   try {
     const { id } = req.params;
     const { description, unit, quantity, unit_cost, suggested_selling_price, expiry_date, batch_number } = req.body;
+    
+    // Get old values for audit
+    const oldData = await pool.query('SELECT * FROM inventory WHERE id = $1', [id]);
     
     const result = await pool.query(
       `UPDATE inventory 
@@ -71,6 +104,20 @@ router.put('/:id', auth, authorize('admin'), async (req, res) => {
       return res.status(404).json({ error: 'Inventory item not found' });
     }
     
+    // Log audit
+    await logAudit({
+      userId: req.user.id,
+      username: req.user.username,
+      action: 'INVENTORY_UPDATE',
+      tableName: 'inventory',
+      recordId: id,
+      oldValues: oldData.rows[0],
+      newValues: result.rows[0],
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+      description: `Updated inventory: ${description} (Qty: ${oldData.rows[0]?.quantity} → ${quantity})`
+    });
+    
     res.json(result.rows[0]);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -81,7 +128,27 @@ router.put('/:id', auth, authorize('admin'), async (req, res) => {
 router.delete('/:id', auth, authorize('admin'), async (req, res) => {
   try {
     const { id } = req.params;
+    
+    // Get item details before deletion
+    const item = await pool.query('SELECT * FROM inventory WHERE id = $1', [id]);
+    
     await pool.query('DELETE FROM inventory WHERE id = $1', [id]);
+    
+    // Log audit
+    if (item.rows.length > 0) {
+      await logAudit({
+        userId: req.user.id,
+        username: req.user.username,
+        action: 'INVENTORY_DELETE',
+        tableName: 'inventory',
+        recordId: id,
+        oldValues: item.rows[0],
+        ipAddress: req.ip,
+        userAgent: req.get('user-agent'),
+        description: `Deleted inventory item: ${item.rows[0].description}`
+      });
+    }
+    
     res.json({ message: 'Inventory item deleted' });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -144,6 +211,30 @@ router.get('/expired', auth, async (req, res) => {
     query += ' ORDER BY i.expiry_date ASC';
     
     const result = await pool.query(query, params);
+    res.json(result.rows);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get inventory history (all unique items ever in inventory - for autocomplete)
+router.get('/history/all', auth, async (req, res) => {
+  try {
+    // Get all unique inventory items with their most recent details
+    const query = `
+      SELECT DISTINCT ON (description, unit, batch_number)
+        description, 
+        unit,
+        unit_cost,
+        suggested_selling_price,
+        batch_number,
+        expiry_date
+      FROM inventory
+      WHERE description IS NOT NULL
+      ORDER BY description, unit, batch_number, updated_at DESC
+    `;
+    
+    const result = await pool.query(query);
     res.json(result.rows);
   } catch (error) {
     res.status(500).json({ error: error.message });

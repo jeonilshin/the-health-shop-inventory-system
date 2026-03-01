@@ -10,6 +10,8 @@ import Deliveries from './components/Deliveries';
 import Admin from './components/Admin';
 import AuditLog from './components/AuditLog';
 import Messages from './components/Messages';
+import UnitConversions from './components/UnitConversions';
+import Sales from './components/Sales';
 import Navbar from './components/Navbar';
 import { AuthContext } from './context/AuthContext';
 import { NotificationProvider } from './context/NotificationContext';
@@ -73,9 +75,11 @@ function App() {
               } 
             />
             <Route path="/deliveries" element={user ? <Deliveries /> : <Navigate to="/login" />} />
+            <Route path="/sales" element={user ? <Sales /> : <Navigate to="/login" />} />
             <Route path="/messages" element={user ? <Messages /> : <Navigate to="/login" />} />
             <Route path="/admin" element={user?.role === 'admin' ? <Admin /> : <Navigate to="/" />} />
             <Route path="/audit" element={user?.role === 'admin' ? <AuditLog /> : <Navigate to="/" />} />
+            <Route path="/unit-conversions" element={user?.role === 'admin' ? <UnitConversions /> : <Navigate to="/" />} />
           </Routes>
         </Router>
       </NotificationProvider>

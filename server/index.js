@@ -30,6 +30,9 @@ app.use('/api/audit', require('./routes/audit'));
 app.use('/api/notifications', require('./routes/notifications'));
 app.use('/api/system-check', require('./routes/system-check'));
 app.use('/api/messages', require('./routes/messages'));
+app.use('/api/unit-conversions', require('./routes/unit-conversions'));
+app.use('/api/sales-reports', require('./routes/sales-reports'));
+app.use('/api/sales-transactions', require('./routes/sales-transactions'));
 
 const PORT = process.env.PORT || 5000;
 

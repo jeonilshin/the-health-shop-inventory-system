@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../config/database');
 const { auth, authorize } = require('../middleware/auth');
+const { logAudit } = require('../middleware/auditLog');
 
 // Record sale
 router.post('/', auth, authorize('admin', 'branch_manager', 'branch_staff'), async (req, res) => {
@@ -49,6 +50,20 @@ router.post('/', auth, authorize('admin', 'branch_manager', 'branch_staff'), asy
     );
 
     await client.query('COMMIT');
+    
+    // Log audit
+    await logAudit({
+      userId: req.user.id,
+      username: req.user.username,
+      action: 'SALE_CREATE',
+      tableName: 'sales',
+      recordId: sale.rows[0].id,
+      newValues: sale.rows[0],
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+      description: `Sold ${quantity} ${unit} of ${description} for $${total_amount.toFixed(2)}`
+    });
+    
     res.status(201).json(sale.rows[0]);
   } catch (error) {
     await client.query('ROLLBACK');

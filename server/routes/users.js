@@ -3,6 +3,7 @@ const router = express.Router();
 const bcrypt = require('bcryptjs');
 const pool = require('../config/database');
 const { auth, authorize } = require('../middleware/auth');
+const { logAudit } = require('../middleware/auditLog');
 
 // Get all users (admin only)
 router.get('/', auth, authorize('admin'), async (req, res) => {
@@ -43,6 +44,19 @@ router.post('/', auth, authorize('admin'), async (req, res) => {
       [username, hashedPassword, full_name, role, location_id || null]
     );
 
+    // Log audit
+    await logAudit({
+      userId: req.user.id,
+      username: req.user.username,
+      action: 'USER_CREATE',
+      tableName: 'users',
+      recordId: result.rows[0].id,
+      newValues: result.rows[0],
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+      description: `Created new user: ${username} (${role})`
+    });
+
     res.status(201).json(result.rows[0]);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -54,6 +68,9 @@ router.put('/:id', auth, authorize('admin'), async (req, res) => {
   try {
     const { id } = req.params;
     const { username, full_name, role, location_id, password } = req.body;
+
+    // Get old values for audit
+    const oldData = await pool.query('SELECT id, username, full_name, role, location_id FROM users WHERE id = $1', [id]);
 
     let query;
     let params;
@@ -74,6 +91,20 @@ router.put('/:id', auth, authorize('admin'), async (req, res) => {
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'User not found' });
     }
+
+    // Log audit
+    await logAudit({
+      userId: req.user.id,
+      username: req.user.username,
+      action: 'USER_UPDATE',
+      tableName: 'users',
+      recordId: id,
+      oldValues: oldData.rows[0],
+      newValues: result.rows[0],
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+      description: `Updated user: ${username}${password ? ' (password changed)' : ''}`
+    });
 
     res.json(result.rows[0]);
   } catch (error) {
@@ -103,6 +134,19 @@ router.delete('/:id', auth, authorize('admin'), async (req, res) => {
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'User not found' });
     }
+
+    // Log audit
+    await logAudit({
+      userId: req.user.id,
+      username: req.user.username,
+      action: 'USER_DELETE',
+      tableName: 'users',
+      recordId: id,
+      oldValues: result.rows[0],
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+      description: `Deleted user: ${result.rows[0].username}`
+    });
 
     res.json({ message: 'User deleted successfully' });
   } catch (error) {

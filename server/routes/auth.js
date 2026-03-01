@@ -4,6 +4,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const pool = require('../config/database');
 const { auth } = require('../middleware/auth');
+const { logAudit } = require('../middleware/auditLog');
 
 // Login
 router.post('/login', async (req, res) => {
@@ -31,6 +32,18 @@ router.post('/login', async (req, res) => {
       process.env.JWT_SECRET,
       { expiresIn: '24h' }
     );
+
+    // Log audit
+    await logAudit({
+      userId: user.id,
+      username: user.username,
+      action: 'LOGIN',
+      tableName: 'users',
+      recordId: user.id,
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+      description: `User logged in successfully`
+    });
 
     res.json({
       token,
@@ -99,6 +112,18 @@ router.post('/change-password', auth, async (req, res) => {
       'UPDATE users SET password = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
       [hashedPassword, req.user.id]
     );
+
+    // Log audit
+    await logAudit({
+      userId: req.user.id,
+      username: req.user.username,
+      action: 'PASSWORD_CHANGE',
+      tableName: 'users',
+      recordId: req.user.id,
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+      description: `User changed their password`
+    });
 
     res.json({ message: 'Password changed successfully' });
   } catch (error) {

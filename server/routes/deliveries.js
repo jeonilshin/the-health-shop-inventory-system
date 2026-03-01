@@ -3,6 +3,7 @@ const router = express.Router();
 const pool = require('../config/database');
 const { auth, authorize } = require('../middleware/auth');
 const { notifyLocation } = require('./notifications');
+const { logAudit } = require('../middleware/auditLog');
 
 // Get all deliveries with items
 router.get('/', auth, async (req, res) => {
@@ -175,6 +176,19 @@ router.post('/', auth, authorize('admin', 'warehouse'), async (req, res) => {
     
     await client.query('COMMIT');
     
+    // Log audit
+    await logAudit({
+      userId: req.user.id,
+      username: req.user.username,
+      action: 'DELIVERY_CREATE',
+      tableName: 'deliveries',
+      recordId: delivery.id,
+      newValues: { ...delivery, items },
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+      description: `Created delivery with ${items.length} item(s)`
+    });
+    
     // Fetch complete delivery with items
     const completeDelivery = await pool.query(`
       SELECT d.*, 
@@ -292,6 +306,21 @@ router.put('/:id', auth, authorize('admin', 'warehouse'), async (req, res) => {
     );
 
     await client.query('COMMIT');
+    
+    // Log audit
+    await logAudit({
+      userId: req.user.id,
+      username: req.user.username,
+      action: status === 'delivered' ? 'DELIVERY_COMPLETE' : 'DELIVERY_UPDATE',
+      tableName: 'deliveries',
+      recordId: id,
+      oldValues: { status: deliveryData.status },
+      newValues: result.rows[0],
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+      description: `Updated delivery status to ${status}${status === 'delivered' ? ' - Inventory transferred' : ''}`
+    });
+    
     res.json(result.rows[0]);
   } catch (error) {
     await client.query('ROLLBACK');
@@ -318,6 +347,20 @@ router.delete('/:id', auth, authorize('admin'), async (req, res) => {
     }
     
     await pool.query('DELETE FROM deliveries WHERE id = $1', [id]);
+    
+    // Log audit
+    await logAudit({
+      userId: req.user.id,
+      username: req.user.username,
+      action: 'DELIVERY_DELETE',
+      tableName: 'deliveries',
+      recordId: id,
+      oldValues: delivery.rows[0],
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+      description: `Deleted delivery (status: ${delivery.rows[0].status})`
+    });
+    
     res.json({ message: 'Delivery deleted successfully' });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -363,6 +406,18 @@ router.post('/:id/admin-confirm', auth, authorize('admin'), async (req, res) => 
     );
 
     await client.query('COMMIT');
+    
+    // Log audit
+    await logAudit({
+      userId: req.user.id,
+      username: req.user.username,
+      action: 'DELIVERY_ADMIN_CONFIRM',
+      tableName: 'deliveries',
+      recordId: id,
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+      description: `Admin confirmed delivery - Ready for branch acceptance`
+    });
     
     // Notify branch about confirmed delivery
     const locationInfo = await client.query(
@@ -459,6 +514,18 @@ router.post('/:id/accept', auth, authorize('admin', 'branch_manager'), async (re
     }
 
     await client.query('COMMIT');
+    
+    // Log audit
+    await logAudit({
+      userId: req.user.id,
+      username: req.user.username,
+      action: 'DELIVERY_ACCEPT',
+      tableName: 'deliveries',
+      recordId: id,
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+      description: `Branch accepted delivery - Items added to inventory and transfer completed`
+    });
     
     // Notify warehouse about completed delivery
     await notifyLocation(

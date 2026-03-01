@@ -3,6 +3,7 @@ import api from '../utils/api';
 import { AuthContext } from '../context/AuthContext';
 import { formatQuantity, formatPrice } from '../utils/formatNumber';
 import { FiPackage, FiPlus, FiDownload, FiSearch, FiAlertCircle, FiTrash2 } from 'react-icons/fi';
+import SimpleAutocomplete from './SimpleAutocomplete';
 
 function Inventory() {
   const { user } = useContext(AuthContext);
@@ -13,6 +14,7 @@ function Inventory() {
   const [searchTerm, setSearchTerm] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [inventoryHistory, setInventoryHistory] = useState([]);
   const [formData, setFormData] = useState({
     description: '',
     unit: '',
@@ -27,6 +29,7 @@ function Inventory() {
     const initializeData = async () => {
       setLoading(true);
       await fetchLocations();
+      await fetchInventoryHistory();
       setLoading(false);
     };
     initializeData();
@@ -47,6 +50,8 @@ function Inventory() {
       
       if (user.role !== 'admin' && user.location_id) {
         setSelectedLocation(user.location_id);
+      } else if (user.role === 'admin') {
+        setSelectedLocation('all');
       } else if (response.data.length > 0) {
         setSelectedLocation(response.data[0].id);
       }
@@ -55,9 +60,21 @@ function Inventory() {
     }
   };
 
+  const fetchInventoryHistory = async () => {
+    try {
+      const response = await api.get('/inventory/history/all');
+      setInventoryHistory(response.data);
+    } catch (error) {
+      // Silently fail - history is optional
+    }
+  };
+
   const fetchInventory = async () => {
     try {
-      const response = await api.get(`/inventory/location/${selectedLocation}`);
+      const endpoint = selectedLocation === 'all' 
+        ? '/inventory/all' 
+        : `/inventory/location/${selectedLocation}`;
+      const response = await api.get(endpoint);
       setInventory(response.data);
       setFilteredInventory(response.data);
     } catch (error) {
@@ -78,17 +95,26 @@ function Inventory() {
   }, [searchTerm, inventory]);
 
   const handleExport = () => {
-    const csvContent = [
-      ['Description', 'Unit', 'Quantity', 'Unit Cost', 'Suggested Price', 'Total Value'],
-      ...filteredInventory.map(item => [
+    const headers = selectedLocation === 'all' 
+      ? ['Location', 'Description', 'Unit', 'Quantity', 'Unit Cost', 'Suggested Price', 'Total Value']
+      : ['Description', 'Unit', 'Quantity', 'Unit Cost', 'Suggested Price', 'Total Value'];
+    
+    const rows = filteredInventory.map(item => {
+      const baseRow = [
         item.description,
         item.unit,
         item.quantity,
         item.unit_cost,
         item.suggested_selling_price || 0,
         parseFloat(item.quantity) * parseFloat(item.unit_cost)
-      ])
-    ].map(row => row.join(',')).join('\n');
+      ];
+      
+      return selectedLocation === 'all' 
+        ? [item.location_name, ...baseRow]
+        : baseRow;
+    });
+    
+    const csvContent = [headers, ...rows].map(row => row.join(',')).join('\n');
 
     const blob = new Blob([csvContent], { type: 'text/csv' });
     const url = window.URL.createObjectURL(blob);
@@ -117,9 +143,40 @@ function Inventory() {
         batch_number: ''
       });
       fetchInventory();
+      fetchInventoryHistory(); // Refresh history
     } catch (error) {
       alert(error.response?.data?.error || 'Error adding inventory');
     }
+  };
+
+  const handleDescriptionSelect = (item) => {
+    // Auto-fill all fields except quantity and expiry_date
+    setFormData({
+      ...formData,
+      description: item.description,
+      unit: item.unit,
+      unit_cost: item.unit_cost || '',
+      suggested_selling_price: item.suggested_selling_price || '',
+      batch_number: item.batch_number || '',
+      // Keep quantity and expiry_date empty for user input
+      quantity: '',
+      expiry_date: ''
+    });
+  };
+
+  const handleBatchNumberSelect = (item) => {
+    // When batch number is selected, auto-fill related fields
+    setFormData({
+      ...formData,
+      batch_number: item.batch_number,
+      description: item.description,
+      unit: item.unit,
+      unit_cost: item.unit_cost || '',
+      suggested_selling_price: item.suggested_selling_price || '',
+      // Keep quantity and expiry_date empty for user input
+      quantity: '',
+      expiry_date: ''
+    });
   };
 
   const canAddInventory = user.role === 'admin' || user.role === 'warehouse';
@@ -182,6 +239,7 @@ function Inventory() {
               disabled={user.role !== 'admin' && user.location_id}
             >
               <option value="">Select location</option>
+              {user.role === 'admin' && <option value="all">View All</option>}
               {locations.map((loc) => (
                 <option key={loc.id} value={loc.id}>
                   {loc.name} ({loc.type})
@@ -221,11 +279,14 @@ function Inventory() {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '16px' }}>
               <div className="form-group" style={{ marginBottom: 0 }}>
                 <label>Description *</label>
-                <input
-                  type="text"
+                <SimpleAutocomplete
+                  items={inventoryHistory}
                   value={formData.description}
-                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                  required
+                  onChange={(value) => setFormData({ ...formData, description: value })}
+                  onSelect={handleDescriptionSelect}
+                  displayField="description"
+                  placeholder="Start typing to search..."
+                  required={true}
                 />
               </div>
               <div className="form-group" style={{ marginBottom: 0 }}>
@@ -269,11 +330,14 @@ function Inventory() {
               </div>
               <div className="form-group" style={{ marginBottom: 0 }}>
                 <label>Batch Number</label>
-                <input
-                  type="text"
+                <SimpleAutocomplete
+                  items={inventoryHistory.filter(item => item.batch_number)}
                   value={formData.batch_number}
-                  onChange={(e) => setFormData({ ...formData, batch_number: e.target.value })}
-                  placeholder="e.g., BATCH-2024-001"
+                  onChange={(value) => setFormData({ ...formData, batch_number: value })}
+                  onSelect={handleBatchNumberSelect}
+                  displayField="batch_number"
+                  placeholder="Start typing batch number..."
+                  required={false}
                 />
               </div>
               <div className="form-group" style={{ marginBottom: 0 }}>
@@ -319,62 +383,141 @@ function Inventory() {
                 </td>
               </tr>
             ) : (
-              filteredInventory.map((item) => {
-                const expiryDate = item.expiry_date ? new Date(item.expiry_date) : null;
-                const today = new Date();
-                const daysUntilExpiry = expiryDate ? Math.ceil((expiryDate - today) / (1000 * 60 * 60 * 24)) : null;
-                const isExpired = daysUntilExpiry !== null && daysUntilExpiry < 0;
-                const isExpiringSoon = daysUntilExpiry !== null && daysUntilExpiry >= 0 && daysUntilExpiry <= 30;
-                
-                return (
-                  <tr key={item.id}>
-                    <td style={{ fontWeight: 600 }}>{item.description}</td>
-                    <td>{item.unit}</td>
-                    <td>
-                      <span className={`badge ${parseFloat(item.quantity) < 10 ? 'badge-danger' : 'badge-success'}`}>
-                        {formatQuantity(item.quantity)}
-                      </span>
-                    </td>
-                    <td style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                      {item.batch_number || '-'}
-                    </td>
-                    <td>
-                      {expiryDate ? (
-                        <span style={{ 
-                          fontSize: '12px',
-                          color: isExpired ? '#ef4444' : isExpiringSoon ? '#f59e0b' : 'var(--text-secondary)',
-                          fontWeight: (isExpired || isExpiringSoon) ? 600 : 400
-                        }}>
-                          {expiryDate.toLocaleDateString()}
-                          {isExpired && ' (Expired)'}
-                          {isExpiringSoon && ` (${daysUntilExpiry}d)`}
-                        </span>
-                      ) : (
-                        <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>-</span>
-                      )}
-                    </td>
-                    {user.role === 'admin' && (
+              (() => {
+                if (selectedLocation === 'all') {
+                  // Group items by location
+                  let currentLocation = null;
+                  return filteredInventory.map((item, index) => {
+                    const expiryDate = item.expiry_date ? new Date(item.expiry_date) : null;
+                    const today = new Date();
+                    const daysUntilExpiry = expiryDate ? Math.ceil((expiryDate - today) / (1000 * 60 * 60 * 24)) : null;
+                    const isExpired = daysUntilExpiry !== null && daysUntilExpiry < 0;
+                    const isExpiringSoon = daysUntilExpiry !== null && daysUntilExpiry >= 0 && daysUntilExpiry <= 30;
+                    
+                    const showLocationHeader = currentLocation !== item.location_id;
+                    currentLocation = item.location_id;
+                    
+                    return (
                       <>
-                        <td>₱{formatPrice(item.unit_cost)}</td>
-                        <td>₱{formatPrice(item.suggested_selling_price || 0)}</td>
-                        <td style={{ fontWeight: 600 }}>₱{formatPrice(parseFloat(item.quantity) * parseFloat(item.unit_cost))}</td>
+                        {showLocationHeader && (
+                          <tr key={`header-${item.location_id}`} style={{ backgroundColor: 'var(--bg-secondary)' }}>
+                            <td colSpan={user.role === 'admin' ? 9 : 5} style={{ fontWeight: 700, fontSize: '14px', padding: '12px', color: 'var(--primary)' }}>
+                              <span className={`badge ${item.location_type === 'warehouse' ? 'badge-primary' : 'badge-info'}`} style={{ marginRight: '8px' }}>
+                                {item.location_type}
+                              </span>
+                              {item.location_name}
+                            </td>
+                          </tr>
+                        )}
+                        <tr key={item.id}>
+                          <td style={{ fontWeight: 600 }}>{item.description}</td>
+                          <td>{item.unit}</td>
+                          <td>
+                            <span className={`badge ${parseFloat(item.quantity) < 10 ? 'badge-danger' : 'badge-success'}`}>
+                              {formatQuantity(item.quantity)}
+                            </span>
+                          </td>
+                          <td style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                            {item.batch_number || '-'}
+                          </td>
+                          <td>
+                            {expiryDate ? (
+                              <span style={{ 
+                                fontSize: '12px',
+                                color: isExpired ? '#ef4444' : isExpiringSoon ? '#f59e0b' : 'var(--text-secondary)',
+                                fontWeight: (isExpired || isExpiringSoon) ? 600 : 400
+                              }}>
+                                {expiryDate.toLocaleDateString()}
+                                {isExpired && ' (Expired)'}
+                                {isExpiringSoon && ` (${daysUntilExpiry}d)`}
+                              </span>
+                            ) : (
+                              <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>-</span>
+                            )}
+                          </td>
+                          {user.role === 'admin' && (
+                            <>
+                              <td>₱{formatPrice(item.unit_cost)}</td>
+                              <td>₱{formatPrice(item.suggested_selling_price || 0)}</td>
+                              <td style={{ fontWeight: 600 }}>₱{formatPrice(parseFloat(item.quantity) * parseFloat(item.unit_cost))}</td>
+                            </>
+                          )}
+                          {user.role === 'admin' && (
+                            <td>
+                              <button
+                                className="btn btn-danger"
+                                style={{ padding: '6px 12px', fontSize: '12px' }}
+                                onClick={() => handleDeleteInventory(item.id)}
+                              >
+                                <FiTrash2 size={12} />
+                                Delete
+                              </button>
+                            </td>
+                          )}
+                        </tr>
                       </>
-                    )}
-                    {user.role === 'admin' && (
-                      <td>
-                        <button
-                          className="btn btn-danger"
-                          style={{ padding: '6px 12px', fontSize: '12px' }}
-                          onClick={() => handleDeleteInventory(item.id)}
-                        >
-                          <FiTrash2 size={12} />
-                          Delete
-                        </button>
-                      </td>
-                    )}
-                  </tr>
-                );
-              })
+                    );
+                  });
+                } else {
+                  // Single location view
+                  return filteredInventory.map((item) => {
+                    const expiryDate = item.expiry_date ? new Date(item.expiry_date) : null;
+                    const today = new Date();
+                    const daysUntilExpiry = expiryDate ? Math.ceil((expiryDate - today) / (1000 * 60 * 60 * 24)) : null;
+                    const isExpired = daysUntilExpiry !== null && daysUntilExpiry < 0;
+                    const isExpiringSoon = daysUntilExpiry !== null && daysUntilExpiry >= 0 && daysUntilExpiry <= 30;
+                    
+                    return (
+                      <tr key={item.id}>
+                        <td style={{ fontWeight: 600 }}>{item.description}</td>
+                        <td>{item.unit}</td>
+                        <td>
+                          <span className={`badge ${parseFloat(item.quantity) < 10 ? 'badge-danger' : 'badge-success'}`}>
+                            {formatQuantity(item.quantity)}
+                          </span>
+                        </td>
+                        <td style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                          {item.batch_number || '-'}
+                        </td>
+                        <td>
+                          {expiryDate ? (
+                            <span style={{ 
+                              fontSize: '12px',
+                              color: isExpired ? '#ef4444' : isExpiringSoon ? '#f59e0b' : 'var(--text-secondary)',
+                              fontWeight: (isExpired || isExpiringSoon) ? 600 : 400
+                            }}>
+                              {expiryDate.toLocaleDateString()}
+                              {isExpired && ' (Expired)'}
+                              {isExpiringSoon && ` (${daysUntilExpiry}d)`}
+                            </span>
+                          ) : (
+                            <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>-</span>
+                          )}
+                        </td>
+                        {user.role === 'admin' && (
+                          <>
+                            <td>₱{formatPrice(item.unit_cost)}</td>
+                            <td>₱{formatPrice(item.suggested_selling_price || 0)}</td>
+                            <td style={{ fontWeight: 600 }}>₱{formatPrice(parseFloat(item.quantity) * parseFloat(item.unit_cost))}</td>
+                          </>
+                        )}
+                        {user.role === 'admin' && (
+                          <td>
+                            <button
+                              className="btn btn-danger"
+                              style={{ padding: '6px 12px', fontSize: '12px' }}
+                              onClick={() => handleDeleteInventory(item.id)}
+                            >
+                              <FiTrash2 size={12} />
+                              Delete
+                            </button>
+                          </td>
+                        )}
+                      </tr>
+                    );
+                  });
+                }
+              })()
             )}
           </tbody>
         </table>
