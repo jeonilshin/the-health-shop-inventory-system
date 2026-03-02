@@ -1,10 +1,8 @@
-import React, { useState, useContext } from 'react';
-import { AuthContext } from '../context/AuthContext';
+import React, { useState, useCallback } from 'react';
 import { useToast } from '../context/ToastContext';
 import api from '../utils/api';
 
 function ImportInventory() {
-  const { user } = useContext(AuthContext);
   const showToast = useToast();
   const [file, setFile] = useState(null);
   const [previewData, setPreviewData] = useState(null);
@@ -15,11 +13,7 @@ function ImportInventory() {
   const [locations, setLocations] = useState([]);
   const [branches, setBranches] = useState([]);
 
-  React.useEffect(() => {
-    fetchLocations();
-  }, []);
-
-  const fetchLocations = async () => {
+  const fetchLocations = useCallback(async () => {
     try {
       const response = await api.get('/locations');
       const warehouses = response.data.filter(loc => loc.type === 'warehouse');
@@ -32,7 +26,11 @@ function ImportInventory() {
     } catch (error) {
       showToast().error('Error', 'Failed to load locations');
     }
-  };
+  }, [showToast]);
+
+  React.useEffect(() => {
+    fetchLocations();
+  }, [fetchLocations]);
 
   const handleFileChange = (e) => {
     const selectedFile = e.target.files[0];
