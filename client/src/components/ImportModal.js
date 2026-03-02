@@ -8,6 +8,7 @@ function ImportModal({ isOpen, onClose, onImportComplete }) {
   const [previewData, setPreviewData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [importProgress, setImportProgress] = useState(0);
   const [selectedLocation, setSelectedLocation] = useState('');
   const [selectedBranch, setSelectedBranch] = useState('');
   const [locations, setLocations] = useState([]);
@@ -81,25 +82,89 @@ function ImportModal({ isOpen, onClose, onImportComplete }) {
       return;
     }
 
-    if (previewData.errors && previewData.errors.length > 0) {
-      if (!window.confirm('There are validation errors. Do you want to continue importing valid rows?')) {
+    // Filter out rows with critical errors (missing batch number or description)
+    const validData = previewData.preview.filter(item => 
+      item.batch_number && item.description && item.unit
+    );
+
+    const invalidData = previewData.preview.filter(item => 
+      !item.batch_number || !item.description || !item.unit
+    );
+
+    // If there are invalid rows, show detailed confirmation
+    if (invalidData.length > 0) {
+      const invalidRowsList = invalidData.map(item => {
+        const issues = [];
+        if (!item.batch_number) issues.push('Missing Brand/Number');
+        if (!item.description) issues.push('Missing Description');
+        if (!item.unit) issues.push('Missing Unit');
+        return `Row ${item.rowNumber}: ${issues.join(', ')}`;
+      }).slice(0, 20); // Show first 20 errors
+
+      const moreErrors = invalidData.length > 20 ? `\n... and ${invalidData.length - 20} more rows` : '';
+      
+      const confirmMessage = `${invalidData.length} row(s) will NOT be imported due to missing required fields:\n\n${invalidRowsList.join('\n')}${moreErrors}\n\n${validData.length} valid row(s) will be imported.\n\nDo you want to proceed?`;
+      
+      if (!window.confirm(confirmMessage)) {
         return;
       }
+    }
+
+    if (validData.length === 0) {
+      showToast().error('Error', 'No valid rows to import. All rows have missing required fields.');
+      return;
     }
 
     setImporting(true);
 
     try {
-      const response = await api.post('/import/import', {
-        data: previewData.preview,
-        locationId: selectedLocation,
-        branchId: selectedBranch || null
-      });
+      // Process in batches of 100 items to avoid payload size issues
+      const batchSize = 100;
+      const totalBatches = Math.ceil(validData.length / batchSize);
+      let totalImported = 0;
+      let totalUpdated = 0;
+      let totalTransferred = 0;
+      let totalSkipped = 0;
+      const allErrors = [];
 
-      showToast().success(
-        'Success',
-        `Import complete: ${response.data.imported} new, ${response.data.updated} updated${response.data.transferred > 0 ? `, ${response.data.transferred} transferred` : ''}, ${response.data.skipped} skipped`
-      );
+      for (let i = 0; i < validData.length; i += batchSize) {
+        const batch = validData.slice(i, i + batchSize);
+        const batchNumber = Math.floor(i / batchSize) + 1;
+        
+        // Update progress
+        setImportProgress(Math.round((batchNumber / totalBatches) * 100));
+        
+        try {
+          const response = await api.post('/import/import', {
+            data: batch,
+            locationId: selectedLocation,
+            branchId: selectedBranch || null
+          });
+
+          totalImported += response.data.imported;
+          totalUpdated += response.data.updated;
+          totalTransferred += response.data.transferred || 0;
+          totalSkipped += response.data.skipped;
+          
+          if (response.data.errors) {
+            allErrors.push(...response.data.errors);
+          }
+        } catch (batchError) {
+          console.error(`Error importing batch ${batchNumber}:`, batchError);
+          allErrors.push(`Batch ${batchNumber}: ${batchError.response?.data?.error || batchError.message}`);
+        }
+      }
+
+      setImportProgress(0);
+
+      const message = `Import complete: ${totalImported} new, ${totalUpdated} updated${totalTransferred > 0 ? `, ${totalTransferred} transferred` : ''}${invalidData.length > 0 ? `, ${invalidData.length} skipped (invalid)` : ''}`;
+      
+      if (allErrors.length > 0) {
+        showToast().warning('Partial Success', `${message}. ${allErrors.length} errors occurred.`);
+        console.error('Import errors:', allErrors);
+      } else {
+        showToast().success('Success', message);
+      }
 
       // Reset form
       setFile(null);
@@ -114,6 +179,7 @@ function ImportModal({ isOpen, onClose, onImportComplete }) {
       }
       onClose();
     } catch (error) {
+      console.error('Import error:', error);
       showToast().error('Error', error.response?.data?.error || 'Failed to import data');
     } finally {
       setImporting(false);
@@ -130,34 +196,60 @@ function ImportModal({ isOpen, onClose, onImportComplete }) {
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-lg shadow-xl max-w-6xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+    <div className="modal-overlay" onClick={handleClose}>
+      <div className="modal-content import-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '1200px', width: '95%', maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}>
         {/* Header */}
-        <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between bg-gradient-to-r from-blue-600 to-blue-700">
-          <h2 className="text-2xl font-bold text-white">Import Inventory from Excel</h2>
+        <div style={{ 
+          padding: '20px 24px', 
+          borderBottom: '1px solid var(--border)',
+          background: 'linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%)',
+          color: 'white',
+          borderRadius: 'var(--radius-lg) var(--radius-lg) 0 0',
+          marginTop: '-32px',
+          marginLeft: '-32px',
+          marginRight: '-32px',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center'
+        }}>
+          <h2 style={{ fontSize: '1.5rem', fontWeight: 'bold', margin: 0 }}>Import Inventory from Excel</h2>
           <button
             onClick={handleClose}
-            className="text-white hover:text-gray-200 transition-colors"
+            style={{ 
+              background: 'rgba(255, 255, 255, 0.2)', 
+              border: 'none', 
+              color: 'white', 
+              width: '32px', 
+              height: '32px', 
+              borderRadius: 'var(--radius)', 
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              transition: 'var(--transition)'
+            }}
+            onMouseOver={(e) => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.3)'}
+            onMouseOut={(e) => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.2)'}
           >
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg style={{ width: '20px', height: '20px' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto p-6">
-          <div className="space-y-4 mb-6">
+        <div style={{ flex: 1, overflowY: 'auto', padding: '24px 0' }}>
+          <div style={{ marginBottom: '24px' }}>
             {/* Location Selection */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
-                  Import to Location <span className="text-red-500">*</span>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
+              <div className="form-group">
+                <label style={{ fontWeight: '600', marginBottom: '8px', display: 'block' }}>
+                  Import to Location <span style={{ color: 'var(--danger)' }}>*</span>
                 </label>
                 <select
                   value={selectedLocation}
                   onChange={(e) => setSelectedLocation(e.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="form-control"
                 >
                   <option value="">-- Select Location --</option>
                   {locations.map(loc => (
@@ -169,129 +261,141 @@ function ImportModal({ isOpen, onClose, onImportComplete }) {
                 </select>
               </div>
 
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
+              <div className="form-group">
+                <label style={{ fontWeight: '600', marginBottom: '8px', display: 'block' }}>
                   Also Transfer to Branch (Optional)
                 </label>
                 <select
                   value={selectedBranch}
                   onChange={(e) => setSelectedBranch(e.target.value)}
                   disabled={!selectedLocation || branches.some(b => b.id === parseInt(selectedLocation))}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed"
+                  className="form-control"
                 >
                   <option value="">-- No Transfer --</option>
                   {branches.map(branch => (
                     <option key={branch.id} value={branch.id}>🏪 {branch.name}</option>
                   ))}
                 </select>
-                <p className="text-xs text-gray-500 mt-1">
+                <small style={{ color: 'var(--text-muted)', fontSize: '0.75rem', marginTop: '4px', display: 'block' }}>
                   {branches.some(b => b.id === parseInt(selectedLocation)) 
                     ? 'Not available when importing directly to branch'
                     : 'Create automatic transfer after import'}
-                </p>
+                </small>
               </div>
             </div>
 
             {/* File Upload */}
-            <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">
-                Select Excel File <span className="text-red-500">*</span>
+            <div className="form-group">
+              <label style={{ fontWeight: '600', marginBottom: '8px', display: 'block' }}>
+                Select Excel File <span style={{ color: 'var(--danger)' }}>*</span>
               </label>
-              <div className="flex items-center gap-3">
+              <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
                 <input
                   id="fileInput"
                   type="file"
                   accept=".xlsx,.xls"
                   onChange={handleFileChange}
-                  className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                  className="form-control"
+                  style={{ flex: 1 }}
                 />
                 <button
                   onClick={handlePreview}
                   disabled={!file || loading || !selectedLocation}
-                  className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors font-medium shadow-sm"
+                  className="btn btn-primary"
                 >
-                  {loading ? (
-                    <span className="flex items-center gap-2">
-                      <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                      </svg>
-                      Loading...
-                    </span>
-                  ) : 'Preview'}
+                  {loading ? 'Loading...' : 'Preview'}
                 </button>
               </div>
-              <div className="mt-2 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                <p className="text-xs text-blue-800 font-medium">Expected columns (case-insensitive):</p>
-                <p className="text-xs text-blue-700 mt-1">BRAND, Number, PRODUCT DESCRIPTION (or THE HEALTHSHOP PRODUCTS), UoM, CONTENT, Ave Unit Cost, Selling Price, QTY</p>
-                <p className="text-xs text-blue-600 mt-1 italic">Note: The file can have title rows at the top - they will be automatically detected and skipped.</p>
+              <div style={{ 
+                marginTop: '12px', 
+                padding: '12px', 
+                background: 'rgba(37, 99, 235, 0.05)', 
+                border: '1px solid rgba(37, 99, 235, 0.2)', 
+                borderRadius: 'var(--radius)'
+              }}>
+                <p style={{ fontSize: '0.75rem', color: 'var(--primary)', fontWeight: '600', margin: '0 0 4px 0' }}>
+                  Expected columns (case-insensitive):
+                </p>
+                <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', margin: '0 0 4px 0' }}>
+                  BRAND, Number, PRODUCT DESCRIPTION (or THE HEALTHSHOP PRODUCTS), UoM, CONTENT, Ave Unit Cost, Selling Price, QTY
+                </p>
+                <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', margin: 0, fontStyle: 'italic' }}>
+                  Note: The file can have title rows at the top - they will be automatically detected and skipped.
+                </p>
               </div>
             </div>
           </div>
 
           {/* Preview Section */}
           {previewData && (
-            <div className="border border-gray-200 rounded-lg overflow-hidden">
-              <div className="bg-gray-50 px-4 py-3 border-b border-gray-200 flex items-center justify-between">
-                <h3 className="text-lg font-semibold text-gray-800">
+            <div className="card" style={{ border: '1px solid var(--border)', marginTop: '24px' }}>
+              <div style={{ 
+                padding: '16px 20px', 
+                borderBottom: '1px solid var(--border)', 
+                background: 'var(--bg-secondary)',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center'
+              }}>
+                <h3 style={{ fontSize: '1.125rem', fontWeight: '600', margin: 0 }}>
                   Preview ({previewData.totalRows} rows)
                 </h3>
                 <button
                   onClick={handleImport}
                   disabled={importing || !selectedLocation}
-                  className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors font-medium shadow-sm"
+                  className="btn btn-success"
                 >
                   {importing ? (
-                    <span className="flex items-center gap-2">
-                      <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                      </svg>
-                      Importing...
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      Importing... {importProgress > 0 && `${importProgress}%`}
                     </span>
                   ) : '✓ Import to Inventory'}
                 </button>
               </div>
 
               {previewData.errors && previewData.errors.length > 0 && (
-                <div className="bg-red-50 border-b border-red-200 p-4">
-                  <h4 className="font-semibold text-red-800 mb-2 flex items-center gap-2">
-                    <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-                    </svg>
-                    Validation Errors ({previewData.errors.length})
-                  </h4>
-                  <ul className="list-disc list-inside text-sm text-red-700 space-y-1 max-h-32 overflow-y-auto">
-                    {previewData.errors.map((error, idx) => (
-                      <li key={idx}>{error}</li>
-                    ))}
-                  </ul>
+                <div className="alert alert-error" style={{ margin: '16px 20px', borderRadius: 'var(--radius)' }}>
+                  <div style={{ flex: 1 }}>
+                    <h4 style={{ fontWeight: '600', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <svg style={{ width: '20px', height: '20px' }} fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                      </svg>
+                      Validation Errors ({previewData.errors.length})
+                    </h4>
+                    <ul style={{ listStyle: 'disc', paddingLeft: '20px', margin: 0, maxHeight: '120px', overflowY: 'auto', fontSize: '0.875rem' }}>
+                      {previewData.errors.map((error, idx) => (
+                        <li key={idx}>{error}</li>
+                      ))}
+                    </ul>
+                  </div>
                 </div>
               )}
 
-              <div className="overflow-x-auto max-h-96">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-gray-100 sticky top-0">
+              <div style={{ overflowX: 'auto', maxHeight: '400px' }}>
+                <table className="data-table">
+                  <thead style={{ position: 'sticky', top: 0, background: 'var(--bg-secondary)', zIndex: 1 }}>
                     <tr>
-                      <th className="px-3 py-3 text-left text-xs font-bold text-gray-600 uppercase tracking-wider">Row</th>
-                      <th className="px-3 py-3 text-left text-xs font-bold text-gray-600 uppercase tracking-wider">Batch #</th>
-                      <th className="px-3 py-3 text-left text-xs font-bold text-gray-600 uppercase tracking-wider">Description</th>
-                      <th className="px-3 py-3 text-left text-xs font-bold text-gray-600 uppercase tracking-wider">Unit</th>
-                      <th className="px-3 py-3 text-left text-xs font-bold text-gray-600 uppercase tracking-wider">Qty</th>
-                      <th className="px-3 py-3 text-left text-xs font-bold text-gray-600 uppercase tracking-wider">Unit Cost</th>
-                      <th className="px-3 py-3 text-left text-xs font-bold text-gray-600 uppercase tracking-wider">Selling Price</th>
+                      <th>Row</th>
+                      <th>Batch #</th>
+                      <th>Description</th>
+                      <th>Unit</th>
+                      <th>Qty</th>
+                      <th>Unit Cost</th>
+                      <th>Selling Price</th>
                     </tr>
                   </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
+                  <tbody>
                     {previewData.preview.map((item, idx) => (
-                      <tr key={idx} className={!item.batch_number || !item.description ? 'bg-red-50' : idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
-                        <td className="px-3 py-2 text-sm text-gray-600">{item.rowNumber}</td>
-                        <td className="px-3 py-2 text-sm font-medium text-gray-900">{item.batch_number || <span className="text-red-500">❌ Missing</span>}</td>
-                        <td className="px-3 py-2 text-sm text-gray-700">{item.description || <span className="text-red-500">❌ Missing</span>}</td>
-                        <td className="px-3 py-2 text-sm text-gray-700">{item.unit || <span className="text-red-500">❌ Missing</span>}</td>
-                        <td className="px-3 py-2 text-sm text-gray-700">{item.quantity}</td>
-                        <td className="px-3 py-2 text-sm text-gray-700">₱{item.unit_cost.toFixed(2)}</td>
-                        <td className="px-3 py-2 text-sm text-gray-700">₱{item.suggested_selling_price.toFixed(2)}</td>
+                      <tr key={idx} style={!item.batch_number || !item.description ? { background: 'rgba(239, 68, 68, 0.05)' } : {}}>
+                        <td>{item.rowNumber}</td>
+                        <td style={{ fontWeight: '600' }}>
+                          {item.batch_number || <span style={{ color: 'var(--danger)' }}>❌ Missing</span>}
+                        </td>
+                        <td>{item.description || <span style={{ color: 'var(--danger)' }}>❌ Missing</span>}</td>
+                        <td>{item.unit || <span style={{ color: 'var(--danger)' }}>❌ Missing</span>}</td>
+                        <td>{item.quantity}</td>
+                        <td>₱{item.unit_cost.toFixed(2)}</td>
+                        <td>₱{item.suggested_selling_price.toFixed(2)}</td>
                       </tr>
                     ))}
                   </tbody>
