@@ -108,23 +108,6 @@ function Login() {
             )}
           </button>
         </form>
-
-        <div style={{ 
-          marginTop: '24px', 
-          padding: '16px', 
-          background: 'var(--bg-primary)', 
-          borderRadius: 'var(--radius)',
-          fontSize: '12px',
-          color: 'var(--text-secondary)'
-        }}>
-          <p style={{ margin: '0 0 8px 0', fontWeight: '600', color: 'var(--text-primary)' }}>
-            Default Login:
-          </p>
-          <p style={{ margin: 0 }}>
-            Username: <code style={{ background: 'white', padding: '2px 6px', borderRadius: '4px' }}>admin</code><br />
-            Password: <code style={{ background: 'white', padding: '2px 6px', borderRadius: '4px' }}>admin123</code>
-          </p>
-        </div>
       </div>
     </div>
   );
