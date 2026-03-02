@@ -272,75 +272,20 @@ function Dashboard() {
         )}
       </div>
 
-      {/* Out of Stock Alert */}
-      {outOfStock.length > 0 && (
-        <div className="card" style={{ borderLeft: '4px solid #ef4444' }}>
-          <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#ef4444' }}>
-            <FiAlertTriangle size={20} />
-            Out of Stock ({outOfStock.length} items)
-          </h3>
-          <div className="alert alert-error" style={{ marginBottom: '16px' }}>
-            <FiAlertTriangle size={16} />
-            These items are completely out of stock and need immediate restocking.
-          </div>
-          <div style={{ overflowX: 'auto' }}>
-            <table>
-              <thead>
-                <tr>
-                  <th>Location</th>
-                  <th>Description</th>
-                  <th>Unit</th>
-                  <th>Batch</th>
-                  <th>Status</th>
-                  <th>Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {outOfStock.slice(0, 10).map((item) => (
-                  <tr key={item.id}>
-                    <td>{item.location_name}</td>
-                    <td style={{ fontWeight: 600 }}>{item.description}</td>
-                    <td>{item.unit}</td>
-                    <td style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                      {item.batch_number || '-'}
-                    </td>
-                    <td>
-                      <span className="badge badge-danger">
-                        OUT OF STOCK
-                      </span>
-                    </td>
-                    <td>
-                      <Link 
-                        to="/transfers" 
-                        className="btn btn-danger" 
-                        style={{ padding: '4px 12px', fontSize: '12px' }}
-                      >
-                        <FiArrowRight size={12} />
-                        Restock Now
-                      </Link>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          {outOfStock.length > 10 && (
-            <div style={{ textAlign: 'center', marginTop: '16px' }}>
-              <Link to="/inventory" className="btn">
-                View All Out of Stock Items
-              </Link>
-            </div>
-          )}
-        </div>
-      )}
-
       {/* Low Stock Alert */}
       {lowStock.length > 0 && (
         <div className="card" style={{ borderLeft: '4px solid #f59e0b' }}>
-          <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#f59e0b' }}>
-            <FiAlertTriangle size={20} />
-            Low Stock Alert ({lowStock.length} items)
-          </h3>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '12px' }}>
+            <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#f59e0b', margin: 0 }}>
+              <FiAlertTriangle size={20} />
+              Low Stock Alert ({lowStock.length} items)
+            </h3>
+            {lowStock.length > 5 && (
+              <Link to="/inventory" className="btn" style={{ padding: '6px 12px', fontSize: '14px' }}>
+                View All
+              </Link>
+            )}
+          </div>
           <div className="alert alert-warning" style={{ marginBottom: '16px' }}>
             <FiAlertTriangle size={16} />
             These items are running low and may need restocking soon.
@@ -358,10 +303,14 @@ function Dashboard() {
                 </tr>
               </thead>
               <tbody>
-                {lowStock.slice(0, 10).map((item) => (
+                {lowStock.slice(0, 5).map((item) => (
                   <tr key={item.id}>
-                    <td>{item.location_name}</td>
-                    <td style={{ fontWeight: 600 }}>{item.description}</td>
+                    <td>
+                      <span className="badge badge-primary" style={{ fontSize: '11px' }}>
+                        {item.location_name}
+                      </span>
+                    </td>
+                    <td style={{ fontWeight: 600, minWidth: '200px' }}>{item.description}</td>
                     <td>{item.unit}</td>
                     <td style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
                       {item.batch_number || '-'}
@@ -375,7 +324,7 @@ function Dashboard() {
                       <Link 
                         to="/transfers" 
                         className="btn btn-primary" 
-                        style={{ padding: '4px 12px', fontSize: '12px' }}
+                        style={{ padding: '6px 12px', fontSize: '12px', whiteSpace: 'nowrap' }}
                       >
                         <FiArrowRight size={12} />
                         Transfer
@@ -386,10 +335,89 @@ function Dashboard() {
               </tbody>
             </table>
           </div>
-          {lowStock.length > 10 && (
-            <div style={{ textAlign: 'center', marginTop: '16px' }}>
-              <Link to="/inventory" className="btn">
-                View All Low Stock Items
+        </div>
+      )}
+
+      {/* Out of Stock Alert */}
+      {outOfStock.length > 0 && (
+        <div className="card" style={{ borderLeft: '4px solid #ef4444', background: 'linear-gradient(to right, rgba(239, 68, 68, 0.03), transparent)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '12px' }}>
+            <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#ef4444', margin: 0 }}>
+              <FiAlertTriangle size={20} />
+              No More Stocks ({outOfStock.length} items)
+            </h3>
+            {outOfStock.length > 5 && (
+              <Link to="/inventory" className="btn" style={{ padding: '6px 12px', fontSize: '14px' }}>
+                View All
+              </Link>
+            )}
+          </div>
+          <div className="alert alert-error" style={{ marginBottom: '16px' }}>
+            <FiAlertTriangle size={16} />
+            <strong>Urgent:</strong> These items are completely out of stock and need immediate restocking.
+          </div>
+          
+          {/* Grid view for better mobile experience */}
+          <div style={{ 
+            display: 'grid', 
+            gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', 
+            gap: '16px',
+            marginBottom: '16px'
+          }}>
+            {outOfStock.slice(0, 6).map((item) => (
+              <div 
+                key={item.id} 
+                style={{ 
+                  padding: '16px', 
+                  border: '2px solid #fee2e2', 
+                  borderRadius: 'var(--radius)',
+                  background: 'white',
+                  transition: 'var(--transition)'
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.borderColor = '#ef4444'}
+                onMouseLeave={(e) => e.currentTarget.style.borderColor = '#fee2e2'}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '12px' }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: '14px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '4px' }}>
+                      {item.description}
+                    </div>
+                    <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                      {item.unit} • {item.batch_number || 'No batch'}
+                    </div>
+                  </div>
+                  <span className="badge badge-danger" style={{ fontSize: '10px', whiteSpace: 'nowrap' }}>
+                    OUT OF STOCK
+                  </span>
+                </div>
+                
+                <div style={{ 
+                  display: 'flex', 
+                  justifyContent: 'space-between', 
+                  alignItems: 'center',
+                  paddingTop: '12px',
+                  borderTop: '1px solid #fee2e2'
+                }}>
+                  <span className="badge badge-primary" style={{ fontSize: '11px' }}>
+                    {item.location_name}
+                  </span>
+                  <Link 
+                    to="/transfers" 
+                    className="btn btn-danger" 
+                    style={{ padding: '6px 12px', fontSize: '12px', whiteSpace: 'nowrap' }}
+                  >
+                    <FiArrowRight size={12} />
+                    Restock
+                  </Link>
+                </div>
+              </div>
+            ))}
+          </div>
+          
+          {outOfStock.length > 6 && (
+            <div style={{ textAlign: 'center', paddingTop: '12px', borderTop: '1px solid #fee2e2' }}>
+              <Link to="/inventory" className="btn btn-danger">
+                View All {outOfStock.length} Out of Stock Items
               </Link>
             </div>
           )}
@@ -399,10 +427,17 @@ function Dashboard() {
       {/* Expiring Items Alert */}
       {expiringItems.length > 0 && (
         <div className="card" style={{ borderLeft: '4px solid #f59e0b' }}>
-          <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#f59e0b' }}>
-            <FiClock size={20} />
-            Expiring Soon ({expiringItems.length} items)
-          </h3>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '12px' }}>
+            <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#f59e0b', margin: 0 }}>
+              <FiClock size={20} />
+              Expiring Soon ({expiringItems.length} items)
+            </h3>
+            {expiringItems.length > 5 && (
+              <Link to="/inventory" className="btn" style={{ padding: '6px 12px', fontSize: '14px' }}>
+                View All
+              </Link>
+            )}
+          </div>
           <div className="alert alert-warning" style={{ marginBottom: '16px' }}>
             <FiClock size={16} />
             These items will expire within 30 days. Take action to prevent waste.
@@ -420,7 +455,7 @@ function Dashboard() {
                 </tr>
               </thead>
               <tbody>
-                {expiringItems.slice(0, 10).map((item) => {
+                {expiringItems.slice(0, 5).map((item) => {
                   const expiryDate = new Date(item.expiry_date);
                   const today = new Date();
                   const daysLeft = Math.ceil((expiryDate - today) / (1000 * 60 * 60 * 24));
@@ -428,13 +463,17 @@ function Dashboard() {
                   
                   return (
                     <tr key={item.id}>
-                      <td>{item.location_name}</td>
-                      <td style={{ fontWeight: 600 }}>{item.description}</td>
+                      <td>
+                        <span className="badge badge-primary" style={{ fontSize: '11px' }}>
+                          {item.location_name}
+                        </span>
+                      </td>
+                      <td style={{ fontWeight: 600, minWidth: '200px' }}>{item.description}</td>
                       <td style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
                         {item.batch_number || '-'}
                       </td>
                       <td>{formatQuantity(item.quantity)} {item.unit}</td>
-                      <td style={{ fontSize: '12px' }}>
+                      <td style={{ fontSize: '12px', whiteSpace: 'nowrap' }}>
                         {expiryDate.toLocaleDateString()}
                       </td>
                       <td>
@@ -448,13 +487,6 @@ function Dashboard() {
               </tbody>
             </table>
           </div>
-          {expiringItems.length > 10 && (
-            <div style={{ textAlign: 'center', marginTop: '16px' }}>
-              <Link to="/inventory" className="btn">
-                View All Expiring Items
-              </Link>
-            </div>
-          )}
         </div>
       )}
     </div>
