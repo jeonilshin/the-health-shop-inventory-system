@@ -2,8 +2,9 @@ import { useState, useEffect, useContext } from 'react';
 import api from '../utils/api';
 import { AuthContext } from '../context/AuthContext';
 import { formatQuantity, formatPrice } from '../utils/formatNumber';
-import { FiPackage, FiPlus, FiDownload, FiSearch, FiAlertCircle, FiTrash2 } from 'react-icons/fi';
+import { FiPackage, FiPlus, FiDownload, FiSearch, FiAlertCircle, FiTrash2, FiUpload } from 'react-icons/fi';
 import SimpleAutocomplete from './SimpleAutocomplete';
+import ImportModal from './ImportModal';
 
 function Inventory() {
   const { user } = useContext(AuthContext);
@@ -13,6 +14,7 @@ function Inventory() {
   const [filteredInventory, setFilteredInventory] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [showForm, setShowForm] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
   const [loading, setLoading] = useState(true);
   const [inventoryHistory, setInventoryHistory] = useState([]);
   const [formData, setFormData] = useState({
@@ -252,6 +254,12 @@ function Inventory() {
               <FiDownload size={16} />
               Export CSV
             </button>
+            {(user.role === 'admin' || user.role === 'warehouse') && (
+              <button className="btn btn-success" onClick={() => setShowImportModal(true)}>
+                <FiUpload size={16} />
+                Import Excel
+              </button>
+            )}
             {canAddInventory && (
               <button className="btn btn-primary" onClick={() => setShowForm(!showForm)}>
                 <FiPlus size={16} />
@@ -522,6 +530,15 @@ function Inventory() {
           </tbody>
         </table>
       </div>
+
+      <ImportModal 
+        isOpen={showImportModal} 
+        onClose={() => setShowImportModal(false)}
+        onImportComplete={() => {
+          fetchInventory();
+          fetchInventoryHistory();
+        }}
+      />
     </div>
   );
 }

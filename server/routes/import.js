@@ -19,29 +19,99 @@ router.post('/preview', auth, authorize('admin', 'warehouse'), upload.single('fi
     const workbook = xlsx.read(req.file.buffer, { type: 'buffer' });
     const sheetName = workbook.SheetNames[0];
     const sheet = workbook.Sheets[sheetName];
-    const rawData = xlsx.utils.sheet_to_json(sheet);
+    
+    // Read all rows as arrays to find the header row
+    const allRows = xlsx.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+    
+    // Find the header row (look for row containing "BRAND" or "Brand")
+    let headerRowIndex = -1;
+    for (let i = 0; i < Math.min(10, allRows.length); i++) {
+      const row = allRows[i];
+      if (row.some(cell => 
+        typeof cell === 'string' && 
+        (cell.toUpperCase().includes('BRAND') || cell.toUpperCase().includes('NUMBER'))
+      )) {
+        headerRowIndex = i;
+        break;
+      }
+    }
+
+    if (headerRowIndex === -1) {
+      return res.status(400).json({ error: 'Could not find header row. Please ensure the file has columns like Brand, Number, etc.' });
+    }
+
+    // Read data starting from header row
+    const rawData = xlsx.utils.sheet_to_json(sheet, { 
+      range: headerRowIndex,
+      defval: ''
+    });
 
     // Transform data according to mapping
     const previewData = rawData.map((row, index) => {
-      const brand = (row.Brand || '').toString().trim();
-      const number = (row.Number || '').toString().trim();
+      // Handle different possible column names (case-insensitive)
+      const getColumnValue = (possibleNames) => {
+        for (const name of possibleNames) {
+          const key = Object.keys(row).find(k => k.toUpperCase().trim() === name.toUpperCase());
+          if (key && row[key]) return row[key];
+        }
+        return '';
+      };
+
+      const brand = getColumnValue(['BRAND', 'Brand']).toString().trim();
+      const number = getColumnValue(['NUMBER', 'Number']).toString().trim();
       const batchNumber = brand && number ? `${brand}-${number}` : '';
 
+      const description = getColumnValue([
+        'PRODUCT DESCRIPTION',
+        'THE HEALTHSHOP PRODUCTS',
+        'DESCRIPTION',
+        'Product'
+      ]).toString().trim();
+
+      const unit = getColumnValue(['UOM', 'UoM', 'UNIT', 'Unit']).toString().trim();
+      
+      const unitCost = parseFloat(getColumnValue([
+        'AVE UNIT COST',
+        'Ave Unit Cost',
+        'UNIT COST',
+        'Unit Cost',
+        'COST',
+        'Cost'
+      ])) || 0;
+
+      const sellingPrice = parseFloat(getColumnValue([
+        'SELLING PRICE',
+        'Selling Price',
+        'SP',
+        'Price'
+      ])) || 0;
+
+      const quantity = parseFloat(getColumnValue([
+        'QTY',
+        'Qty',
+        'QUANTITY',
+        'Quantity',
+        'END'
+      ])) || 0;
+
       return {
-        rowNumber: index + 2, // Excel row number (accounting for header)
+        rowNumber: headerRowIndex + index + 2, // Excel row number (accounting for header)
         batch_number: batchNumber,
-        description: (row['THE HEALTHSHOP PRODUCTS'] || '').toString().trim(),
-        unit: (row.UoM || '').toString().trim(),
-        unit_cost: parseFloat(row['Ave Unit Cost']) || 0,
-        suggested_selling_price: parseFloat(row['Selling Price']) || 0,
-        quantity: parseFloat(row.QTY) || 0,
+        description: description,
+        unit: unit,
+        unit_cost: unitCost,
+        suggested_selling_price: sellingPrice,
+        quantity: quantity,
         // Keep original values for reference
         original: {
           brand,
           number,
-          content: row.Content
+          content: getColumnValue(['CONTENT', 'Content'])
         }
       };
+    }).filter(item => {
+      // Filter out completely empty rows
+      return item.batch_number || item.description || item.unit || item.quantity > 0;
     });
 
     // Validate data

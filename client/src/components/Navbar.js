@@ -20,8 +20,7 @@ import {
   FiShield,
   FiMenu,
   FiX,
-  FiRefreshCw,
-  FiUpload
+  FiRefreshCw
 } from 'react-icons/fi';
 
 function Navbar() {
@@ -74,7 +73,6 @@ function Navbar() {
   const navItems = [
     { to: '/', icon: FiHome, label: 'Dashboard', roles: ['admin', 'warehouse', 'branch_manager', 'branch_staff'] },
     { to: '/inventory', icon: FiPackage, label: 'Inventory', roles: ['admin', 'warehouse', 'branch_manager', 'branch_staff'] },
-    { to: '/import', icon: FiUpload, label: 'Import', roles: ['admin', 'warehouse'] },
     { to: '/transfers', icon: FiSend, label: 'Transfers', roles: ['admin', 'warehouse', 'branch_manager'] },
     { to: '/reports', icon: FiFileText, label: 'Reports', roles: ['admin', 'branch_manager', 'branch_staff'] },
     { to: '/analytics', icon: FiBarChart2, label: 'Analytics', roles: ['admin', 'branch_manager', 'branch_staff'] },
