@@ -365,9 +365,10 @@ function Inventory() {
           </form>
         )}
 
-        <table>
-          <thead>
-            <tr>
+        <div style={{ overflowX: 'auto', marginTop: '20px' }}>
+          <table>
+            <thead>
+              <tr>
               <th>Description</th>
               <th>Unit</th>
               <th>Quantity</th>
@@ -529,6 +530,7 @@ function Inventory() {
             )}
           </tbody>
         </table>
+      </div>
       </div>
 
       <ImportModal 
