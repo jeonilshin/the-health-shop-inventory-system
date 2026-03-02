@@ -17,6 +17,10 @@ function Inventory() {
   const [showImportModal, setShowImportModal] = useState(false);
   const [loading, setLoading] = useState(true);
   const [inventoryHistory, setInventoryHistory] = useState([]);
+  const [sortBy, setSortBy] = useState('batch'); // 'batch', 'description'
+  const [sortOrder, setSortOrder] = useState('asc'); // 'asc', 'desc'
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(50);
   const [formData, setFormData] = useState({
     description: '',
     unit: '',
@@ -85,16 +89,39 @@ function Inventory() {
   };
 
   useEffect(() => {
+    let filtered = inventory;
+    
+    // Apply search filter
     if (searchTerm) {
-      const filtered = inventory.filter(item =>
+      filtered = filtered.filter(item =>
         item.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        item.unit.toLowerCase().includes(searchTerm.toLowerCase())
+        item.unit.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (item.batch_number && item.batch_number.toLowerCase().includes(searchTerm.toLowerCase()))
       );
-      setFilteredInventory(filtered);
-    } else {
-      setFilteredInventory(inventory);
     }
-  }, [searchTerm, inventory]);
+    
+    // Apply sorting
+    filtered = [...filtered].sort((a, b) => {
+      let compareA, compareB;
+      
+      if (sortBy === 'batch') {
+        compareA = (a.batch_number || '').toLowerCase();
+        compareB = (b.batch_number || '').toLowerCase();
+      } else if (sortBy === 'description') {
+        compareA = a.description.toLowerCase();
+        compareB = b.description.toLowerCase();
+      }
+      
+      if (sortOrder === 'asc') {
+        return compareA > compareB ? 1 : -1;
+      } else {
+        return compareA < compareB ? 1 : -1;
+      }
+    });
+    
+    setFilteredInventory(filtered);
+    setCurrentPage(1); // Reset to first page when filtering/sorting
+  }, [searchTerm, inventory, sortBy, sortOrder]);
 
   const handleExport = () => {
     const headers = selectedLocation === 'all' 
@@ -270,15 +297,48 @@ function Inventory() {
         </div>
 
         <div className="form-group" style={{ marginBottom: '20px' }}>
-          <div style={{ position: 'relative' }}>
-            <FiSearch style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} size={18} />
-            <input
-              type="text"
-              placeholder="Search by description or unit..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              style={{ width: '100%', paddingLeft: '40px' }}
-            />
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr auto auto auto', gap: '12px', alignItems: 'center' }}>
+            <div style={{ position: 'relative' }}>
+              <FiSearch style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} size={18} />
+              <input
+                type="text"
+                placeholder="Search by description, unit, or batch..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                style={{ width: '100%', paddingLeft: '40px' }}
+              />
+            </div>
+            
+            <select 
+              value={sortBy} 
+              onChange={(e) => setSortBy(e.target.value)}
+              style={{ minWidth: '150px' }}
+            >
+              <option value="batch">Sort by Batch</option>
+              <option value="description">Sort by Description</option>
+            </select>
+            
+            <button 
+              className="btn" 
+              onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
+              style={{ minWidth: '100px' }}
+            >
+              {sortOrder === 'asc' ? 'A → Z' : 'Z → A'}
+            </button>
+            
+            <select 
+              value={itemsPerPage} 
+              onChange={(e) => {
+                setItemsPerPage(Number(e.target.value));
+                setCurrentPage(1);
+              }}
+              style={{ minWidth: '120px' }}
+            >
+              <option value={50}>Show 50</option>
+              <option value={100}>Show 100</option>
+              <option value={200}>Show 200</option>
+              <option value={999999}>Show All</option>
+            </select>
           </div>
         </div>
 
@@ -393,10 +453,15 @@ function Inventory() {
               </tr>
             ) : (
               (() => {
+                // Calculate pagination
+                const indexOfLastItem = currentPage * itemsPerPage;
+                const indexOfFirstItem = indexOfLastItem - itemsPerPage;
+                const currentItems = filteredInventory.slice(indexOfFirstItem, indexOfLastItem);
+                
                 if (selectedLocation === 'all') {
                   // Group items by location
                   let currentLocation = null;
-                  return filteredInventory.map((item, index) => {
+                  return currentItems.map((item, index) => {
                     const expiryDate = item.expiry_date ? new Date(item.expiry_date) : null;
                     const today = new Date();
                     const daysUntilExpiry = expiryDate ? Math.ceil((expiryDate - today) / (1000 * 60 * 60 * 24)) : null;
@@ -469,7 +534,7 @@ function Inventory() {
                   });
                 } else {
                   // Single location view
-                  return filteredInventory.map((item) => {
+                  return currentItems.map((item) => {
                     const expiryDate = item.expiry_date ? new Date(item.expiry_date) : null;
                     const today = new Date();
                     const daysUntilExpiry = expiryDate ? Math.ceil((expiryDate - today) / (1000 * 60 * 60 * 24)) : null;
@@ -531,6 +596,67 @@ function Inventory() {
           </tbody>
         </table>
       </div>
+      
+      {/* Pagination Controls */}
+      {filteredInventory.length > 0 && (
+        <div style={{ 
+          display: 'flex', 
+          justifyContent: 'space-between', 
+          alignItems: 'center', 
+          marginTop: '20px',
+          padding: '16px',
+          background: 'var(--bg-secondary)',
+          borderRadius: 'var(--radius)',
+          flexWrap: 'wrap',
+          gap: '12px'
+        }}>
+          <div style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>
+            Showing {Math.min((currentPage - 1) * itemsPerPage + 1, filteredInventory.length)} to {Math.min(currentPage * itemsPerPage, filteredInventory.length)} of {filteredInventory.length} items
+          </div>
+          
+          {Math.ceil(filteredInventory.length / itemsPerPage) > 1 && (
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <button
+                className="btn"
+                onClick={() => setCurrentPage(1)}
+                disabled={currentPage === 1}
+                style={{ padding: '6px 12px' }}
+              >
+                First
+              </button>
+              <button
+                className="btn"
+                onClick={() => setCurrentPage(currentPage - 1)}
+                disabled={currentPage === 1}
+                style={{ padding: '6px 12px' }}
+              >
+                Previous
+              </button>
+              
+              <span style={{ padding: '0 12px', color: 'var(--text-primary)', fontWeight: '600' }}>
+                Page {currentPage} of {Math.ceil(filteredInventory.length / itemsPerPage)}
+              </span>
+              
+              <button
+                className="btn"
+                onClick={() => setCurrentPage(currentPage + 1)}
+                disabled={currentPage >= Math.ceil(filteredInventory.length / itemsPerPage)}
+                style={{ padding: '6px 12px' }}
+              >
+                Next
+              </button>
+              <button
+                className="btn"
+                onClick={() => setCurrentPage(Math.ceil(filteredInventory.length / itemsPerPage))}
+                disabled={currentPage >= Math.ceil(filteredInventory.length / itemsPerPage)}
+                style={{ padding: '6px 12px' }}
+              >
+                Last
+              </button>
+            </div>
+          )}
+        </div>
+      )}
       </div>
 
       <ImportModal 

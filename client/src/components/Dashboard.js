@@ -18,11 +18,13 @@ function Dashboard() {
   const { user } = useContext(AuthContext);
   const [summary, setSummary] = useState([]);
   const [lowStock, setLowStock] = useState([]);
+  const [outOfStock, setOutOfStock] = useState([]);
   const [expiringItems, setExpiringItems] = useState([]);
   const [stats, setStats] = useState({
     totalValue: 0,
     totalItems: 0,
     lowStockCount: 0,
+    outOfStockCount: 0,
     expiringCount: 0
   });
   const [loading, setLoading] = useState(true);
@@ -55,8 +57,13 @@ function Dashboard() {
         ? expiringRes.data.filter(item => item.location_id === user.location_id)
         : expiringRes.data;
       
+      // Separate out of stock (quantity = 0) from low stock (quantity > 0 but low)
+      const outOfStockItems = filteredLowStock.filter(item => parseFloat(item.quantity) === 0);
+      const lowStockItems = filteredLowStock.filter(item => parseFloat(item.quantity) > 0);
+      
       setSummary(filteredSummary);
-      setLowStock(filteredLowStock);
+      setLowStock(lowStockItems);
+      setOutOfStock(outOfStockItems);
       setExpiringItems(filteredExpiring);
       
       // Calculate stats
@@ -66,7 +73,8 @@ function Dashboard() {
       setStats({
         totalValue,
         totalItems,
-        lowStockCount: filteredLowStock.length,
+        lowStockCount: lowStockItems.length,
+        outOfStockCount: outOfStockItems.length,
         expiringCount: filteredExpiring.length
       });
     } catch (error) {
@@ -132,10 +140,24 @@ function Dashboard() {
         <div className="stat-card">
           <div className="stat-card-header">
             <div>
-              <div className="stat-card-value" style={{ color: stats.lowStockCount > 0 ? '#ef4444' : 'inherit' }}>
+              <div className="stat-card-value" style={{ color: stats.lowStockCount > 0 ? '#f59e0b' : 'inherit' }}>
                 {stats.lowStockCount}
               </div>
               <div className="stat-card-label">Low Stock Items</div>
+            </div>
+            <div className="stat-card-icon" style={{ backgroundColor: 'rgba(245, 158, 11, 0.1)', color: '#f59e0b' }}>
+              <FiAlertTriangle />
+            </div>
+          </div>
+        </div>
+
+        <div className="stat-card">
+          <div className="stat-card-header">
+            <div>
+              <div className="stat-card-value" style={{ color: stats.outOfStockCount > 0 ? '#ef4444' : 'inherit' }}>
+                {stats.outOfStockCount}
+              </div>
+              <div className="stat-card-label">Out of Stock</div>
             </div>
             <div className="stat-card-icon" style={{ backgroundColor: 'rgba(239, 68, 68, 0.1)', color: '#ef4444' }}>
               <FiAlertTriangle />
@@ -250,10 +272,72 @@ function Dashboard() {
         )}
       </div>
 
-      {/* Low Stock Alert */}
-      {lowStock.length > 0 && (
+      {/* Out of Stock Alert */}
+      {outOfStock.length > 0 && (
         <div className="card" style={{ borderLeft: '4px solid #ef4444' }}>
           <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#ef4444' }}>
+            <FiAlertTriangle size={20} />
+            Out of Stock ({outOfStock.length} items)
+          </h3>
+          <div className="alert alert-error" style={{ marginBottom: '16px' }}>
+            <FiAlertTriangle size={16} />
+            These items are completely out of stock and need immediate restocking.
+          </div>
+          <div style={{ overflowX: 'auto' }}>
+            <table>
+              <thead>
+                <tr>
+                  <th>Location</th>
+                  <th>Description</th>
+                  <th>Unit</th>
+                  <th>Batch</th>
+                  <th>Status</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {outOfStock.slice(0, 10).map((item) => (
+                  <tr key={item.id}>
+                    <td>{item.location_name}</td>
+                    <td style={{ fontWeight: 600 }}>{item.description}</td>
+                    <td>{item.unit}</td>
+                    <td style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                      {item.batch_number || '-'}
+                    </td>
+                    <td>
+                      <span className="badge badge-danger">
+                        OUT OF STOCK
+                      </span>
+                    </td>
+                    <td>
+                      <Link 
+                        to="/transfers" 
+                        className="btn btn-danger" 
+                        style={{ padding: '4px 12px', fontSize: '12px' }}
+                      >
+                        <FiArrowRight size={12} />
+                        Restock Now
+                      </Link>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {outOfStock.length > 10 && (
+            <div style={{ textAlign: 'center', marginTop: '16px' }}>
+              <Link to="/inventory" className="btn">
+                View All Out of Stock Items
+              </Link>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Low Stock Alert */}
+      {lowStock.length > 0 && (
+        <div className="card" style={{ borderLeft: '4px solid #f59e0b' }}>
+          <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#f59e0b' }}>
             <FiAlertTriangle size={20} />
             Low Stock Alert ({lowStock.length} items)
           </h3>
@@ -268,6 +352,7 @@ function Dashboard() {
                   <th>Location</th>
                   <th>Description</th>
                   <th>Unit</th>
+                  <th>Batch</th>
                   <th>Quantity</th>
                   <th>Action</th>
                 </tr>
@@ -278,8 +363,11 @@ function Dashboard() {
                     <td>{item.location_name}</td>
                     <td style={{ fontWeight: 600 }}>{item.description}</td>
                     <td>{item.unit}</td>
+                    <td style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                      {item.batch_number || '-'}
+                    </td>
                     <td>
-                      <span className="badge badge-danger">
+                      <span className="badge badge-warning">
                         {formatQuantity(item.quantity)}
                       </span>
                     </td>
