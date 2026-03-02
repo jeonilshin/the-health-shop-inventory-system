@@ -32,9 +32,9 @@ router.post('/preview', auth, authorize('admin', 'warehouse'), upload.single('fi
         batch_number: batchNumber,
         description: (row['THE HEALTHSHOP PRODUCTS'] || '').toString().trim(),
         unit: (row.UoM || '').toString().trim(),
-        unit_cost: parseFloat(row.Cost) || 0,
-        suggested_selling_price: parseFloat(row.SP) || 0,
-        quantity: parseFloat(row.END) || 0,
+        unit_cost: parseFloat(row['Ave Unit Cost']) || 0,
+        suggested_selling_price: parseFloat(row['Selling Price']) || 0,
+        quantity: parseFloat(row.QTY) || 0,
         // Keep original values for reference
         original: {
           brand,
@@ -79,7 +79,7 @@ router.post('/import', auth, authorize('admin', 'warehouse'), async (req, res) =
   const client = await pool.connect();
   
   try {
-    const { data, locationId } = req.body;
+    const { data, locationId, branchId } = req.body;
 
     if (!data || !Array.isArray(data)) {
       return res.status(400).json({ error: 'Invalid data format' });
@@ -94,16 +94,19 @@ router.post('/import', auth, authorize('admin', 'warehouse'), async (req, res) =
     let imported = 0;
     let updated = 0;
     let skipped = 0;
+    let transferred = 0;
     const errors = [];
 
     for (const item of data) {
       try {
-        // Check if item already exists
+        // Check if item already exists in warehouse
         const existingItem = await client.query(
           `SELECT id, quantity FROM inventory 
            WHERE location_id = $1 AND batch_number = $2`,
           [locationId, item.batch_number]
         );
+
+        let inventoryId;
 
         if (existingItem.rows.length > 0) {
           // Update existing item
@@ -116,17 +119,50 @@ router.post('/import', auth, authorize('admin', 'warehouse'), async (req, res) =
              WHERE id = $4`,
             [item.quantity, item.unit_cost, item.suggested_selling_price, existingItem.rows[0].id]
           );
+          inventoryId = existingItem.rows[0].id;
           updated++;
         } else {
           // Insert new item
-          await client.query(
+          const result = await client.query(
             `INSERT INTO inventory 
              (location_id, batch_number, description, unit, quantity, unit_cost, suggested_selling_price)
-             VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+             VALUES ($1, $2, $3, $4, $5, $6, $7)
+             RETURNING id`,
             [locationId, item.batch_number, item.description, item.unit, item.quantity, item.unit_cost, item.suggested_selling_price]
           );
+          inventoryId = result.rows[0].id;
           imported++;
         }
+
+        // If branch is selected, create transfer
+        if (branchId) {
+          // Check if item exists in branch
+          const branchItem = await client.query(
+            `SELECT id FROM inventory 
+             WHERE location_id = $1 AND batch_number = $2`,
+            [branchId, item.batch_number]
+          );
+
+          // If doesn't exist in branch, create it
+          if (branchItem.rows.length === 0) {
+            await client.query(
+              `INSERT INTO inventory 
+               (location_id, batch_number, description, unit, quantity, unit_cost, suggested_selling_price)
+               VALUES ($1, $2, $3, $4, 0, $5, $6)`,
+              [branchId, item.batch_number, item.description, item.unit, item.unit_cost, item.suggested_selling_price]
+            );
+          }
+
+          // Create transfer record
+          await client.query(
+            `INSERT INTO transfers 
+             (from_location_id, to_location_id, inventory_id, description, unit, quantity, unit_cost, transferred_by, status, notes)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'pending', 'Auto-created from import')`,
+            [locationId, branchId, inventoryId, item.description, item.unit, item.quantity, item.unit_cost, req.user.id]
+          );
+          transferred++;
+        }
+
       } catch (itemError) {
         console.error(`Error processing item ${item.batch_number}:`, itemError);
         errors.push(`${item.batch_number}: ${itemError.message}`);
@@ -141,6 +177,7 @@ router.post('/import', auth, authorize('admin', 'warehouse'), async (req, res) =
       imported,
       updated,
       skipped,
+      transferred,
       errors: errors.length > 0 ? errors : null
     });
 

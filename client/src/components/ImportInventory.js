@@ -1,17 +1,19 @@
 import React, { useState, useContext } from 'react';
 import { AuthContext } from '../context/AuthContext';
-import { ToastContext } from '../context/ToastContext';
+import { useToast } from '../context/ToastContext';
 import api from '../utils/api';
 
 function ImportInventory() {
   const { user } = useContext(AuthContext);
-  const { showToast } = useContext(ToastContext);
+  const showToast = useToast();
   const [file, setFile] = useState(null);
   const [previewData, setPreviewData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [importing, setImporting] = useState(false);
   const [selectedLocation, setSelectedLocation] = useState('');
+  const [selectedBranch, setSelectedBranch] = useState('');
   const [locations, setLocations] = useState([]);
+  const [branches, setBranches] = useState([]);
 
   React.useEffect(() => {
     fetchLocations();
@@ -21,12 +23,14 @@ function ImportInventory() {
     try {
       const response = await api.get('/locations');
       const warehouses = response.data.filter(loc => loc.type === 'warehouse');
+      const branchList = response.data.filter(loc => loc.type === 'branch');
       setLocations(warehouses);
+      setBranches(branchList);
       if (warehouses.length > 0) {
         setSelectedLocation(warehouses[0].id);
       }
     } catch (error) {
-      showToast('Failed to load locations', 'error');
+      showToast().error('Error', 'Failed to load locations');
     }
   };
 
@@ -34,7 +38,7 @@ function ImportInventory() {
     const selectedFile = e.target.files[0];
     if (selectedFile) {
       if (!selectedFile.name.endsWith('.xlsx') && !selectedFile.name.endsWith('.xls')) {
-        showToast('Please select an Excel file (.xlsx or .xls)', 'error');
+        showToast().error('Error', 'Please select an Excel file (.xlsx or .xls)');
         return;
       }
       setFile(selectedFile);
@@ -44,7 +48,7 @@ function ImportInventory() {
 
   const handlePreview = async () => {
     if (!file) {
-      showToast('Please select a file first', 'error');
+      showToast().error('Error', 'Please select a file first');
       return;
     }
 
@@ -58,14 +62,14 @@ function ImportInventory() {
       });
 
       if (response.data.errors && response.data.errors.length > 0) {
-        showToast(`Found ${response.data.errors.length} validation errors`, 'warning');
+        showToast().warning('Warning', `Found ${response.data.errors.length} validation errors`);
       } else {
-        showToast('Preview loaded successfully', 'success');
+        showToast().success('Success', 'Preview loaded successfully');
       }
 
       setPreviewData(response.data);
     } catch (error) {
-      showToast(error.response?.data?.error || 'Failed to preview file', 'error');
+      showToast().error('Error', error.response?.data?.error || 'Failed to preview file');
     } finally {
       setLoading(false);
     }
@@ -73,7 +77,7 @@ function ImportInventory() {
 
   const handleImport = async () => {
     if (!previewData || !selectedLocation) {
-      showToast('Please preview the file and select a location first', 'error');
+      showToast().error('Error', 'Please preview the file and select a location first');
       return;
     }
 
@@ -88,12 +92,13 @@ function ImportInventory() {
     try {
       const response = await api.post('/import/import', {
         data: previewData.preview,
-        locationId: selectedLocation
+        locationId: selectedLocation,
+        branchId: selectedBranch || null
       });
 
-      showToast(
-        `Import complete: ${response.data.imported} new, ${response.data.updated} updated, ${response.data.skipped} skipped`,
-        'success'
+      showToast().success(
+        'Success',
+        `Import complete: ${response.data.imported} new, ${response.data.updated} updated${response.data.transferred > 0 ? `, ${response.data.transferred} transferred` : ''}, ${response.data.skipped} skipped`
       );
 
       // Reset form
@@ -101,7 +106,7 @@ function ImportInventory() {
       setPreviewData(null);
       document.getElementById('fileInput').value = '';
     } catch (error) {
-      showToast(error.response?.data?.error || 'Failed to import data', 'error');
+      showToast().error('Error', error.response?.data?.error || 'Failed to import data');
     } finally {
       setImporting(false);
     }
@@ -129,6 +134,25 @@ function ImportInventory() {
 
         <div className="mb-4">
           <label className="block text-sm font-medium text-gray-700 mb-2">
+            Send to Branch (Optional)
+          </label>
+          <select
+            value={selectedBranch}
+            onChange={(e) => setSelectedBranch(e.target.value)}
+            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="">-- No Transfer (Import to Warehouse Only) --</option>
+            {branches.map(branch => (
+              <option key={branch.id} value={branch.id}>{branch.name}</option>
+            ))}
+          </select>
+          <p className="text-sm text-gray-500 mt-1">
+            If selected, items will be imported to warehouse and automatically transferred to the branch
+          </p>
+        </div>
+
+        <div className="mb-4">
+          <label className="block text-sm font-medium text-gray-700 mb-2">
             Select Excel File
           </label>
           <input
@@ -139,7 +163,7 @@ function ImportInventory() {
             className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
           <p className="text-sm text-gray-500 mt-2">
-            Expected columns: Brand, Number, THE HEALTHSHOP PRODUCTS, UoM, Content, Cost, SP, END
+            Expected columns: Brand, Number, THE HEALTHSHOP PRODUCTS, UoM, Content, Ave Unit Cost, Selling Price, QTY
           </p>
         </div>
 
