@@ -124,7 +124,6 @@ function ImportModal({ isOpen, onClose, onImportComplete }) {
       let totalImported = 0;
       let totalUpdated = 0;
       let totalTransferred = 0;
-      let totalSkipped = 0;
       const allErrors = [];
 
       for (let i = 0; i < validData.length; i += batchSize) {
@@ -144,7 +143,6 @@ function ImportModal({ isOpen, onClose, onImportComplete }) {
           totalImported += response.data.imported;
           totalUpdated += response.data.updated;
           totalTransferred += response.data.transferred || 0;
-          totalSkipped += response.data.skipped;
           
           if (response.data.errors) {
             allErrors.push(...response.data.errors);
