@@ -257,6 +257,8 @@ router.post('/import', auth, authorize('admin', 'warehouse'), async (req, res) =
     
     // Track batch numbers by brand for auto-increment
     const brandCounters = {};
+    
+    console.log(`📦 Starting import of ${data.length} items...`);
 
     for (const item of data) {
       try {
@@ -264,6 +266,8 @@ router.post('/import', auth, authorize('admin', 'warehouse'), async (req, res) =
         if (item.is_category) {
           continue;
         }
+        
+        console.log(`Processing: ${item.description} (Brand: ${item.brand})`);
         
         // Generate batch number
         let batchNumber = item.batch_number;
@@ -278,18 +282,24 @@ router.post('/import', auth, authorize('admin', 'warehouse'), async (req, res) =
           
           // Get existing max number for this brand
           if (!brandCounters[item.brand]) {
-            const result = await client.query(
-              `SELECT batch_number FROM inventory 
-               WHERE batch_number LIKE $1 
-               ORDER BY batch_number DESC LIMIT 1`,
-              [`${item.brand}-%`]
-            );
-            
-            if (result.rows.length > 0) {
-              const lastBatch = result.rows[0].batch_number;
-              const match = lastBatch.match(/-(\d+)$/);
-              brandCounters[item.brand] = match ? parseInt(match[1]) : 0;
-            } else {
+            try {
+              const result = await client.query(
+                `SELECT batch_number FROM inventory 
+                 WHERE batch_number LIKE $1 
+                 ORDER BY batch_number DESC LIMIT 1`,
+                [`${item.brand}-%`]
+              );
+              
+              if (result.rows.length > 0) {
+                const lastBatch = result.rows[0].batch_number;
+                const match = lastBatch.match(/-(\d+)$/);
+                brandCounters[item.brand] = match ? parseInt(match[1]) : 0;
+              } else {
+                brandCounters[item.brand] = 0;
+              }
+            } catch (queryError) {
+              console.error(`Error querying batch numbers for brand ${item.brand}:`, queryError);
+              // Fallback: start from 0
               brandCounters[item.brand] = 0;
             }
           }
@@ -387,6 +397,12 @@ router.post('/import', auth, authorize('admin', 'warehouse'), async (req, res) =
     }
 
     await client.query('COMMIT');
+    
+    console.log(`✅ Import complete: ${imported} imported, ${updated} updated, ${skipped} skipped, ${transferred} transferred`);
+    if (errors.length > 0) {
+      console.log(`⚠️ Errors: ${errors.length}`);
+      errors.forEach(err => console.log(`  - ${err}`));
+    }
 
     res.json({
       success: true,

@@ -193,13 +193,19 @@ function ImportModal({ isOpen, onClose, onImportComplete }) {
       const message = `Import complete: ${totalImported} new, ${totalUpdated} updated${totalTransferred > 0 ? `, ${totalTransferred} transferred` : ''}${invalidData.length > 0 ? `, ${invalidData.length} skipped (invalid)` : ''}`;
       
       if (allErrors.length > 0) {
-        // Show detailed errors
-        const errorDetails = allErrors.slice(0, 10).join('\n');
-        const moreErrors = allErrors.length > 10 ? `\n... and ${allErrors.length - 10} more errors` : '';
+        // Create detailed error report
+        const errorReport = allErrors.map((err, idx) => `${idx + 1}. ${err}`).join('\n');
         
-        alert(`${message}\n\n⚠️ ERRORS OCCURRED:\n${errorDetails}${moreErrors}\n\nCheck browser console for full details.`);
-        console.error('Full import errors:', allErrors);
-        showToast().warning('Partial Success', `${message}. ${allErrors.length} errors occurred. Check console for details.`);
+        // Show in console
+        console.error('❌ IMPORT ERRORS:', allErrors);
+        
+        // Show in alert with scrollable content
+        const errorSummary = allErrors.slice(0, 5).join('\n');
+        const moreCount = allErrors.length > 5 ? `\n\n... and ${allErrors.length - 5} more errors` : '';
+        
+        alert(`⚠️ Import completed with ${allErrors.length} errors:\n\n${errorSummary}${moreCount}\n\nFull error list is in the browser console (F12).`);
+        
+        showToast().warning('Partial Success', `${message}. ${allErrors.length} errors occurred.`);
       } else {
         showToast().success('Success', message);
       }
