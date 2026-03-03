@@ -147,8 +147,8 @@ function Reports() {
     
     const gross = cashSalesExt + consign;
     const netCash = gross - salesDisc - salesRet;
-    // Total Cash Sales/Receipts in Section A = actual sales only (NO cash beginning)
-    const totalCashSales = netCash + delivFee + otherInc;
+    // Total Cash Sales/Receipts in Section A = Cash Beginning + actual sales
+    const totalCashSales = cashBegin + netCash + delivFee + otherInc;
     
     const mayaPOS = parseFloat(parseFormattedNumber(formData.maya_pos_qr) || 0);
     const gcashQR = parseFloat(parseFormattedNumber(formData.gcash_qr) || 0);
@@ -167,13 +167,13 @@ function Reports() {
     const actualDeposit = parseFloat(parseFormattedNumber(formData.actual_cash_deposited) || 0);
     const cashOverShort = parseFloat(parseFormattedNumber(formData.cash_overage_shortage) || 0);
     
-    // Net Cash Receipts = Cash Beginning + Total Cash Sales - Disbursements
-    const netCashReceipts = cashBegin + totalCashSales - totalDisb;
+    // Net Cash Receipts = Total Cash Sales (which already includes beginning) - Disbursements
+    const netCashReceipts = totalCashSales - totalDisb;
     const cashAvailable = netCashReceipts - actualDeposit;
     const cashNextDay = cashAvailable + cashOverShort;
     
     // Net Sales = actual sales only (excluding beginning cash)
-    const netSales = totalCashSales + netCredit;
+    const netSales = (netCash + delivFee + otherInc) + netCredit;
     
     // Only update fields that haven't been manually overridden
     setFormData(prev => ({
@@ -407,7 +407,7 @@ function Reports() {
                   <input type="text" value={formatNumberInput(formData.other_income)} onChange={(e) => handleCurrencyChange('other_income', e.target.value)} placeholder="0.00" />
                 </div>
                 <div className="form-group" style={{ marginBottom: 0 }}>
-                  <label>Total Cash Sales/Receipts (Auto) - Sales Only</label>
+                  <label>Total Cash Sales/Receipts (Auto)</label>
                   <input 
                     type="text" 
                     value={formatNumberInput(formData.total_cash_receipts)} 
@@ -417,11 +417,7 @@ function Reports() {
                     }}
                     style={{ backgroundColor: manualOverrides.total_cash_receipts ? 'var(--bg-primary)' : 'var(--bg-secondary)', fontWeight: 600 }} 
                     placeholder="Auto-calculated (editable)"
-                    title="This is sales only. Cash Beginning is added in Net Cash Receipts section."
                   />
-                  <small style={{ fontSize: '0.7rem', color: 'var(--text-muted)', display: 'block', marginTop: '4px' }}>
-                    Note: Cash Beginning is NOT included here. It's added in Section D (Net Cash Receipts).
-                  </small>
                 </div>
               </div>
             </div>
