@@ -193,8 +193,13 @@ function ImportModal({ isOpen, onClose, onImportComplete }) {
       const message = `Import complete: ${totalImported} new, ${totalUpdated} updated${totalTransferred > 0 ? `, ${totalTransferred} transferred` : ''}${invalidData.length > 0 ? `, ${invalidData.length} skipped (invalid)` : ''}`;
       
       if (allErrors.length > 0) {
-        showToast().warning('Partial Success', `${message}. ${allErrors.length} errors occurred.`);
-        console.error('Import errors:', allErrors);
+        // Show detailed errors
+        const errorDetails = allErrors.slice(0, 10).join('\n');
+        const moreErrors = allErrors.length > 10 ? `\n... and ${allErrors.length - 10} more errors` : '';
+        
+        alert(`${message}\n\n⚠️ ERRORS OCCURRED:\n${errorDetails}${moreErrors}\n\nCheck browser console for full details.`);
+        console.error('Full import errors:', allErrors);
+        showToast().warning('Partial Success', `${message}. ${allErrors.length} errors occurred. Check console for details.`);
       } else {
         showToast().success('Success', message);
       }

@@ -373,8 +373,15 @@ router.post('/import', auth, authorize('admin', 'warehouse'), async (req, res) =
         }
 
       } catch (itemError) {
-        console.error(`Error processing item ${item.description}:`, itemError);
-        errors.push(`${item.description}: ${itemError.message}`);
+        const errorMsg = `${item.description}: ${itemError.message}`;
+        console.error(`❌ Error processing item at row ${item.rowNumber}:`, {
+          description: item.description,
+          brand: item.brand,
+          batch_number: batchNumber,
+          error: itemError.message,
+          stack: itemError.stack
+        });
+        errors.push(errorMsg);
         skipped++;
       }
     }
