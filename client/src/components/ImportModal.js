@@ -165,6 +165,8 @@ function ImportModal({ isOpen, onClose, onImportComplete }) {
         const batch = validData.slice(i, i + batchSize);
         const batchNumber = Math.floor(i / batchSize) + 1;
         
+        console.log(`📦 Importing batch ${batchNumber}/${totalBatches} (${batch.length} items)...`);
+        
         // Update progress
         setImportProgress(Math.round((batchNumber / totalBatches) * 100));
         
@@ -179,11 +181,14 @@ function ImportModal({ isOpen, onClose, onImportComplete }) {
           totalUpdated += response.data.updated;
           totalTransferred += response.data.transferred || 0;
           
+          console.log(`✅ Batch ${batchNumber} complete: ${response.data.imported} imported, ${response.data.updated} updated`);
+          
           if (response.data.errors) {
+            console.warn(`⚠️ Batch ${batchNumber} errors:`, response.data.errors);
             allErrors.push(...response.data.errors);
           }
         } catch (batchError) {
-          console.error(`Error importing batch ${batchNumber}:`, batchError);
+          console.error(`❌ Batch ${batchNumber} failed:`, batchError);
           allErrors.push(`Batch ${batchNumber}: ${batchError.response?.data?.error || batchError.message}`);
         }
       }
@@ -193,13 +198,11 @@ function ImportModal({ isOpen, onClose, onImportComplete }) {
       const message = `Import complete: ${totalImported} new, ${totalUpdated} updated${totalTransferred > 0 ? `, ${totalTransferred} transferred` : ''}${invalidData.length > 0 ? `, ${invalidData.length} skipped (invalid)` : ''}`;
       
       if (allErrors.length > 0) {
-        // Create detailed error report
-        const errorReport = allErrors.map((err, idx) => `${idx + 1}. ${err}`).join('\n');
+        // Show in console with full details
+        console.error('❌ IMPORT ERRORS (' + allErrors.length + ' total):', allErrors);
+        console.table(allErrors.map((err, idx) => ({ '#': idx + 1, Error: err })));
         
-        // Show in console
-        console.error('❌ IMPORT ERRORS:', allErrors);
-        
-        // Show in alert with scrollable content
+        // Show in alert with first 5 errors
         const errorSummary = allErrors.slice(0, 5).join('\n');
         const moreCount = allErrors.length > 5 ? `\n\n... and ${allErrors.length - 5} more errors` : '';
         
