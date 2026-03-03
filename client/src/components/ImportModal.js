@@ -467,67 +467,16 @@ function ImportModal({ isOpen, onClose, onImportComplete }) {
                   borderRadius: 'var(--radius)'
                 }}>
                   <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', margin: '0 0 12px 0' }}>
-                    Some products in this file already exist in your inventory. How would you like to handle them?
+                    Some products already exist in inventory. Click "Import to Inventory" to review and select which ones to update.
                   </p>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                    <label style={{ 
-                      display: 'flex', 
-                      alignItems: 'flex-start', 
-                      gap: '10px', 
-                      cursor: 'pointer',
-                      padding: '10px',
-                      background: duplicateAction === 'update' ? 'rgba(37, 99, 235, 0.1)' : 'transparent',
-                      border: `2px solid ${duplicateAction === 'update' ? 'var(--primary)' : 'var(--border)'}`,
-                      borderRadius: 'var(--radius)',
-                      transition: 'var(--transition)'
-                    }}>
-                      <input
-                        type="radio"
-                        name="duplicateAction"
-                        value="update"
-                        checked={duplicateAction === 'update'}
-                        onChange={(e) => setDuplicateAction(e.target.value)}
-                        style={{ marginTop: '2px' }}
-                      />
-                      <div>
-                        <div style={{ fontWeight: '600', color: 'var(--text-primary)', marginBottom: '4px' }}>
-                          Update Existing Items (Recommended)
-                        </div>
-                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                          Add quantities to existing stock and update prices. Best for restocking.
-                        </div>
-                      </div>
-                    </label>
-                    
-                    <label style={{ 
-                      display: 'flex', 
-                      alignItems: 'flex-start', 
-                      gap: '10px', 
-                      cursor: 'pointer',
-                      padding: '10px',
-                      background: duplicateAction === 'skip' ? 'rgba(37, 99, 235, 0.1)' : 'transparent',
-                      border: `2px solid ${duplicateAction === 'skip' ? 'var(--primary)' : 'var(--border)'}`,
-                      borderRadius: 'var(--radius)',
-                      transition: 'var(--transition)'
-                    }}>
-                      <input
-                        type="radio"
-                        name="duplicateAction"
-                        value="skip"
-                        checked={duplicateAction === 'skip'}
-                        onChange={(e) => setDuplicateAction(e.target.value)}
-                        style={{ marginTop: '2px' }}
-                      />
-                      <div>
-                        <div style={{ fontWeight: '600', color: 'var(--text-primary)', marginBottom: '4px' }}>
-                          Skip Duplicates
-                        </div>
-                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                          Only import new products. Existing items will remain unchanged.
-                        </div>
-                      </div>
-                    </label>
-                  </div>
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    style={{ fontSize: '0.875rem', padding: '8px 16px' }}
+                    onClick={() => setShowDuplicateModal(true)}
+                  >
+                    📋 Review Duplicates ({duplicateCount})
+                  </button>
                 </div>
               </div>
             )}

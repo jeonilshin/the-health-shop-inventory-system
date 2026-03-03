@@ -2,7 +2,7 @@ import { useState, useEffect, useContext } from 'react';
 import api from '../utils/api';
 import { AuthContext } from '../context/AuthContext';
 import { formatQuantity, formatPrice } from '../utils/formatNumber';
-import { FiPackage, FiPlus, FiDownload, FiSearch, FiAlertCircle, FiTrash2, FiUpload } from 'react-icons/fi';
+import { FiPackage, FiPlus, FiDownload, FiSearch, FiAlertCircle, FiTrash2, FiUpload, FiEdit2, FiX, FiCheck } from 'react-icons/fi';
 import SimpleAutocomplete from './SimpleAutocomplete';
 import ImportModal from './ImportModal';
 
@@ -23,6 +23,8 @@ function Inventory() {
   const [itemsPerPage, setItemsPerPage] = useState(50);
   const [selectedCategory, setSelectedCategory] = useState('all'); // 'all' or specific category
   const [availableCategories, setAvailableCategories] = useState([]);
+  const [editingId, setEditingId] = useState(null);
+  const [editData, setEditData] = useState({});
   const [formData, setFormData] = useState({
     description: '',
     unit: '',
@@ -246,6 +248,36 @@ function Inventory() {
       fetchInventory();
     } catch (error) {
       alert(error.response?.data?.error || 'Error deleting inventory item');
+    }
+  };
+
+  const handleEdit = (item) => {
+    setEditingId(item.id);
+    setEditData({
+      description: item.description,
+      unit: item.unit,
+      quantity: item.quantity,
+      unit_cost: item.unit_cost,
+      suggested_selling_price: item.suggested_selling_price,
+      expiry_date: item.expiry_date ? item.expiry_date.split('T')[0] : '',
+      batch_number: item.batch_number
+    });
+  };
+
+  const handleCancelEdit = () => {
+    setEditingId(null);
+    setEditData({});
+  };
+
+  const handleSaveEdit = async (id) => {
+    try {
+      await api.put(`/inventory/${id}`, editData);
+      alert('Inventory updated successfully!');
+      setEditingId(null);
+      setEditData({});
+      fetchInventory();
+    } catch (error) {
+      alert(error.response?.data?.error || 'Error updating inventory');
     }
   };
 
@@ -573,6 +605,7 @@ function Inventory() {
                 } else {
                   // Single location view
                   return currentItems.map((item) => {
+                    const isEditing = editingId === item.id;
                     const expiryDate = item.expiry_date ? new Date(item.expiry_date) : null;
                     const today = new Date();
                     const daysUntilExpiry = expiryDate ? Math.ceil((expiryDate - today) / (1000 * 60 * 60 * 24)) : null;
@@ -581,18 +614,65 @@ function Inventory() {
                     
                     return (
                       <tr key={item.id}>
-                        <td style={{ fontWeight: 600 }}>{item.description}</td>
-                        <td>{item.unit}</td>
+                        <td style={{ fontWeight: 600 }}>
+                          {isEditing ? (
+                            <input 
+                              type="text" 
+                              value={editData.description}
+                              onChange={(e) => setEditData({...editData, description: e.target.value})}
+                              style={{ width: '100%', padding: '4px' }}
+                            />
+                          ) : (
+                            item.description
+                          )}
+                        </td>
                         <td>
-                          <span className={`badge ${parseFloat(item.quantity) < 10 ? 'badge-danger' : 'badge-success'}`}>
-                            {formatQuantity(item.quantity)}
-                          </span>
+                          {isEditing ? (
+                            <input 
+                              type="text" 
+                              value={editData.unit}
+                              onChange={(e) => setEditData({...editData, unit: e.target.value})}
+                              style={{ width: '80px', padding: '4px' }}
+                            />
+                          ) : (
+                            item.unit
+                          )}
+                        </td>
+                        <td>
+                          {isEditing ? (
+                            <input 
+                              type="number" 
+                              value={editData.quantity}
+                              onChange={(e) => setEditData({...editData, quantity: e.target.value})}
+                              style={{ width: '80px', padding: '4px' }}
+                            />
+                          ) : (
+                            <span className={`badge ${parseFloat(item.quantity) < 10 ? 'badge-danger' : 'badge-success'}`}>
+                              {formatQuantity(item.quantity)}
+                            </span>
+                          )}
                         </td>
                         <td style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                          {item.batch_number || '-'}
+                          {isEditing ? (
+                            <input 
+                              type="text" 
+                              value={editData.batch_number}
+                              onChange={(e) => setEditData({...editData, batch_number: e.target.value})}
+                              style={{ width: '100px', padding: '4px' }}
+                            />
+                          ) : (
+                            item.batch_number || '-'
+                          )}
                         </td>
                         <td>
-                          {expiryDate ? (
+                          {isEditing ? (
+                            <input 
+                              type="date" 
+                              value={editData.expiry_date}
+                              onChange={(e) => setEditData({...editData, expiry_date: e.target.value})}
+                              style={{ width: '140px', padding: '4px' }}
+                            />
+                          ) : expiryDate ? (
                             <span style={{ 
                               fontSize: '12px',
                               color: isExpired ? '#ef4444' : isExpiringSoon ? '#f59e0b' : 'var(--text-secondary)',
@@ -608,14 +688,74 @@ function Inventory() {
                         </td>
                         {user.role === 'admin' && (
                           <>
-                            <td>₱{formatPrice(item.unit_cost)}</td>
-                            <td>₱{formatPrice(item.suggested_selling_price || 0)}</td>
-                            <td style={{ fontWeight: 600 }}>₱{formatPrice(parseFloat(item.quantity) * parseFloat(item.unit_cost))}</td>
+                            <td>
+                              {isEditing ? (
+                                <input 
+                                  type="number" 
+                                  step="0.01"
+                                  value={editData.unit_cost}
+                                  onChange={(e) => setEditData({...editData, unit_cost: e.target.value})}
+                                  style={{ width: '100px', padding: '4px' }}
+                                />
+                              ) : (
+                                `₱${formatPrice(item.unit_cost)}`
+                              )}
+                            </td>
+                            <td>
+                              {isEditing ? (
+                                <input 
+                                  type="number" 
+                                  step="0.01"
+                                  value={editData.suggested_selling_price}
+                                  onChange={(e) => setEditData({...editData, suggested_selling_price: e.target.value})}
+                                  style={{ width: '100px', padding: '4px' }}
+                                />
+                              ) : (
+                                `₱${formatPrice(item.suggested_selling_price || 0)}`
+                              )}
+                            </td>
+                            <td style={{ fontWeight: 600 }}>
+                              {isEditing ? (
+                                `₱${formatPrice(parseFloat(editData.quantity || 0) * parseFloat(editData.unit_cost || 0))}`
+                              ) : (
+                                `₱${formatPrice(parseFloat(item.quantity) * parseFloat(item.unit_cost))}`
+                              )}
+                            </td>
                           </>
                         )}
                         {user.role === 'admin' && (
                           <td>
-                            <button
+                            <div style={{ display: 'flex', gap: '4px' }}>
+                              {isEditing ? (
+                                <>
+                                  <button 
+                                    className="btn btn-success" 
+                                    style={{ padding: '6px 10px', fontSize: '12px' }}
+                                    onClick={() => handleSaveEdit(item.id)}
+                                    title="Save"
+                                  >
+                                    <FiCheck size={14} />
+                                  </button>
+                                  <button 
+                                    className="btn btn-secondary" 
+                                    style={{ padding: '6px 10px', fontSize: '12px' }}
+                                    onClick={handleCancelEdit}
+                                    title="Cancel"
+                                  >
+                                    <FiX size={14} />
+                                  </button>
+                                </>
+                              ) : (
+                                <>
+                                  <button 
+                                    className="btn btn-primary" 
+                                    style={{ padding: '6px 10px', fontSize: '12px' }}
+                                    onClick={() => handleEdit(item)}
+                                    title="Edit"
+                                  >
+                                    <FiEdit2 size={12} />
+                                  </button>
+                                  <button
                               className="btn btn-danger"
                               style={{ padding: '6px 12px', fontSize: '12px' }}
                               onClick={() => handleDeleteInventory(item.id)}
