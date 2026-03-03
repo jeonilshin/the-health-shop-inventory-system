@@ -146,22 +146,21 @@ router.post('/preview', auth, authorize('admin', 'warehouse'), upload.single('fi
       let subCategory = null;
       
       if (isCategory && !isGrandTotal) {
-        // Check if previous row was also a category (this would be a sub-category)
+        // If previous row was also a category, use THIS row as the main category (more specific)
+        // and discard the previous one
         if (currentMainCategory && !currentSubCategory) {
-          // This is a sub-category
-          categoryType = 'sub';
-          mainCategory = currentMainCategory;
-          subCategory = description;
-          currentSubCategory = description;
+          // Previous was a main category, this is more specific - replace it
+          currentMainCategory = description;
+          currentSubCategory = null;
         } else {
-          // This is a main category
-          categoryType = 'main';
-          mainCategory = description;
+          // This is a new main category
           currentMainCategory = description;
           currentSubCategory = null;
         }
+        categoryType = 'main';
+        mainCategory = description;
       } else if (!isCategory && !isGrandTotal) {
-        // This is a product, assign current categories
+        // This is a product, assign current category
         mainCategory = currentMainCategory;
         subCategory = currentSubCategory;
       }
