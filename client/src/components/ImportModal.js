@@ -1,10 +1,13 @@
 import React, { useState, useCallback } from 'react';
 import { useToast } from '../context/ToastContext';
 import api from '../utils/api';
+import * as XLSX from 'xlsx';
 
 function ImportModal({ isOpen, onClose, onImportComplete }) {
   const showToast = useToast();
   const [file, setFile] = useState(null);
+  const [sheets, setSheets] = useState([]);
+  const [selectedSheet, setSelectedSheet] = useState('');
   const [previewData, setPreviewData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [importing, setImporting] = useState(false);
@@ -38,13 +41,40 @@ function ImportModal({ isOpen, onClose, onImportComplete }) {
   const handleFileChange = (e) => {
     const selectedFile = e.target.files[0];
     if (selectedFile) {
-      if (!selectedFile.name.endsWith('.xlsx') && !selectedFile.name.endsWith('.xls')) {
-        showToast().error('Error', 'Please select an Excel file (.xlsx or .xls)');
+      if (!selectedFile.name.endsWith('.xlsx') && !selectedFile.name.endsWith('.xls') && !selectedFile.name.endsWith('.csv')) {
+        showToast().error('Error', 'Please select an Excel or CSV file');
         return;
       }
       setFile(selectedFile);
       setPreviewData(null);
+      setSheets([]);
+      setSelectedSheet('');
+      
+      // Read file to detect sheets
+      detectSheets(selectedFile);
     }
+  };
+
+  const detectSheets = async (file) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = new Uint8Array(e.target.result);
+        const workbook = XLSX.read(data, { type: 'array' });
+        
+        if (workbook.SheetNames.length > 1) {
+          setSheets(workbook.SheetNames);
+          setSelectedSheet(workbook.SheetNames[0]); // Default to first sheet
+          showToast().info('Info', `Found ${workbook.SheetNames.length} sheets. Please select which one to import.`);
+        } else {
+          setSheets([]);
+          setSelectedSheet('');
+        }
+      } catch (error) {
+        console.error('Error reading file:', error);
+      }
+    };
+    reader.readAsArrayBuffer(file);
   };
 
   const handlePreview = async () => {
@@ -56,6 +86,11 @@ function ImportModal({ isOpen, onClose, onImportComplete }) {
     setLoading(true);
     const formData = new FormData();
     formData.append('file', file);
+    
+    // Add sheet name if multiple sheets exist
+    if (sheets.length > 0 && selectedSheet) {
+      formData.append('sheetName', selectedSheet);
+    }
 
     try {
       const response = await api.post('/import/preview', formData, {
@@ -84,18 +119,18 @@ function ImportModal({ isOpen, onClose, onImportComplete }) {
 
     // Filter out rows with critical errors (missing batch number or description)
     const validData = previewData.preview.filter(item => 
-      item.batch_number && item.description && item.unit
+      !item.is_category && item.brand && item.description && item.unit
     );
 
     const invalidData = previewData.preview.filter(item => 
-      !item.batch_number || !item.description || !item.unit
+      !item.is_category && (!item.brand || !item.description || !item.unit)
     );
 
     // If there are invalid rows, show detailed confirmation
     if (invalidData.length > 0) {
       const invalidRowsList = invalidData.map(item => {
         const issues = [];
-        if (!item.batch_number) issues.push('Missing Brand/Number');
+        if (!item.brand) issues.push('Missing Brand');
         if (!item.description) issues.push('Missing Description');
         if (!item.unit) issues.push('Missing Unit');
         return `Row ${item.rowNumber}: ${issues.join(', ')}`;
@@ -291,7 +326,7 @@ function ImportModal({ isOpen, onClose, onImportComplete }) {
                 <input
                   id="fileInput"
                   type="file"
-                  accept=".xlsx,.xls"
+                  accept=".xlsx,.xls,.csv"
                   onChange={handleFileChange}
                   className="form-control"
                   style={{ flex: 1 }}
@@ -304,6 +339,33 @@ function ImportModal({ isOpen, onClose, onImportComplete }) {
                   {loading ? 'Loading...' : 'Preview'}
                 </button>
               </div>
+              
+              {/* Sheet Selector - only show if multiple sheets */}
+              {sheets.length > 0 && (
+                <div style={{ marginTop: '12px' }}>
+                  <label style={{ fontWeight: '600', marginBottom: '8px', display: 'block', fontSize: '0.875rem' }}>
+                    Select Sheet to Import <span style={{ color: 'var(--danger)' }}>*</span>
+                  </label>
+                  <select
+                    value={selectedSheet}
+                    onChange={(e) => {
+                      setSelectedSheet(e.target.value);
+                      setPreviewData(null); // Clear preview when sheet changes
+                    }}
+                    className="form-control"
+                  >
+                    {sheets.map((sheet, idx) => (
+                      <option key={idx} value={sheet}>
+                        📄 {sheet}
+                      </option>
+                    ))}
+                  </select>
+                  <small style={{ color: 'var(--text-muted)', fontSize: '0.75rem', marginTop: '4px', display: 'block' }}>
+                    This file has {sheets.length} sheets. Select the one containing your inventory data.
+                  </small>
+                </div>
+              )}
+              
               <div style={{ 
                 marginTop: '12px', 
                 padding: '12px', 
@@ -315,10 +377,13 @@ function ImportModal({ isOpen, onClose, onImportComplete }) {
                   Expected columns (case-insensitive):
                 </p>
                 <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', margin: '0 0 4px 0' }}>
-                  BRAND, Number, PRODUCT DESCRIPTION (or THE HEALTHSHOP PRODUCTS), UoM, CONTENT, Ave Unit Cost, Selling Price, QTY
+                  BRAND, THE HEALTHSHOP PRODUCTS, UoM, Ave Unit Cost, Selling Price, QTY, Expiry Date (optional)
                 </p>
                 <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', margin: 0, fontStyle: 'italic' }}>
-                  Note: The file can have title rows at the top - they will be automatically detected and skipped.
+                  • Batch numbers auto-generated from Brand (e.g., CH-001, CH-002)<br/>
+                  • QTY: 0 or blank = 0 quantity<br/>
+                  • Category rows (description only, no brand/unit) will be detected<br/>
+                  • Title rows automatically skipped
                 </p>
               </div>
             </div>
@@ -374,28 +439,61 @@ function ImportModal({ isOpen, onClose, onImportComplete }) {
                   <thead style={{ position: 'sticky', top: 0, background: 'var(--bg-secondary)', zIndex: 1 }}>
                     <tr>
                       <th>Row</th>
-                      <th>Batch #</th>
+                      <th>Brand</th>
                       <th>Description</th>
                       <th>Unit</th>
                       <th>Qty</th>
                       <th>Unit Cost</th>
                       <th>Selling Price</th>
+                      <th>Expiry</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {previewData.preview.map((item, idx) => (
-                      <tr key={idx} style={!item.batch_number || !item.description ? { background: 'rgba(239, 68, 68, 0.05)' } : {}}>
-                        <td>{item.rowNumber}</td>
-                        <td style={{ fontWeight: '600' }}>
-                          {item.batch_number || <span style={{ color: 'var(--danger)' }}>❌ Missing</span>}
-                        </td>
-                        <td>{item.description || <span style={{ color: 'var(--danger)' }}>❌ Missing</span>}</td>
-                        <td>{item.unit || <span style={{ color: 'var(--danger)' }}>❌ Missing</span>}</td>
-                        <td>{item.quantity}</td>
-                        <td>₱{item.unit_cost.toFixed(2)}</td>
-                        <td>₱{item.suggested_selling_price.toFixed(2)}</td>
-                      </tr>
-                    ))}
+                    {previewData.preview.map((item, idx) => {
+                      if (item.is_category) {
+                        if (item.category_type === 'main') {
+                          return (
+                            <tr key={idx} style={{ background: 'linear-gradient(to right, rgba(37, 99, 235, 0.1), rgba(37, 99, 235, 0.05))' }}>
+                              <td>{item.rowNumber}</td>
+                              <td colSpan={7} style={{ fontWeight: '700', color: 'var(--primary)', fontSize: '15px', padding: '12px' }}>
+                                📂 {item.description}
+                              </td>
+                            </tr>
+                          );
+                        } else if (item.category_type === 'sub') {
+                          return (
+                            <tr key={idx} style={{ background: 'rgba(16, 185, 129, 0.05)' }}>
+                              <td>{item.rowNumber}</td>
+                              <td colSpan={7} style={{ fontWeight: '600', color: 'var(--secondary)', fontSize: '14px', paddingLeft: '32px' }}>
+                                📁 {item.description}
+                              </td>
+                            </tr>
+                          );
+                        }
+                      }
+                      
+                      return (
+                        <tr key={idx} style={!item.brand || !item.description ? { background: 'rgba(239, 68, 68, 0.05)' } : {}}>
+                          <td>{item.rowNumber}</td>
+                          <td style={{ fontWeight: '600' }}>
+                            {item.brand || <span style={{ color: 'var(--danger)' }}>❌ Missing</span>}
+                            {item.main_category && (
+                              <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                                {item.main_category}{item.sub_category && ` → ${item.sub_category}`}
+                              </div>
+                            )}
+                          </td>
+                          <td>{item.description || <span style={{ color: 'var(--danger)' }}>❌ Missing</span>}</td>
+                          <td>{item.unit || <span style={{ color: 'var(--danger)' }}>❌ Missing</span>}</td>
+                          <td>{item.quantity}</td>
+                          <td>₱{item.unit_cost.toFixed(2)}</td>
+                          <td>₱{item.suggested_selling_price.toFixed(2)}</td>
+                          <td style={{ fontSize: '11px' }}>
+                            {item.expiry_date ? new Date(item.expiry_date).toLocaleDateString() : '-'}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>

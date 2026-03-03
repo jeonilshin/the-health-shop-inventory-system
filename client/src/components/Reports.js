@@ -147,10 +147,8 @@ function Reports() {
     
     const gross = cashSalesExt + consign;
     const netCash = gross - salesDisc - salesRet;
-    // Total Cash Sales/Receipts includes Cash Beginning for section A
-    const totalReceipts = cashBegin + netCash + delivFee + otherInc;
-    // But for SUMMARY, we exclude Cash Beginning (actual sales only)
-    const totalCashSalesOnly = netCash + delivFee + otherInc;
+    // Total Cash Sales/Receipts in Section A = actual sales only (NO cash beginning)
+    const totalCashSales = netCash + delivFee + otherInc;
     
     const mayaPOS = parseFloat(parseFormattedNumber(formData.maya_pos_qr) || 0);
     const gcashQR = parseFloat(parseFormattedNumber(formData.gcash_qr) || 0);
@@ -169,23 +167,24 @@ function Reports() {
     const actualDeposit = parseFloat(parseFormattedNumber(formData.actual_cash_deposited) || 0);
     const cashOverShort = parseFloat(parseFormattedNumber(formData.cash_overage_shortage) || 0);
     
-    const netCashReceipts = totalReceipts - totalDisb;
+    // Net Cash Receipts = Cash Beginning + Total Cash Sales - Disbursements
+    const netCashReceipts = cashBegin + totalCashSales - totalDisb;
     const cashAvailable = netCashReceipts - actualDeposit;
     const cashNextDay = cashAvailable + cashOverShort;
     
     // Net Sales = actual sales only (excluding beginning cash)
-    const netSales = totalCashSalesOnly + netCredit;
+    const netSales = totalCashSales + netCredit;
     
     // Only update fields that haven't been manually overridden
     setFormData(prev => ({
       ...prev,
       gross_sales: manualOverrides.gross_sales ? prev.gross_sales : gross.toFixed(2),
       total_net_cash_sales: manualOverrides.total_net_cash_sales ? prev.total_net_cash_sales : netCash.toFixed(2),
-      total_cash_receipts: manualOverrides.total_cash_receipts ? prev.total_cash_receipts : totalCashSalesOnly.toFixed(2), // Changed to exclude beginning cash
+      total_cash_receipts: manualOverrides.total_cash_receipts ? prev.total_cash_receipts : totalCashSales.toFixed(2), // Actual sales only, no cash beginning
       gross_credit_sales: manualOverrides.gross_credit_sales ? prev.gross_credit_sales : grossCredit.toFixed(2),
       total_net_credit_receipts: manualOverrides.total_net_credit_receipts ? prev.total_net_credit_receipts : netCredit.toFixed(2),
       total_disbursements: manualOverrides.total_disbursements ? prev.total_disbursements : totalDisb.toFixed(2),
-      net_cash_receipts: manualOverrides.net_cash_receipts ? prev.net_cash_receipts : netCashReceipts.toFixed(2),
+      net_cash_receipts: manualOverrides.net_cash_receipts ? prev.net_cash_receipts : netCashReceipts.toFixed(2), // Includes cash beginning
       cash_on_hand_available: manualOverrides.cash_on_hand_available ? prev.cash_on_hand_available : cashAvailable.toFixed(2),
       cash_beginning_next_day: manualOverrides.cash_beginning_next_day ? prev.cash_beginning_next_day : cashNextDay.toFixed(2),
       net_sales: manualOverrides.net_sales ? prev.net_sales : netSales.toFixed(2)

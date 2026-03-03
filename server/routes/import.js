@@ -15,10 +15,19 @@ router.post('/preview', auth, authorize('admin', 'warehouse'), upload.single('fi
       return res.status(400).json({ error: 'No file uploaded' });
     }
 
+    const { sheetName } = req.body;
+
     // Parse Excel file
     const workbook = xlsx.read(req.file.buffer, { type: 'buffer' });
-    const sheetName = workbook.SheetNames[0];
-    const sheet = workbook.Sheets[sheetName];
+    
+    // Use specified sheet or first sheet
+    const targetSheet = sheetName || workbook.SheetNames[0];
+    
+    if (!workbook.SheetNames.includes(targetSheet)) {
+      return res.status(400).json({ error: `Sheet "${targetSheet}" not found in file` });
+    }
+    
+    const sheet = workbook.Sheets[targetSheet];
     
     // Read all rows as arrays to find the header row
     const allRows = xlsx.utils.sheet_to_json(sheet, { header: 1, defval: '' });
@@ -47,6 +56,9 @@ router.post('/preview', auth, authorize('admin', 'warehouse'), upload.single('fi
     });
 
     // Transform data according to mapping
+    let currentMainCategory = null;
+    let currentSubCategory = null;
+    
     const previewData = rawData.map((row, index) => {
       // Handle different possible column names (case-insensitive)
       const getColumnValue = (possibleNames) => {
@@ -58,12 +70,9 @@ router.post('/preview', auth, authorize('admin', 'warehouse'), upload.single('fi
       };
 
       const brand = getColumnValue(['BRAND', 'Brand']).toString().trim();
-      const number = getColumnValue(['NUMBER', 'Number']).toString().trim();
-      const batchNumber = brand && number ? `${brand}-${number}` : '';
-
       const description = getColumnValue([
-        'PRODUCT DESCRIPTION',
         'THE HEALTHSHOP PRODUCTS',
+        'PRODUCT DESCRIPTION',
         'DESCRIPTION',
         'Product'
       ]).toString().trim();
@@ -94,46 +103,118 @@ router.post('/preview', auth, authorize('admin', 'warehouse'), upload.single('fi
         'END'
       ])) || 0;
 
+      const expiryDateStr = getColumnValue([
+        'EXPIRY DATE',
+        'Expiry Date',
+        'EXPIRATION DATE',
+        'Expiration'
+      ]).toString().trim();
+
+      // Parse expiry date if present
+      let expiryDate = null;
+      if (expiryDateStr) {
+        try {
+          // Handle Excel date serial numbers
+          if (!isNaN(expiryDateStr) && expiryDateStr.length <= 5) {
+            // Excel serial date
+            const excelEpoch = new Date(1899, 11, 30);
+            const days = parseInt(expiryDateStr);
+            const date = new Date(excelEpoch.getTime() + days * 24 * 60 * 60 * 1000);
+            expiryDate = date.toISOString().split('T')[0];
+          } else {
+            // Try parsing as regular date
+            const date = new Date(expiryDateStr);
+            if (!isNaN(date.getTime())) {
+              expiryDate = date.toISOString().split('T')[0];
+            }
+          }
+        } catch (e) {
+          // Invalid date, leave as null
+        }
+      }
+
+      // Check if this is a category row (has description but no brand, unit, or cost)
+      const isCategory = description && !brand && !unit && unitCost === 0;
+      
+      // Check if it's GRAND TOTAL (exclude from categories)
+      const isGrandTotal = description.toUpperCase().includes('GRAND TOTAL');
+      
+      let categoryType = null;
+      let mainCategory = null;
+      let subCategory = null;
+      
+      if (isCategory && !isGrandTotal) {
+        // Check if previous row was also a category (this would be a sub-category)
+        if (currentMainCategory && !currentSubCategory) {
+          // This is a sub-category
+          categoryType = 'sub';
+          mainCategory = currentMainCategory;
+          subCategory = description;
+          currentSubCategory = description;
+        } else {
+          // This is a main category
+          categoryType = 'main';
+          mainCategory = description;
+          currentMainCategory = description;
+          currentSubCategory = null;
+        }
+      } else if (!isCategory && !isGrandTotal) {
+        // This is a product, assign current categories
+        mainCategory = currentMainCategory;
+        subCategory = currentSubCategory;
+      }
+
       return {
-        rowNumber: headerRowIndex + index + 2, // Excel row number (accounting for header)
-        batch_number: batchNumber,
+        rowNumber: headerRowIndex + index + 2,
+        brand: brand,
         description: description,
         unit: unit,
         unit_cost: unitCost,
         suggested_selling_price: sellingPrice,
         quantity: quantity,
-        // Keep original values for reference
+        expiry_date: expiryDate,
+        is_category: isCategory && !isGrandTotal,
+        is_grand_total: isGrandTotal,
+        category_type: categoryType,
+        main_category: mainCategory,
+        sub_category: subCategory,
         original: {
           brand,
-          number,
           content: getColumnValue(['CONTENT', 'Content'])
         }
       };
     }).filter(item => {
-      // Filter out completely empty rows
-      return item.batch_number || item.description || item.unit || item.quantity > 0;
+      // Filter out completely empty rows and GRAND TOTAL
+      return !item.is_grand_total && (item.description || item.brand || item.unit || item.quantity > 0);
     });
 
     // Validate data
     const errors = [];
+    const categories = [];
+    
     previewData.forEach(item => {
-      if (!item.batch_number) {
-        errors.push(`Row ${item.rowNumber}: Missing Brand or Number`);
-      }
-      if (!item.description) {
-        errors.push(`Row ${item.rowNumber}: Missing product description`);
-      }
-      if (!item.unit) {
-        errors.push(`Row ${item.rowNumber}: Missing UoM`);
-      }
-      if (item.unit_cost <= 0) {
-        errors.push(`Row ${item.rowNumber}: Invalid Cost`);
+      if (item.is_category) {
+        categories.push({ row: item.rowNumber, name: item.description });
+      } else {
+        if (!item.brand) {
+          errors.push(`Row ${item.rowNumber}: Missing Brand`);
+        }
+        if (!item.description) {
+          errors.push(`Row ${item.rowNumber}: Missing product description`);
+        }
+        if (!item.unit) {
+          errors.push(`Row ${item.rowNumber}: Missing UoM`);
+        }
+        if (item.unit_cost <= 0) {
+          errors.push(`Row ${item.rowNumber}: Invalid Cost`);
+        }
       }
     });
 
     res.json({
       success: true,
       preview: previewData,
+      categories: categories,
       totalRows: previewData.length,
       errors: errors.length > 0 ? errors : null
     });
@@ -166,14 +247,54 @@ router.post('/import', auth, authorize('admin', 'warehouse'), async (req, res) =
     let skipped = 0;
     let transferred = 0;
     const errors = [];
+    
+    // Track batch numbers by brand for auto-increment
+    const brandCounters = {};
 
     for (const item of data) {
       try {
+        // Skip category rows
+        if (item.is_category) {
+          continue;
+        }
+        
+        // Auto-generate batch number if not present
+        let batchNumber = item.batch_number;
+        if (!batchNumber && item.brand && item.description) {
+          // Get existing max number for this brand
+          if (!brandCounters[item.brand]) {
+            const result = await client.query(
+              `SELECT batch_number FROM inventory 
+               WHERE batch_number LIKE $1 
+               ORDER BY batch_number DESC LIMIT 1`,
+              [`${item.brand}-%`]
+            );
+            
+            if (result.rows.length > 0) {
+              const lastBatch = result.rows[0].batch_number;
+              const match = lastBatch.match(/-(\d+)$/);
+              brandCounters[item.brand] = match ? parseInt(match[1]) : 0;
+            } else {
+              brandCounters[item.brand] = 0;
+            }
+          }
+          
+          // Increment and create batch number
+          brandCounters[item.brand]++;
+          batchNumber = `${item.brand}-${String(brandCounters[item.brand]).padStart(3, '0')}`;
+        }
+        
+        if (!batchNumber) {
+          errors.push(`${item.description}: Could not generate batch number`);
+          skipped++;
+          continue;
+        }
+
         // Check if item already exists in warehouse
         const existingItem = await client.query(
           `SELECT id, quantity FROM inventory 
            WHERE location_id = $1 AND batch_number = $2`,
-          [locationId, item.batch_number]
+          [locationId, batchNumber]
         );
 
         let inventoryId;
@@ -185,9 +306,12 @@ router.post('/import', auth, authorize('admin', 'warehouse'), async (req, res) =
              SET quantity = quantity + $1,
                  unit_cost = $2,
                  suggested_selling_price = $3,
+                 expiry_date = COALESCE($4, expiry_date),
+                 main_category = COALESCE($5, main_category),
+                 sub_category = COALESCE($6, sub_category),
                  updated_at = CURRENT_TIMESTAMP
-             WHERE id = $4`,
-            [item.quantity, item.unit_cost, item.suggested_selling_price, existingItem.rows[0].id]
+             WHERE id = $7`,
+            [item.quantity, item.unit_cost, item.suggested_selling_price, item.expiry_date, item.main_category, item.sub_category, existingItem.rows[0].id]
           );
           inventoryId = existingItem.rows[0].id;
           updated++;
@@ -195,10 +319,10 @@ router.post('/import', auth, authorize('admin', 'warehouse'), async (req, res) =
           // Insert new item
           const result = await client.query(
             `INSERT INTO inventory 
-             (location_id, batch_number, description, unit, quantity, unit_cost, suggested_selling_price)
-             VALUES ($1, $2, $3, $4, $5, $6, $7)
+             (location_id, batch_number, description, unit, quantity, unit_cost, suggested_selling_price, expiry_date, main_category, sub_category)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
              RETURNING id`,
-            [locationId, item.batch_number, item.description, item.unit, item.quantity, item.unit_cost, item.suggested_selling_price]
+            [locationId, batchNumber, item.description, item.unit, item.quantity, item.unit_cost, item.suggested_selling_price, item.expiry_date, item.main_category, item.sub_category]
           );
           inventoryId = result.rows[0].id;
           imported++;
@@ -210,16 +334,16 @@ router.post('/import', auth, authorize('admin', 'warehouse'), async (req, res) =
           const branchItem = await client.query(
             `SELECT id FROM inventory 
              WHERE location_id = $1 AND batch_number = $2`,
-            [branchId, item.batch_number]
+            [branchId, batchNumber]
           );
 
           // If doesn't exist in branch, create it
           if (branchItem.rows.length === 0) {
             await client.query(
               `INSERT INTO inventory 
-               (location_id, batch_number, description, unit, quantity, unit_cost, suggested_selling_price)
-               VALUES ($1, $2, $3, $4, 0, $5, $6)`,
-              [branchId, item.batch_number, item.description, item.unit, item.unit_cost, item.suggested_selling_price]
+               (location_id, batch_number, description, unit, quantity, unit_cost, suggested_selling_price, expiry_date, main_category, sub_category)
+               VALUES ($1, $2, $3, $4, 0, $5, $6, $7, $8, $9)`,
+              [branchId, batchNumber, item.description, item.unit, item.unit_cost, item.suggested_selling_price, item.expiry_date, item.main_category, item.sub_category]
             );
           }
 
@@ -234,8 +358,8 @@ router.post('/import', auth, authorize('admin', 'warehouse'), async (req, res) =
         }
 
       } catch (itemError) {
-        console.error(`Error processing item ${item.batch_number}:`, itemError);
-        errors.push(`${item.batch_number}: ${itemError.message}`);
+        console.error(`Error processing item ${item.description}:`, itemError);
+        errors.push(`${item.description}: ${itemError.message}`);
         skipped++;
       }
     }

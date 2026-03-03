@@ -156,6 +156,13 @@ function Inventory() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    
+    // Validate location
+    if (!selectedLocation || selectedLocation === 'all') {
+      alert('Please select a specific location to add inventory');
+      return;
+    }
+    
     try {
       await api.post('/inventory', {
         location_id: selectedLocation,
