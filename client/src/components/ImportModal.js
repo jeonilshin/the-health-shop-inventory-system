@@ -125,6 +125,11 @@ function ImportModal({ isOpen, onClose, onImportComplete }) {
     const invalidData = previewData.preview.filter(item => 
       !item.is_category && (!item.brand || !item.description || !item.unit)
     );
+    
+    console.log(`📊 Import validation: ${validData.length} valid, ${invalidData.length} invalid`);
+    if (invalidData.length > 0) {
+      console.warn('Invalid items:', invalidData.map(i => `${i.rowNumber}: ${i.description} (brand: ${i.brand}, unit: ${i.unit})`));
+    }
 
     // If there are invalid rows, show detailed confirmation
     if (invalidData.length > 0) {
