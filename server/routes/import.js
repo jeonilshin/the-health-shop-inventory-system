@@ -218,11 +218,27 @@ router.post('/preview', auth, authorize('admin', 'warehouse'), upload.single('fi
       }
     });
 
+    // Check for duplicates in database
+    const batchNumbers = previewData
+      .filter(item => !item.is_category && item.batch_number && !item.batch_number.endsWith('-AUTO'))
+      .map(item => item.batch_number);
+    
+    let duplicates = [];
+    if (batchNumbers.length > 0) {
+      const duplicateQuery = await pool.query(
+        `SELECT DISTINCT batch_number FROM inventory WHERE batch_number = ANY($1)`,
+        [batchNumbers]
+      );
+      duplicates = duplicateQuery.rows.map(row => row.batch_number);
+    }
+
     res.json({
       success: true,
       preview: previewData,
       categories: categories,
       totalRows: previewData.length,
+      duplicates: duplicates.length,
+      duplicateList: duplicates,
       errors: errors.length > 0 ? errors : null
     });
 
@@ -237,7 +253,7 @@ router.post('/import', auth, authorize('admin', 'warehouse'), async (req, res) =
   const client = await pool.connect();
   
   try {
-    const { data, locationId, branchId } = req.body;
+    const { data, locationId, branchId, duplicateAction } = req.body;
 
     if (!data || !Array.isArray(data)) {
       return res.status(400).json({ error: 'Invalid data format' });
@@ -254,6 +270,9 @@ router.post('/import', auth, authorize('admin', 'warehouse'), async (req, res) =
     let skipped = 0;
     let transferred = 0;
     const errors = [];
+    
+    // Default to 'update' if not specified
+    const handleDuplicates = duplicateAction || 'update';
     
     // Track batch numbers by brand for auto-increment
     const brandCounters = {};
@@ -325,21 +344,28 @@ router.post('/import', auth, authorize('admin', 'warehouse'), async (req, res) =
         let inventoryId;
 
         if (existingItem.rows.length > 0) {
-          // Update existing item
-          await client.query(
-            `UPDATE inventory 
-             SET quantity = quantity + $1,
-                 unit_cost = $2,
-                 suggested_selling_price = $3,
-                 expiry_date = COALESCE($4, expiry_date),
-                 main_category = COALESCE($5, main_category),
-                 sub_category = COALESCE($6, sub_category),
-                 updated_at = CURRENT_TIMESTAMP
-             WHERE id = $7`,
-            [item.quantity, item.unit_cost, item.suggested_selling_price, item.expiry_date, item.main_category, item.sub_category, existingItem.rows[0].id]
-          );
-          inventoryId = existingItem.rows[0].id;
-          updated++;
+          // Item already exists - handle based on duplicate action
+          if (handleDuplicates === 'skip') {
+            // Skip this item
+            skipped++;
+            continue;
+          } else if (handleDuplicates === 'update') {
+            // Update existing item (add quantities, update prices)
+            await client.query(
+              `UPDATE inventory 
+               SET quantity = quantity + $1,
+                   unit_cost = $2,
+                   suggested_selling_price = $3,
+                   expiry_date = COALESCE($4, expiry_date),
+                   main_category = COALESCE($5, main_category),
+                   sub_category = COALESCE($6, sub_category),
+                   updated_at = CURRENT_TIMESTAMP
+               WHERE id = $7`,
+              [item.quantity, item.unit_cost, item.suggested_selling_price, item.expiry_date, item.main_category, item.sub_category, existingItem.rows[0].id]
+            );
+            inventoryId = existingItem.rows[0].id;
+            updated++;
+          }
         } else {
           // Insert new item
           const result = await client.query(

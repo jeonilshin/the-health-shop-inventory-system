@@ -16,6 +16,8 @@ function ImportModal({ isOpen, onClose, onImportComplete }) {
   const [selectedBranch, setSelectedBranch] = useState('');
   const [locations, setLocations] = useState([]);
   const [branches, setBranches] = useState([]);
+  const [duplicateAction, setDuplicateAction] = useState('update'); // 'update', 'skip'
+  const [duplicateCount, setDuplicateCount] = useState(0);
 
   const fetchLocations = useCallback(async () => {
     try {
@@ -41,8 +43,9 @@ function ImportModal({ isOpen, onClose, onImportComplete }) {
   const handleFileChange = (e) => {
     const selectedFile = e.target.files[0];
     if (selectedFile) {
-      if (!selectedFile.name.endsWith('.xlsx') && !selectedFile.name.endsWith('.xls') && !selectedFile.name.endsWith('.csv')) {
-        showToast().error('Error', 'Please select an Excel or CSV file');
+      const fileExt = selectedFile.name.toLowerCase();
+      if (!fileExt.endsWith('.xlsx') && !fileExt.endsWith('.xls') && !fileExt.endsWith('.csv')) {
+        showToast().error('Error', 'Please select an Excel (.xlsx, .xls) or CSV (.csv) file');
         return;
       }
       setFile(selectedFile);
@@ -50,8 +53,10 @@ function ImportModal({ isOpen, onClose, onImportComplete }) {
       setSheets([]);
       setSelectedSheet('');
       
-      // Read file to detect sheets
-      detectSheets(selectedFile);
+      // Only detect sheets for Excel files
+      if (fileExt.endsWith('.xlsx') || fileExt.endsWith('.xls')) {
+        detectSheets(selectedFile);
+      }
     }
   };
 
@@ -101,6 +106,14 @@ function ImportModal({ isOpen, onClose, onImportComplete }) {
         showToast().warning('Warning', `Found ${response.data.errors.length} validation errors`);
       } else {
         showToast().success('Success', 'Preview loaded successfully');
+      }
+
+      // Check for duplicates
+      const duplicates = response.data.duplicates || 0;
+      setDuplicateCount(duplicates);
+      
+      if (duplicates > 0) {
+        showToast().info('Duplicates Found', `${duplicates} product(s) already exist in inventory. Choose how to handle them below.`);
       }
 
       setPreviewData(response.data);
@@ -179,7 +192,8 @@ function ImportModal({ isOpen, onClose, onImportComplete }) {
           const response = await api.post('/import/import', {
             data: batch,
             locationId: selectedLocation,
-            branchId: selectedBranch || null
+            branchId: selectedBranch || null,
+            duplicateAction: duplicateAction
           });
 
           totalImported += response.data.imported;
@@ -200,7 +214,9 @@ function ImportModal({ isOpen, onClose, onImportComplete }) {
 
       setImportProgress(0);
 
-      const message = `Import complete: ${totalImported} new, ${totalUpdated} updated${totalTransferred > 0 ? `, ${totalTransferred} transferred` : ''}${invalidData.length > 0 ? `, ${invalidData.length} skipped (invalid)` : ''}`;
+      const message = duplicateAction === 'skip' 
+        ? `Import complete: ${totalImported} new items imported, ${totalUpdated + invalidData.length} skipped (${totalUpdated} duplicates, ${invalidData.length} invalid)${totalTransferred > 0 ? `, ${totalTransferred} transferred` : ''}`
+        : `Import complete: ${totalImported} new, ${totalUpdated} updated${totalTransferred > 0 ? `, ${totalTransferred} transferred` : ''}${invalidData.length > 0 ? `, ${invalidData.length} skipped (invalid)` : ''}`;
       
       if (allErrors.length > 0) {
         // Show in console with full details
@@ -221,6 +237,7 @@ function ImportModal({ isOpen, onClose, onImportComplete }) {
       // Reset form
       setFile(null);
       setPreviewData(null);
+      setDuplicateCount(0);
       if (document.getElementById('fileInput')) {
         document.getElementById('fileInput').value = '';
       }
@@ -406,6 +423,84 @@ function ImportModal({ isOpen, onClose, onImportComplete }) {
                 </p>
               </div>
             </div>
+
+            {/* Duplicate Handling - Show only if duplicates found */}
+            {duplicateCount > 0 && (
+              <div className="form-group" style={{ marginTop: '16px' }}>
+                <label style={{ fontWeight: '600', marginBottom: '8px', display: 'block' }}>
+                  Duplicate Handling <span style={{ color: 'var(--warning)' }}>({duplicateCount} duplicates found)</span>
+                </label>
+                <div style={{ 
+                  padding: '16px', 
+                  background: 'rgba(245, 158, 11, 0.05)', 
+                  border: '1px solid rgba(245, 158, 11, 0.2)', 
+                  borderRadius: 'var(--radius)'
+                }}>
+                  <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', margin: '0 0 12px 0' }}>
+                    Some products in this file already exist in your inventory. How would you like to handle them?
+                  </p>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                    <label style={{ 
+                      display: 'flex', 
+                      alignItems: 'flex-start', 
+                      gap: '10px', 
+                      cursor: 'pointer',
+                      padding: '10px',
+                      background: duplicateAction === 'update' ? 'rgba(37, 99, 235, 0.1)' : 'transparent',
+                      border: `2px solid ${duplicateAction === 'update' ? 'var(--primary)' : 'var(--border)'}`,
+                      borderRadius: 'var(--radius)',
+                      transition: 'var(--transition)'
+                    }}>
+                      <input
+                        type="radio"
+                        name="duplicateAction"
+                        value="update"
+                        checked={duplicateAction === 'update'}
+                        onChange={(e) => setDuplicateAction(e.target.value)}
+                        style={{ marginTop: '2px' }}
+                      />
+                      <div>
+                        <div style={{ fontWeight: '600', color: 'var(--text-primary)', marginBottom: '4px' }}>
+                          Update Existing Items (Recommended)
+                        </div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                          Add quantities to existing stock and update prices. Best for restocking.
+                        </div>
+                      </div>
+                    </label>
+                    
+                    <label style={{ 
+                      display: 'flex', 
+                      alignItems: 'flex-start', 
+                      gap: '10px', 
+                      cursor: 'pointer',
+                      padding: '10px',
+                      background: duplicateAction === 'skip' ? 'rgba(37, 99, 235, 0.1)' : 'transparent',
+                      border: `2px solid ${duplicateAction === 'skip' ? 'var(--primary)' : 'var(--border)'}`,
+                      borderRadius: 'var(--radius)',
+                      transition: 'var(--transition)'
+                    }}>
+                      <input
+                        type="radio"
+                        name="duplicateAction"
+                        value="skip"
+                        checked={duplicateAction === 'skip'}
+                        onChange={(e) => setDuplicateAction(e.target.value)}
+                        style={{ marginTop: '2px' }}
+                      />
+                      <div>
+                        <div style={{ fontWeight: '600', color: 'var(--text-primary)', marginBottom: '4px' }}>
+                          Skip Duplicates
+                        </div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                          Only import new products. Existing items will remain unchanged.
+                        </div>
+                      </div>
+                    </label>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Preview Section */}
