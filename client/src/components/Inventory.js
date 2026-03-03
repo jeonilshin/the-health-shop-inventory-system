@@ -17,10 +17,12 @@ function Inventory() {
   const [showImportModal, setShowImportModal] = useState(false);
   const [loading, setLoading] = useState(true);
   const [inventoryHistory, setInventoryHistory] = useState([]);
-  const [sortBy, setSortBy] = useState('batch'); // 'batch', 'description'
+  const [sortBy, setSortBy] = useState('batch'); // 'batch', 'description', 'category'
   const [sortOrder, setSortOrder] = useState('asc'); // 'asc', 'desc'
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(50);
+  const [selectedCategory, setSelectedCategory] = useState('all'); // 'all' or specific category
+  const [availableCategories, setAvailableCategories] = useState([]);
   const [formData, setFormData] = useState({
     description: '',
     unit: '',
@@ -83,6 +85,15 @@ function Inventory() {
       const response = await api.get(endpoint);
       setInventory(response.data);
       setFilteredInventory(response.data);
+      
+      // Extract unique categories
+      const categories = new Set();
+      response.data.forEach(item => {
+        if (item.main_category) {
+          categories.add(item.main_category);
+        }
+      });
+      setAvailableCategories(Array.from(categories).sort());
     } catch (error) {
       // Error fetching inventory
     }
@@ -90,6 +101,11 @@ function Inventory() {
 
   useEffect(() => {
     let filtered = inventory;
+    
+    // Apply category filter
+    if (selectedCategory !== 'all') {
+      filtered = filtered.filter(item => item.main_category === selectedCategory);
+    }
     
     // Apply search filter
     if (searchTerm) {
@@ -110,6 +126,9 @@ function Inventory() {
       } else if (sortBy === 'description') {
         compareA = a.description.toLowerCase();
         compareB = b.description.toLowerCase();
+      } else if (sortBy === 'category') {
+        compareA = (a.main_category || '').toLowerCase();
+        compareB = (b.main_category || '').toLowerCase();
       }
       
       if (sortOrder === 'asc') {
@@ -121,7 +140,7 @@ function Inventory() {
     
     setFilteredInventory(filtered);
     setCurrentPage(1); // Reset to first page when filtering/sorting
-  }, [searchTerm, inventory, sortBy, sortOrder]);
+  }, [searchTerm, inventory, sortBy, sortOrder, selectedCategory]);
 
   const handleExport = () => {
     const headers = selectedLocation === 'all' 
@@ -304,7 +323,7 @@ function Inventory() {
         </div>
 
         <div className="form-group" style={{ marginBottom: '20px' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr auto auto auto', gap: '12px', alignItems: 'center' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr auto auto auto auto', gap: '12px', alignItems: 'center' }}>
             <div style={{ position: 'relative' }}>
               <FiSearch style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} size={18} />
               <input
@@ -317,12 +336,24 @@ function Inventory() {
             </div>
             
             <select 
+              value={selectedCategory} 
+              onChange={(e) => setSelectedCategory(e.target.value)}
+              style={{ minWidth: '180px' }}
+            >
+              <option value="all">All Categories</option>
+              {availableCategories.map(category => (
+                <option key={category} value={category}>{category}</option>
+              ))}
+            </select>
+            
+            <select 
               value={sortBy} 
               onChange={(e) => setSortBy(e.target.value)}
               style={{ minWidth: '150px' }}
             >
               <option value="batch">Sort by Batch</option>
               <option value="description">Sort by Description</option>
+              <option value="category">Sort by Category</option>
             </select>
             
             <button 
