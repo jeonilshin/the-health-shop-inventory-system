@@ -421,6 +421,16 @@ router.post('/import', auth, authorize('admin', 'warehouse'), async (req, res) =
             `INSERT INTO inventory 
              (location_id, batch_number, description, unit, quantity, unit_cost, suggested_selling_price, expiry_date, main_category, sub_category)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+             ON CONFLICT (location_id, description, unit) 
+             DO UPDATE SET
+               quantity = inventory.quantity + EXCLUDED.quantity,
+               unit_cost = EXCLUDED.unit_cost,
+               suggested_selling_price = EXCLUDED.suggested_selling_price,
+               batch_number = COALESCE(EXCLUDED.batch_number, inventory.batch_number),
+               expiry_date = COALESCE(EXCLUDED.expiry_date, inventory.expiry_date),
+               main_category = COALESCE(EXCLUDED.main_category, inventory.main_category),
+               sub_category = COALESCE(EXCLUDED.sub_category, inventory.sub_category),
+               updated_at = CURRENT_TIMESTAMP
              RETURNING id`,
             [locationId, batchNumber, item.description, item.unit, item.quantity, item.unit_cost, item.suggested_selling_price, item.expiry_date, item.main_category, item.sub_category]
           );
