@@ -149,6 +149,8 @@ function Reports() {
     const netCash = gross - salesDisc - salesRet;
     // Total Cash Sales/Receipts in Section A = Cash Beginning + actual sales
     const totalCashSales = cashBegin + netCash + delivFee + otherInc;
+    // For Summary section E - sales only without cash beginning
+    const totalCashSalesForSummary = netCash + delivFee + otherInc;
     
     const mayaPOS = parseFloat(parseFormattedNumber(formData.maya_pos_qr) || 0);
     const gcashQR = parseFloat(parseFormattedNumber(formData.gcash_qr) || 0);
@@ -173,7 +175,7 @@ function Reports() {
     const cashNextDay = cashAvailable + cashOverShort;
     
     // Net Sales = actual sales only (excluding beginning cash)
-    const netSales = (netCash + delivFee + otherInc) + netCredit;
+    const netSales = totalCashSalesForSummary + netCredit;
     
     // Only update fields that haven't been manually overridden
     setFormData(prev => ({
@@ -558,8 +560,8 @@ function Reports() {
               <h4 style={{ marginTop: 0, color: 'var(--primary)' }}>E. SUMMARY OF SALES</h4>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}>
                 <div className="form-group" style={{ marginBottom: 0 }}>
-                  <label>Total Cash Sales/Receipts</label>
-                  <input type="text" value={formatNumberInput(formData.total_cash_receipts)} readOnly style={{ fontWeight: 600 }} />
+                  <label>Total Cash Sales/Receipts (Sales Only)</label>
+                  <input type="text" value={formatNumberInput((parseFloat(parseFormattedNumber(formData.total_net_cash_sales) || 0) + parseFloat(parseFormattedNumber(formData.delivery_fee) || 0) + parseFloat(parseFormattedNumber(formData.other_income) || 0)).toFixed(2))} readOnly style={{ fontWeight: 600 }} />
                 </div>
                 <div className="form-group" style={{ marginBottom: 0 }}>
                   <label>Total Net Credit Receipts</label>
