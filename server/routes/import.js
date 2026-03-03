@@ -81,29 +81,33 @@ router.post('/preview', auth, authorize('admin', 'warehouse'), upload.single('fi
 
       const unit = getColumnValue(['UOM', 'UoM', 'UNIT', 'Unit']).toString().trim();
       
-      const unitCost = parseFloat(getColumnValue([
+      // Remove commas from numeric values before parsing
+      const unitCostStr = getColumnValue([
         'AVE UNIT COST',
         'Ave Unit Cost',
         'UNIT COST',
         'Unit Cost',
         'COST',
         'Cost'
-      ])) || 0;
+      ]).toString().replace(/,/g, '');
+      const unitCost = parseFloat(unitCostStr) || 0;
 
-      const sellingPrice = parseFloat(getColumnValue([
+      const sellingPriceStr = getColumnValue([
         'SELLING PRICE',
         'Selling Price',
         'SP',
         'Price'
-      ])) || 0;
+      ]).toString().replace(/,/g, '');
+      const sellingPrice = parseFloat(sellingPriceStr) || 0;
 
-      const quantity = parseFloat(getColumnValue([
+      const quantityStr = getColumnValue([
         'QTY',
         'Qty',
         'QUANTITY',
         'Quantity',
         'END'
-      ])) || 0;
+      ]).toString().replace(/,/g, '');
+      const quantity = parseFloat(quantityStr) || 0;
 
       const expiryDateStr = getColumnValue([
         'EXPIRY DATE',
@@ -218,18 +222,48 @@ router.post('/preview', auth, authorize('admin', 'warehouse'), upload.single('fi
       }
     });
 
-    // Check for duplicates in database
-    const batchNumbers = previewData
-      .filter(item => !item.is_category && item.batch_number && !item.batch_number.endsWith('-AUTO'))
-      .map(item => item.batch_number);
+    // Check for duplicates in database with detailed comparison
+    const itemsToCheck = previewData.filter(item => !item.is_category && item.description && item.unit);
     
     let duplicates = [];
-    if (batchNumbers.length > 0) {
-      const duplicateQuery = await pool.query(
-        `SELECT DISTINCT batch_number FROM inventory WHERE batch_number = ANY($1)`,
-        [batchNumbers]
-      );
-      duplicates = duplicateQuery.rows.map(row => row.batch_number);
+    let duplicateDetails = [];
+    
+    if (itemsToCheck.length > 0) {
+      // Check for duplicates based on description + unit (the actual unique constraint)
+      for (const item of itemsToCheck) {
+        const duplicateQuery = await pool.query(
+          `SELECT id, batch_number, description, unit, quantity, unit_cost, suggested_selling_price 
+           FROM inventory 
+           WHERE description = $1 AND unit = $2 
+           LIMIT 1`,
+          [item.description, item.unit]
+        );
+        
+        if (duplicateQuery.rows.length > 0) {
+          const existing = duplicateQuery.rows[0];
+          const priceChanged = 
+            parseFloat(existing.unit_cost) !== parseFloat(item.unit_cost) ||
+            parseFloat(existing.suggested_selling_price) !== parseFloat(item.suggested_selling_price);
+          
+          duplicateDetails.push({
+            description: item.description,
+            unit: item.unit,
+            batch_number: existing.batch_number,
+            existing: {
+              quantity: existing.quantity,
+              unit_cost: existing.unit_cost,
+              selling_price: existing.suggested_selling_price
+            },
+            new: {
+              quantity: item.quantity,
+              unit_cost: item.unit_cost,
+              selling_price: item.suggested_selling_price
+            },
+            priceChanged: priceChanged
+          });
+        }
+      }
+      duplicates = duplicateDetails.length;
     }
 
     res.json({
@@ -237,8 +271,8 @@ router.post('/preview', auth, authorize('admin', 'warehouse'), upload.single('fi
       preview: previewData,
       categories: categories,
       totalRows: previewData.length,
-      duplicates: duplicates.length,
-      duplicateList: duplicates,
+      duplicates: duplicates,
+      duplicateDetails: duplicateDetails,
       errors: errors.length > 0 ? errors : null
     });
 
@@ -253,7 +287,7 @@ router.post('/import', auth, authorize('admin', 'warehouse'), async (req, res) =
   const client = await pool.connect();
   
   try {
-    const { data, locationId, branchId, duplicateAction } = req.body;
+    const { data, locationId, branchId, duplicateAction, selectedDuplicates } = req.body;
 
     if (!data || !Array.isArray(data)) {
       return res.status(400).json({ error: 'Invalid data format' });
@@ -273,6 +307,11 @@ router.post('/import', auth, authorize('admin', 'warehouse'), async (req, res) =
     
     // Default to 'update' if not specified
     const handleDuplicates = duplicateAction || 'update';
+    
+    // Create a Set of selected duplicates for quick lookup
+    const selectedDuplicatesSet = new Set(
+      (selectedDuplicates || []).map(item => `${item.description}|||${item.unit}`)
+    );
     
     // Track batch numbers by brand for auto-increment
     const brandCounters = {};
@@ -337,14 +376,24 @@ router.post('/import', auth, authorize('admin', 'warehouse'), async (req, res) =
         // Check if item already exists in warehouse
         const existingItem = await client.query(
           `SELECT id, quantity FROM inventory 
-           WHERE location_id = $1 AND batch_number = $2`,
-          [locationId, batchNumber]
+           WHERE location_id = $1 AND description = $2 AND unit = $3`,
+          [locationId, item.description, item.unit]
         );
 
         let inventoryId;
 
         if (existingItem.rows.length > 0) {
-          // Item already exists - handle based on duplicate action
+          // Item already exists - check if it's in the selected list
+          const itemKey = `${item.description}|||${item.unit}`;
+          const isSelected = selectedDuplicatesSet.has(itemKey);
+          
+          if (!isSelected) {
+            // Not selected for update, skip it
+            skipped++;
+            continue;
+          }
+          
+          // Selected for update
           if (handleDuplicates === 'skip') {
             // Skip this item
             skipped++;
@@ -384,8 +433,8 @@ router.post('/import', auth, authorize('admin', 'warehouse'), async (req, res) =
           // Check if item exists in branch
           const branchItem = await client.query(
             `SELECT id FROM inventory 
-             WHERE location_id = $1 AND batch_number = $2`,
-            [branchId, batchNumber]
+             WHERE location_id = $1 AND description = $2 AND unit = $3`,
+            [branchId, item.description, item.unit]
           );
 
           // If doesn't exist in branch, create it
@@ -393,7 +442,8 @@ router.post('/import', auth, authorize('admin', 'warehouse'), async (req, res) =
             await client.query(
               `INSERT INTO inventory 
                (location_id, batch_number, description, unit, quantity, unit_cost, suggested_selling_price, expiry_date, main_category, sub_category)
-               VALUES ($1, $2, $3, $4, 0, $5, $6, $7, $8, $9)`,
+               VALUES ($1, $2, $3, $4, 0, $5, $6, $7, $8, $9)
+               ON CONFLICT (location_id, description, unit) DO NOTHING`,
               [branchId, batchNumber, item.description, item.unit, item.unit_cost, item.suggested_selling_price, item.expiry_date, item.main_category, item.sub_category]
             );
           }

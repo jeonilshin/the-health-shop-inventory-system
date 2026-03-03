@@ -18,6 +18,9 @@ function ImportModal({ isOpen, onClose, onImportComplete }) {
   const [branches, setBranches] = useState([]);
   const [duplicateAction, setDuplicateAction] = useState('update'); // 'update', 'skip'
   const [duplicateCount, setDuplicateCount] = useState(0);
+  const [duplicateDetails, setDuplicateDetails] = useState([]);
+  const [showDuplicateModal, setShowDuplicateModal] = useState(false);
+  const [selectedDuplicates, setSelectedDuplicates] = useState([]);
 
   const fetchLocations = useCallback(async () => {
     try {
@@ -110,10 +113,14 @@ function ImportModal({ isOpen, onClose, onImportComplete }) {
 
       // Check for duplicates
       const duplicates = response.data.duplicates || 0;
+      const details = response.data.duplicateDetails || [];
       setDuplicateCount(duplicates);
+      setDuplicateDetails(details);
       
       if (duplicates > 0) {
-        showToast().info('Duplicates Found', `${duplicates} product(s) already exist in inventory. Choose how to handle them below.`);
+        // Pre-select all duplicates by default
+        setSelectedDuplicates(details.map((_, idx) => idx));
+        showToast().info('Duplicates Found', `${duplicates} product(s) already exist in inventory. Review them before importing.`);
       }
 
       setPreviewData(response.data);
@@ -125,6 +132,22 @@ function ImportModal({ isOpen, onClose, onImportComplete }) {
   };
 
   const handleImport = async () => {
+    if (!previewData || !selectedLocation) {
+      showToast().error('Error', 'Please preview the file and select a location first');
+      return;
+    }
+
+    // If there are duplicates, show confirmation modal first
+    if (duplicateCount > 0) {
+      setShowDuplicateModal(true);
+      return;
+    }
+
+    // No duplicates, proceed with import
+    await performImport();
+  };
+
+  const performImport = async () => {
     if (!previewData || !selectedLocation) {
       showToast().error('Error', 'Please preview the file and select a location first');
       return;
@@ -193,7 +216,11 @@ function ImportModal({ isOpen, onClose, onImportComplete }) {
             data: batch,
             locationId: selectedLocation,
             branchId: selectedBranch || null,
-            duplicateAction: duplicateAction
+            duplicateAction: duplicateAction,
+            selectedDuplicates: selectedDuplicates.map(idx => ({
+              description: duplicateDetails[idx].description,
+              unit: duplicateDetails[idx].unit
+            }))
           });
 
           totalImported += response.data.imported;
@@ -238,6 +265,9 @@ function ImportModal({ isOpen, onClose, onImportComplete }) {
       setFile(null);
       setPreviewData(null);
       setDuplicateCount(0);
+      setDuplicateDetails([]);
+      setSelectedDuplicates([]);
+      setShowDuplicateModal(false);
       if (document.getElementById('fileInput')) {
         document.getElementById('fileInput').value = '';
       }
@@ -625,6 +655,176 @@ function ImportModal({ isOpen, onClose, onImportComplete }) {
           )}
         </div>
       </div>
+
+      {/* Duplicate Confirmation Modal */}
+      {showDuplicateModal && (
+        <div className="modal-overlay" onClick={() => setShowDuplicateModal(false)} style={{ zIndex: 10000 }}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '900px', width: '95%', maxHeight: '80vh' }}>
+            <div style={{ 
+              padding: '20px 24px', 
+              borderBottom: '1px solid var(--border)',
+              background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
+              color: 'white',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center'
+            }}>
+              <h2 style={{ fontSize: '1.25rem', fontWeight: 'bold', margin: 0 }}>
+                ⚠️ Review Duplicates ({duplicateCount} items)
+              </h2>
+              <button
+                onClick={() => setShowDuplicateModal(false)}
+                style={{ 
+                  background: 'rgba(255, 255, 255, 0.2)', 
+                  border: 'none', 
+                  color: 'white', 
+                  width: '32px', 
+                  height: '32px', 
+                  borderRadius: 'var(--radius)', 
+                  cursor: 'pointer'
+                }}
+              >
+                ✕
+              </button>
+            </div>
+
+            <div style={{ padding: '20px', overflowY: 'auto', maxHeight: 'calc(80vh - 180px)' }}>
+              <p style={{ marginBottom: '16px', color: 'var(--text-secondary)' }}>
+                The following items already exist in your inventory. Select which ones you want to update:
+              </p>
+
+              <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
+                <button
+                  className="btn btn-secondary"
+                  style={{ fontSize: '0.875rem', padding: '6px 12px' }}
+                  onClick={() => setSelectedDuplicates(duplicateDetails.map((_, idx) => idx))}
+                >
+                  Select All
+                </button>
+                <button
+                  className="btn btn-secondary"
+                  style={{ fontSize: '0.875rem', padding: '6px 12px' }}
+                  onClick={() => setSelectedDuplicates([])}
+                >
+                  Deselect All
+                </button>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                {duplicateDetails.map((item, idx) => (
+                  <div
+                    key={idx}
+                    style={{
+                      border: `2px solid ${selectedDuplicates.includes(idx) ? 'var(--primary)' : 'var(--border)'}`,
+                      borderRadius: 'var(--radius)',
+                      padding: '12px',
+                      background: selectedDuplicates.includes(idx) ? 'rgba(37, 99, 235, 0.05)' : 'var(--bg-secondary)',
+                      cursor: 'pointer',
+                      transition: 'var(--transition)'
+                    }}
+                    onClick={() => {
+                      if (selectedDuplicates.includes(idx)) {
+                        setSelectedDuplicates(selectedDuplicates.filter(i => i !== idx));
+                      } else {
+                        setSelectedDuplicates([...selectedDuplicates, idx]);
+                      }
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
+                      <input
+                        type="checkbox"
+                        checked={selectedDuplicates.includes(idx)}
+                        onChange={() => {}}
+                        style={{ marginTop: '4px', cursor: 'pointer' }}
+                      />
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontWeight: '600', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span>{item.batch_number}</span>
+                          <span style={{ color: 'var(--text-secondary)' }}>•</span>
+                          <span>{item.description}</span>
+                          <span style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>({item.unit})</span>
+                          {item.priceChanged && (
+                            <span style={{ 
+                              fontSize: '0.75rem', 
+                              padding: '2px 8px', 
+                              background: 'var(--warning)', 
+                              color: 'white', 
+                              borderRadius: '12px',
+                              fontWeight: '600'
+                            }}>
+                              PRICE CHANGED
+                            </span>
+                          )}
+                        </div>
+                        
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', fontSize: '0.875rem' }}>
+                          <div>
+                            <div style={{ color: 'var(--text-muted)', marginBottom: '4px', fontWeight: '600' }}>Current in DB:</div>
+                            <div>Qty: <span style={{ fontWeight: '600' }}>{item.existing.quantity}</span></div>
+                            <div>Cost: <span style={{ fontWeight: '600' }}>₱{parseFloat(item.existing.unit_cost).toFixed(2)}</span></div>
+                            <div>Price: <span style={{ fontWeight: '600' }}>₱{parseFloat(item.existing.selling_price).toFixed(2)}</span></div>
+                          </div>
+                          <div>
+                            <div style={{ color: 'var(--text-muted)', marginBottom: '4px', fontWeight: '600' }}>New from File:</div>
+                            <div>Qty: <span style={{ fontWeight: '600', color: 'var(--success)' }}>+{item.new.quantity}</span></div>
+                            <div>Cost: <span style={{ fontWeight: '600', color: item.priceChanged ? 'var(--warning)' : 'inherit' }}>₱{parseFloat(item.new.unit_cost).toFixed(2)}</span></div>
+                            <div>Price: <span style={{ fontWeight: '600', color: item.priceChanged ? 'var(--warning)' : 'inherit' }}>₱{parseFloat(item.new.selling_price).toFixed(2)}</span></div>
+                          </div>
+                        </div>
+
+                        {selectedDuplicates.includes(idx) && (
+                          <div style={{ 
+                            marginTop: '8px', 
+                            padding: '8px', 
+                            background: 'rgba(16, 185, 129, 0.1)', 
+                            borderRadius: 'var(--radius)',
+                            fontSize: '0.75rem',
+                            color: 'var(--success)'
+                          }}>
+                            ✓ Will update: Qty {item.existing.quantity} → {parseInt(item.existing.quantity) + parseInt(item.new.quantity)}, 
+                            Cost → ₱{parseFloat(item.new.unit_cost).toFixed(2)}, 
+                            Price → ₱{parseFloat(item.new.selling_price).toFixed(2)}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div style={{ 
+              padding: '16px 24px', 
+              borderTop: '1px solid var(--border)',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              background: 'var(--bg-secondary)'
+            }}>
+              <div style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
+                {selectedDuplicates.length} of {duplicateCount} selected for update
+              </div>
+              <div style={{ display: 'flex', gap: '12px' }}>
+                <button
+                  className="btn btn-secondary"
+                  onClick={() => setShowDuplicateModal(false)}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="btn btn-success"
+                  onClick={() => {
+                    setShowDuplicateModal(false);
+                    performImport();
+                  }}
+                >
+                  Confirm & Import
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
