@@ -16,7 +16,6 @@ function ImportModal({ isOpen, onClose, onImportComplete }) {
   const [selectedBranch, setSelectedBranch] = useState('');
   const [locations, setLocations] = useState([]);
   const [branches, setBranches] = useState([]);
-  const [duplicateAction, setDuplicateAction] = useState('update'); // 'update', 'skip'
   const [duplicateCount, setDuplicateCount] = useState(0);
   const [duplicateDetails, setDuplicateDetails] = useState([]);
   const [showDuplicateModal, setShowDuplicateModal] = useState(false);
@@ -216,7 +215,7 @@ function ImportModal({ isOpen, onClose, onImportComplete }) {
             data: batch,
             locationId: selectedLocation,
             branchId: selectedBranch || null,
-            duplicateAction: duplicateAction,
+            duplicateAction: 'update', // Always update selected duplicates
             selectedDuplicates: selectedDuplicates.map(idx => ({
               description: duplicateDetails[idx].description,
               unit: duplicateDetails[idx].unit
@@ -241,9 +240,7 @@ function ImportModal({ isOpen, onClose, onImportComplete }) {
 
       setImportProgress(0);
 
-      const message = duplicateAction === 'skip' 
-        ? `Import complete: ${totalImported} new items imported, ${totalUpdated + invalidData.length} skipped (${totalUpdated} duplicates, ${invalidData.length} invalid)${totalTransferred > 0 ? `, ${totalTransferred} transferred` : ''}`
-        : `Import complete: ${totalImported} new, ${totalUpdated} updated${totalTransferred > 0 ? `, ${totalTransferred} transferred` : ''}${invalidData.length > 0 ? `, ${invalidData.length} skipped (invalid)` : ''}`;
+      const message = `Import complete: ${totalImported} new, ${totalUpdated} updated${totalTransferred > 0 ? `, ${totalTransferred} transferred` : ''}${invalidData.length > 0 ? `, ${invalidData.length} skipped (invalid)` : ''}`;
       
       if (allErrors.length > 0) {
         // Show in console with full details
