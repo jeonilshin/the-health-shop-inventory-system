@@ -52,7 +52,8 @@ router.post('/preview', auth, authorize('admin', 'warehouse'), upload.single('fi
     // Read data starting from header row
     const rawData = xlsx.utils.sheet_to_json(sheet, { 
       range: headerRowIndex,
-      defval: ''
+      defval: '',
+      raw: false // This ensures values are read as strings, not formatted
     });
 
     // Transform data according to mapping
@@ -70,6 +71,7 @@ router.post('/preview', auth, authorize('admin', 'warehouse'), upload.single('fi
       };
 
       const brand = getColumnValue(['BRAND', 'Brand']).toString().trim();
+      const number = getColumnValue(['NUMBER', 'Number', 'No', 'NO']).toString().trim();
       const description = getColumnValue([
         'THE HEALTHSHOP PRODUCTS',
         'PRODUCT DESCRIPTION',
@@ -164,9 +166,14 @@ router.post('/preview', auth, authorize('admin', 'warehouse'), upload.single('fi
         subCategory = currentSubCategory;
       }
 
+      // Generate batch number: use existing Number if available, otherwise will auto-generate during import
+      const batchNumber = brand && number ? `${brand}-${number.padStart(3, '0')}` : (brand ? `${brand}-AUTO` : null);
+      
       return {
         rowNumber: headerRowIndex + index + 2,
         brand: brand,
+        number: number,
+        batch_number: brand && number ? `${brand}-${number.padStart(3, '0')}` : null,
         description: description,
         unit: unit,
         unit_cost: unitCost,
@@ -180,6 +187,7 @@ router.post('/preview', auth, authorize('admin', 'warehouse'), upload.single('fi
         sub_category: subCategory,
         original: {
           brand,
+          number,
           content: getColumnValue(['CONTENT', 'Content'])
         }
       };
@@ -258,9 +266,17 @@ router.post('/import', auth, authorize('admin', 'warehouse'), async (req, res) =
           continue;
         }
         
-        // Auto-generate batch number if not present
+        // Generate batch number
         let batchNumber = item.batch_number;
-        if (!batchNumber && item.brand && item.description) {
+        
+        // If batch number is AUTO or missing, generate it
+        if (!batchNumber || batchNumber.endsWith('-AUTO')) {
+          if (!item.brand) {
+            errors.push(`${item.description}: Missing brand for batch number generation`);
+            skipped++;
+            continue;
+          }
+          
           // Get existing max number for this brand
           if (!brandCounters[item.brand]) {
             const result = await client.query(

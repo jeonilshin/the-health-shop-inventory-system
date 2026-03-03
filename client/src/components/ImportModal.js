@@ -117,7 +117,7 @@ function ImportModal({ isOpen, onClose, onImportComplete }) {
       return;
     }
 
-    // Filter out rows with critical errors (missing batch number or description)
+    // Filter out rows with critical errors (missing brand or description)
     const validData = previewData.preview.filter(item => 
       !item.is_category && item.brand && item.description && item.unit
     );
@@ -377,10 +377,10 @@ function ImportModal({ isOpen, onClose, onImportComplete }) {
                   Expected columns (case-insensitive):
                 </p>
                 <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', margin: '0 0 4px 0' }}>
-                  BRAND, THE HEALTHSHOP PRODUCTS, UoM, Ave Unit Cost, Selling Price, QTY, Expiry Date (optional)
+                  BRAND, Number (optional), THE HEALTHSHOP PRODUCTS or PRODUCT DESCRIPTION, UoM, Ave Unit Cost, Selling Price, QTY, Expiry Date (optional)
                 </p>
                 <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', margin: 0, fontStyle: 'italic' }}>
-                  • Batch numbers auto-generated from Brand (e.g., CH-001, CH-002)<br/>
+                  • Batch numbers: If Number column exists → BRAND-Number (CH-001). If not → auto-generated (CH-001, CH-002, etc.)<br/>
                   • QTY: 0 or blank = 0 quantity<br/>
                   • Category rows (description only, no brand/unit) will be detected<br/>
                   • Title rows automatically skipped
@@ -439,7 +439,7 @@ function ImportModal({ isOpen, onClose, onImportComplete }) {
                   <thead style={{ position: 'sticky', top: 0, background: 'var(--bg-secondary)', zIndex: 1 }}>
                     <tr>
                       <th>Row</th>
-                      <th>Brand</th>
+                      <th>Batch #</th>
                       <th>Description</th>
                       <th>Unit</th>
                       <th>Qty</th>
@@ -475,10 +475,20 @@ function ImportModal({ isOpen, onClose, onImportComplete }) {
                       return (
                         <tr key={idx} style={!item.brand || !item.description ? { background: 'rgba(239, 68, 68, 0.05)' } : {}}>
                           <td>{item.rowNumber}</td>
-                          <td style={{ fontWeight: '600' }}>
-                            {item.brand || <span style={{ color: 'var(--danger)' }}>❌ Missing</span>}
+                          <td style={{ fontWeight: '600', fontFamily: 'monospace' }}>
+                            {item.batch_number ? (
+                              item.batch_number.endsWith('-AUTO') ? (
+                                <span style={{ color: 'var(--warning)' }}>
+                                  {item.brand}-### <small style={{ fontSize: '9px', color: 'var(--text-muted)' }}>(auto)</small>
+                                </span>
+                              ) : (
+                                item.batch_number
+                              )
+                            ) : (
+                              <span style={{ color: 'var(--danger)' }}>❌ No Brand</span>
+                            )}
                             {item.main_category && (
-                              <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                              <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '2px', fontFamily: 'system-ui' }}>
                                 {item.main_category}{item.sub_category && ` → ${item.sub_category}`}
                               </div>
                             )}
