@@ -97,7 +97,20 @@ function Navbar() {
         <div className="header-logo">
           <FiActivity size={24} />
           <div>
-            <div className="header-title">The Health Shop</div>
+            <div className="header-title">
+              The Health Shop
+              <span style={{ 
+                marginLeft: '8px', 
+                fontSize: '11px', 
+                fontWeight: '500', 
+                color: 'rgba(255, 255, 255, 0.7)',
+                backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                padding: '2px 6px',
+                borderRadius: '4px'
+              }}>
+                v0.0.1
+              </span>
+            </div>
             <div className="header-subtitle">Inventory System</div>
           </div>
         </div>
