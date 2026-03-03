@@ -13,8 +13,16 @@ function Sales() {
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [editData, setEditData] = useState({});
+  
+  // Calculate date 7 days ago
+  const getSevenDaysAgo = () => {
+    const date = new Date();
+    date.setDate(date.getDate() - 7);
+    return date.toISOString().split('T')[0];
+  };
+  
   const [filters, setFilters] = useState({
-    startDate: new Date().toISOString().split('T')[0],
+    startDate: getSevenDaysAgo(),
     endDate: new Date().toISOString().split('T')[0]
   });
   
@@ -127,7 +135,7 @@ function Sales() {
     setEditingId(sale.id);
     setEditData({
       transaction_date: sale.transaction_date.split('T')[0],
-      quantity_sold: sale.quantity_sold,
+      quantity_sold: parseInt(sale.quantity_sold),
       unit_price: sale.unit_price,
       payment_method: sale.payment_method,
       customer_name: sale.customer_name || '',
@@ -279,11 +287,11 @@ function Sales() {
                 <label>Quantity Sold *</label>
                 <input 
                   type="number" 
-                  step="1"
                   value={formData.quantity_sold} 
                   onChange={(e) => setFormData({...formData, quantity_sold: e.target.value})} 
                   required 
                   min="1"
+                  onWheel={(e) => e.target.blur()}
                 />
               </div>
               <div className="form-group" style={{ marginBottom: 0 }}>
@@ -364,7 +372,6 @@ function Sales() {
               <th>Unit Price</th>
               <th>Total</th>
               <th>Payment</th>
-              <th>Customer</th>
               <th>Sold By</th>
               {user.role === 'admin' && <th>Actions</th>}
             </tr>
@@ -372,7 +379,7 @@ function Sales() {
           <tbody>
             {sales.length === 0 ? (
               <tr>
-                <td colSpan={user.role === 'admin' ? "9" : "8"} style={{ textAlign: 'center', padding: '20px' }}>
+                <td colSpan={user.role === 'admin' ? "8" : "7"} style={{ textAlign: 'center', padding: '20px' }}>
                   No sales recorded for this period
                 </td>
               </tr>
@@ -403,8 +410,8 @@ function Sales() {
                           type="number" 
                           step="1"
                           min="1"
-                          value={editData.quantity_sold}
-                          onChange={(e) => setEditData({...editData, quantity_sold: e.target.value})}
+                          value={Math.round(editData.quantity_sold)}
+                          onChange={(e) => setEditData({...editData, quantity_sold: parseInt(e.target.value) || 1})}
                           style={{ width: '80px', padding: '4px' }}
                         />
                       ) : (
@@ -447,19 +454,6 @@ function Sales() {
                         </select>
                       ) : (
                         <span className="badge badge-info">{sale.payment_method}</span>
-                      )}
-                    </td>
-                    <td style={{ fontSize: '12px' }}>
-                      {isEditing ? (
-                        <input 
-                          type="text" 
-                          value={editData.customer_name}
-                          onChange={(e) => setEditData({...editData, customer_name: e.target.value})}
-                          style={{ width: '100%', padding: '4px' }}
-                          placeholder="Optional"
-                        />
-                      ) : (
-                        sale.customer_name || '-'
                       )}
                     </td>
                     <td style={{ fontSize: '12px' }}>{sale.sold_by_name}</td>
