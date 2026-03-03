@@ -756,13 +756,15 @@ function Inventory() {
                                     <FiEdit2 size={12} />
                                   </button>
                                   <button
-                              className="btn btn-danger"
-                              style={{ padding: '6px 12px', fontSize: '12px' }}
-                              onClick={() => handleDeleteInventory(item.id)}
-                            >
-                              <FiTrash2 size={12} />
-                              Delete
-                            </button>
+                                    className="btn btn-danger"
+                                    style={{ padding: '6px 12px', fontSize: '12px' }}
+                                    onClick={() => handleDeleteInventory(item.id)}
+                                  >
+                                    <FiTrash2 size={12} />
+                                  </button>
+                                </>
+                              )}
+                            </div>
                           </td>
                         )}
                       </tr>
