@@ -61,6 +61,9 @@ function Sales() {
   };
 
   const fetchInventory = async () => {
+    if (!formData.location_id) {
+      return; // Don't fetch if no location selected
+    }
     try {
       const response = await api.get(`/inventory/location/${formData.location_id}`);
       setInventory(response.data);

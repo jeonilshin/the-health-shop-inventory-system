@@ -413,7 +413,7 @@ router.post('/import', auth, authorize('admin', 'warehouse'), async (req, res) =
         console.error(`❌ Error processing item at row ${item.rowNumber}:`, {
           description: item.description,
           brand: item.brand,
-          batch_number: batchNumber,
+          batch_number: item.batch_number || 'not generated',
           error: itemError.message,
           stack: itemError.stack
         });
