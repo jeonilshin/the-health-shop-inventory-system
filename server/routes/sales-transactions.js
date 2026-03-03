@@ -183,6 +183,90 @@ router.delete('/:id', auth, authorize('admin'), async (req, res) => {
   }
 });
 
+// Update a sale transaction (admin only)
+router.put('/:id', auth, authorize('admin'), async (req, res) => {
+  const client = await pool.connect();
+  
+  try {
+    const { id } = req.params;
+    const {
+      transaction_date, quantity_sold, unit_price,
+      payment_method, customer_name, notes
+    } = req.body;
+    
+    await client.query('BEGIN');
+    
+    // Get old sale details
+    const oldSaleResult = await client.query('SELECT * FROM sales_transactions WHERE id = $1', [id]);
+    
+    if (oldSaleResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Sale not found' });
+    }
+    
+    const oldSale = oldSaleResult.rows[0];
+    
+    // Calculate quantity difference
+    const oldQty = parseFloat(oldSale.quantity_sold);
+    const newQty = parseFloat(quantity_sold);
+    const qtyDifference = newQty - oldQty;
+    
+    // Update inventory if quantity changed
+    if (qtyDifference !== 0) {
+      const inventoryResult = await client.query(
+        `UPDATE inventory 
+         SET quantity = quantity - $1, updated_at = CURRENT_TIMESTAMP
+         WHERE location_id = $2 AND description = $3 AND unit = $4
+         RETURNING *`,
+        [qtyDifference, oldSale.location_id, oldSale.item_description, oldSale.item_unit]
+      );
+      
+      if (inventoryResult.rows.length === 0) {
+        throw new Error('Item not found in inventory');
+      }
+      
+      if (parseFloat(inventoryResult.rows[0].quantity) < 0) {
+        throw new Error('Insufficient inventory. Cannot increase sale quantity beyond available stock.');
+      }
+    }
+    
+    // Calculate new total
+    const total_amount = parseFloat(quantity_sold) * parseFloat(unit_price);
+    
+    // Update sale transaction
+    const updatedSaleResult = await client.query(
+      `UPDATE sales_transactions 
+       SET transaction_date = $1, quantity_sold = $2, unit_price = $3,
+           total_amount = $4, payment_method = $5, customer_name = $6,
+           notes = $7, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $8
+       RETURNING *`,
+      [transaction_date, quantity_sold, unit_price, total_amount, payment_method, customer_name, notes, id]
+    );
+    
+    await client.query('COMMIT');
+    
+    await logAudit({
+      userId: req.user.id,
+      username: req.user.username,
+      action: 'SALE_UPDATED',
+      tableName: 'sales_transactions',
+      recordId: id,
+      oldValues: oldSale,
+      newValues: updatedSaleResult.rows[0],
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+      description: `Updated sale: ${oldSale.item_description} (qty: ${oldQty} → ${newQty})`
+    });
+    
+    res.json(updatedSaleResult.rows[0]);
+  } catch (error) {
+    await client.query('ROLLBACK');
+    res.status(500).json({ error: error.message });
+  } finally {
+    client.release();
+  }
+});
+
 // Get sales summary
 router.get('/summary', auth, async (req, res) => {
   try {

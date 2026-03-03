@@ -3,7 +3,7 @@ import api from '../utils/api';
 import { AuthContext } from '../context/AuthContext';
 import { formatPrice } from '../utils/formatNumber';
 import AutocompleteSearch from './AutocompleteSearch';
-import { FiShoppingCart, FiPlus, FiTrash2, FiDollarSign, FiCalendar } from 'react-icons/fi';
+import { FiShoppingCart, FiPlus, FiTrash2, FiDollarSign, FiCalendar, FiEdit2, FiX, FiCheck } from 'react-icons/fi';
 
 function Sales() {
   const { user } = useContext(AuthContext);
@@ -11,6 +11,8 @@ function Sales() {
   const [inventory, setInventory] = useState([]);
   const [sales, setSales] = useState([]);
   const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [editData, setEditData] = useState({});
   const [filters, setFilters] = useState({
     startDate: new Date().toISOString().split('T')[0],
     endDate: new Date().toISOString().split('T')[0]
@@ -121,6 +123,36 @@ function Sales() {
     }
   };
 
+  const handleEdit = (sale) => {
+    setEditingId(sale.id);
+    setEditData({
+      transaction_date: sale.transaction_date.split('T')[0],
+      quantity_sold: sale.quantity_sold,
+      unit_price: sale.unit_price,
+      payment_method: sale.payment_method,
+      customer_name: sale.customer_name || '',
+      notes: sale.notes || ''
+    });
+  };
+
+  const handleCancelEdit = () => {
+    setEditingId(null);
+    setEditData({});
+  };
+
+  const handleSaveEdit = async (id) => {
+    try {
+      await api.put(`/sales-transactions/${id}`, editData);
+      alert('Sale updated successfully!');
+      setEditingId(null);
+      setEditData({});
+      fetchSales();
+      fetchInventory();
+    } catch (error) {
+      alert(error.response?.data?.error || 'Error updating sale');
+    }
+  };
+
   const totalSales = sales.reduce((sum, sale) => sum + parseFloat(sale.total_amount || 0), 0);
   const totalItems = sales.reduce((sum, sale) => sum + parseFloat(sale.quantity_sold || 0), 0);
 
@@ -141,7 +173,7 @@ function Sales() {
         </div>
         <div className="card" style={{ padding: '16px', textAlign: 'center' }}>
           <div style={{ fontSize: '14px', color: 'var(--text-secondary)', marginBottom: '8px' }}>Items Sold</div>
-          <div style={{ fontSize: '24px', fontWeight: 700, color: 'var(--success)' }}>{totalItems.toFixed(2)}</div>
+          <div style={{ fontSize: '24px', fontWeight: 700, color: 'var(--success)' }}>{Math.round(totalItems)}</div>
         </div>
         <div className="card" style={{ padding: '16px', textAlign: 'center' }}>
           <div style={{ fontSize: '14px', color: 'var(--text-secondary)', marginBottom: '8px' }}>Transactions</div>
@@ -247,11 +279,11 @@ function Sales() {
                 <label>Quantity Sold *</label>
                 <input 
                   type="number" 
-                  step="0.01"
+                  step="1"
                   value={formData.quantity_sold} 
                   onChange={(e) => setFormData({...formData, quantity_sold: e.target.value})} 
                   required 
-                  min="0.01"
+                  min="1"
                 />
               </div>
               <div className="form-group" style={{ marginBottom: 0 }}>
@@ -345,34 +377,140 @@ function Sales() {
                 </td>
               </tr>
             ) : (
-              sales.map(sale => (
-                <tr key={sale.id}>
-                  <td>{new Date(sale.transaction_date).toLocaleDateString()}</td>
-                  <td>
-                    <div style={{ fontWeight: 600 }}>{sale.item_description}</div>
-                    <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{sale.item_unit}</div>
-                  </td>
-                  <td>{parseFloat(sale.quantity_sold).toFixed(2)}</td>
-                  <td>₱{formatPrice(sale.unit_price)}</td>
-                  <td style={{ fontWeight: 600 }}>₱{formatPrice(sale.total_amount)}</td>
-                  <td>
-                    <span className="badge badge-info">{sale.payment_method}</span>
-                  </td>
-                  <td style={{ fontSize: '12px' }}>{sale.customer_name || '-'}</td>
-                  <td style={{ fontSize: '12px' }}>{sale.sold_by_name}</td>
-                  {user.role === 'admin' && (
+              sales.map(sale => {
+                const isEditing = editingId === sale.id;
+                return (
+                  <tr key={sale.id}>
                     <td>
-                      <button 
-                        className="btn btn-danger" 
-                        style={{ padding: '6px 12px', fontSize: '12px' }}
-                        onClick={() => handleDelete(sale.id)}
-                      >
-                        <FiTrash2 size={12} />
-                      </button>
+                      {isEditing ? (
+                        <input 
+                          type="date" 
+                          value={editData.transaction_date}
+                          onChange={(e) => setEditData({...editData, transaction_date: e.target.value})}
+                          style={{ width: '100%', padding: '4px' }}
+                        />
+                      ) : (
+                        new Date(sale.transaction_date).toLocaleDateString()
+                      )}
                     </td>
-                  )}
-                </tr>
-              ))
+                    <td>
+                      <div style={{ fontWeight: 600 }}>{sale.item_description}</div>
+                      <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{sale.item_unit}</div>
+                    </td>
+                    <td>
+                      {isEditing ? (
+                        <input 
+                          type="number" 
+                          step="1"
+                          min="1"
+                          value={editData.quantity_sold}
+                          onChange={(e) => setEditData({...editData, quantity_sold: e.target.value})}
+                          style={{ width: '80px', padding: '4px' }}
+                        />
+                      ) : (
+                        parseInt(sale.quantity_sold)
+                      )}
+                    </td>
+                    <td>
+                      {isEditing ? (
+                        <input 
+                          type="number" 
+                          step="0.01"
+                          min="0.01"
+                          value={editData.unit_price}
+                          onChange={(e) => setEditData({...editData, unit_price: e.target.value})}
+                          style={{ width: '100px', padding: '4px' }}
+                        />
+                      ) : (
+                        `₱${formatPrice(sale.unit_price)}`
+                      )}
+                    </td>
+                    <td style={{ fontWeight: 600 }}>
+                      {isEditing ? (
+                        `₱${formatPrice((parseFloat(editData.quantity_sold) || 0) * (parseFloat(editData.unit_price) || 0))}`
+                      ) : (
+                        `₱${formatPrice(sale.total_amount)}`
+                      )}
+                    </td>
+                    <td>
+                      {isEditing ? (
+                        <select 
+                          value={editData.payment_method}
+                          onChange={(e) => setEditData({...editData, payment_method: e.target.value})}
+                          style={{ width: '100%', padding: '4px' }}
+                        >
+                          <option value="cash">Cash</option>
+                          <option value="gcash">GCash</option>
+                          <option value="maya">Maya</option>
+                          <option value="credit_card">Credit Card</option>
+                          <option value="other">Other</option>
+                        </select>
+                      ) : (
+                        <span className="badge badge-info">{sale.payment_method}</span>
+                      )}
+                    </td>
+                    <td style={{ fontSize: '12px' }}>
+                      {isEditing ? (
+                        <input 
+                          type="text" 
+                          value={editData.customer_name}
+                          onChange={(e) => setEditData({...editData, customer_name: e.target.value})}
+                          style={{ width: '100%', padding: '4px' }}
+                          placeholder="Optional"
+                        />
+                      ) : (
+                        sale.customer_name || '-'
+                      )}
+                    </td>
+                    <td style={{ fontSize: '12px' }}>{sale.sold_by_name}</td>
+                    {user.role === 'admin' && (
+                      <td>
+                        <div style={{ display: 'flex', gap: '4px' }}>
+                          {isEditing ? (
+                            <>
+                              <button 
+                                className="btn btn-success" 
+                                style={{ padding: '6px 10px', fontSize: '12px' }}
+                                onClick={() => handleSaveEdit(sale.id)}
+                                title="Save"
+                              >
+                                <FiCheck size={14} />
+                              </button>
+                              <button 
+                                className="btn btn-secondary" 
+                                style={{ padding: '6px 10px', fontSize: '12px' }}
+                                onClick={handleCancelEdit}
+                                title="Cancel"
+                              >
+                                <FiX size={14} />
+                              </button>
+                            </>
+                          ) : (
+                            <>
+                              <button 
+                                className="btn btn-primary" 
+                                style={{ padding: '6px 10px', fontSize: '12px' }}
+                                onClick={() => handleEdit(sale)}
+                                title="Edit"
+                              >
+                                <FiEdit2 size={12} />
+                              </button>
+                              <button 
+                                className="btn btn-danger" 
+                                style={{ padding: '6px 10px', fontSize: '12px' }}
+                                onClick={() => handleDelete(sale.id)}
+                                title="Delete"
+                              >
+                                <FiTrash2 size={12} />
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </td>
+                    )}
+                  </tr>
+                );
+              })
             )}
           </tbody>
         </table>
