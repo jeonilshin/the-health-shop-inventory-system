@@ -20,6 +20,7 @@ function ImportModal({ isOpen, onClose, onImportComplete }) {
   const [duplicateDetails, setDuplicateDetails] = useState([]);
   const [showDuplicateModal, setShowDuplicateModal] = useState(false);
   const [selectedDuplicates, setSelectedDuplicates] = useState([]);
+  const [updateOptions, setUpdateOptions] = useState({}); // { itemIndex: { updateQty: true, updatePrice: true } }
 
   const fetchLocations = useCallback(async () => {
     try {
@@ -117,8 +118,13 @@ function ImportModal({ isOpen, onClose, onImportComplete }) {
       setDuplicateDetails(details);
       
       if (duplicates > 0) {
-        // Pre-select all duplicates by default
+        // Pre-select all duplicates by default with both quantity and price updates
         setSelectedDuplicates(details.map((_, idx) => idx));
+        const defaultOptions = {};
+        details.forEach((_, idx) => {
+          defaultOptions[idx] = { updateQty: true, updatePrice: true };
+        });
+        setUpdateOptions(defaultOptions);
         showToast().info('Duplicates Found', `${duplicates} product(s) already exist in inventory. Review them before importing.`);
       }
 
@@ -215,10 +221,12 @@ function ImportModal({ isOpen, onClose, onImportComplete }) {
             data: batch,
             locationId: selectedLocation,
             branchId: selectedBranch || null,
-            duplicateAction: 'update', // Always update selected duplicates
+            duplicateAction: 'update',
             selectedDuplicates: selectedDuplicates.map(idx => ({
               description: duplicateDetails[idx].description,
-              unit: duplicateDetails[idx].unit
+              unit: duplicateDetails[idx].unit,
+              updateQty: updateOptions[idx]?.updateQty || false,
+              updatePrice: updateOptions[idx]?.updatePrice || false
             }))
           });
 
@@ -264,6 +272,7 @@ function ImportModal({ isOpen, onClose, onImportComplete }) {
       setDuplicateCount(0);
       setDuplicateDetails([]);
       setSelectedDuplicates([]);
+      setUpdateOptions({});
       setShowDuplicateModal(false);
       if (document.getElementById('fileInput')) {
         document.getElementById('fileInput').value = '';
@@ -721,15 +730,69 @@ function ImportModal({ isOpen, onClose, onImportComplete }) {
                         {selectedDuplicates.includes(idx) && (
                           <div style={{ 
                             marginTop: '8px', 
-                            padding: '8px', 
+                            padding: '12px', 
                             background: 'rgba(16, 185, 129, 0.1)', 
                             borderRadius: 'var(--radius)',
-                            fontSize: '0.75rem',
-                            color: 'var(--success)'
+                            fontSize: '0.875rem'
                           }}>
-                            ✓ Will update: Qty {item.existing.quantity} → {parseInt(item.existing.quantity) + parseInt(item.new.quantity)}, 
-                            Cost → ₱{parseFloat(item.new.unit_cost).toFixed(2)}, 
-                            Price → ₱{parseFloat(item.new.selling_price).toFixed(2)}
+                            <div style={{ fontWeight: '600', marginBottom: '8px', color: 'var(--success)' }}>
+                              ✓ Update Options:
+                            </div>
+                            <div style={{ display: 'flex', gap: '16px', marginLeft: '8px' }}>
+                              <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
+                                <input
+                                  type="checkbox"
+                                  checked={updateOptions[idx]?.updateQty || false}
+                                  onChange={(e) => {
+                                    e.stopPropagation();
+                                    setUpdateOptions({
+                                      ...updateOptions,
+                                      [idx]: {
+                                        ...updateOptions[idx],
+                                        updateQty: e.target.checked
+                                      }
+                                    });
+                                  }}
+                                />
+                                <span>Add Quantity (+{item.new.quantity})</span>
+                              </label>
+                              <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
+                                <input
+                                  type="checkbox"
+                                  checked={updateOptions[idx]?.updatePrice || false}
+                                  onChange={(e) => {
+                                    e.stopPropagation();
+                                    setUpdateOptions({
+                                      ...updateOptions,
+                                      [idx]: {
+                                        ...updateOptions[idx],
+                                        updatePrice: e.target.checked
+                                      }
+                                    });
+                                  }}
+                                />
+                                <span>Update Prices</span>
+                              </label>
+                            </div>
+                            <div style={{ 
+                              marginTop: '8px', 
+                              fontSize: '0.75rem',
+                              color: 'var(--text-secondary)',
+                              paddingLeft: '8px'
+                            }}>
+                              {updateOptions[idx]?.updateQty && updateOptions[idx]?.updatePrice && (
+                                `→ Qty: ${item.existing.quantity} + ${item.new.quantity} = ${parseInt(item.existing.quantity) + parseInt(item.new.quantity)}, Cost: ₱${parseFloat(item.new.unit_cost).toFixed(2)}, Price: ₱${parseFloat(item.new.selling_price).toFixed(2)}`
+                              )}
+                              {updateOptions[idx]?.updateQty && !updateOptions[idx]?.updatePrice && (
+                                `→ Qty: ${item.existing.quantity} + ${item.new.quantity} = ${parseInt(item.existing.quantity) + parseInt(item.new.quantity)} (prices unchanged)`
+                              )}
+                              {!updateOptions[idx]?.updateQty && updateOptions[idx]?.updatePrice && (
+                                `→ Cost: ₱${parseFloat(item.new.unit_cost).toFixed(2)}, Price: ₱${parseFloat(item.new.selling_price).toFixed(2)} (quantity unchanged)`
+                              )}
+                              {!updateOptions[idx]?.updateQty && !updateOptions[idx]?.updatePrice && (
+                                `⚠️ No changes will be made`
+                              )}
+                            </div>
                           </div>
                         )}
                       </div>

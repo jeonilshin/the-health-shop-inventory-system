@@ -407,7 +407,7 @@ function Reports() {
                   <input type="text" value={formatNumberInput(formData.other_income)} onChange={(e) => handleCurrencyChange('other_income', e.target.value)} placeholder="0.00" />
                 </div>
                 <div className="form-group" style={{ marginBottom: 0 }}>
-                  <label>Total Cash Sales/Receipts (Auto)</label>
+                  <label>Total Cash Sales/Receipts (Auto) - Sales Only</label>
                   <input 
                     type="text" 
                     value={formatNumberInput(formData.total_cash_receipts)} 
@@ -417,7 +417,11 @@ function Reports() {
                     }}
                     style={{ backgroundColor: manualOverrides.total_cash_receipts ? 'var(--bg-primary)' : 'var(--bg-secondary)', fontWeight: 600 }} 
                     placeholder="Auto-calculated (editable)"
+                    title="This is sales only. Cash Beginning is added in Net Cash Receipts section."
                   />
+                  <small style={{ fontSize: '0.7rem', color: 'var(--text-muted)', display: 'block', marginTop: '4px' }}>
+                    Note: Cash Beginning is NOT included here. It's added in Section D (Net Cash Receipts).
+                  </small>
                 </div>
               </div>
             </div>
@@ -657,11 +661,13 @@ function Reports() {
                                 <FiEye size={12} />
                                 View
                               </button>
-                              {user.role === 'admin' && report.status !== 'approved' && (
+                              {user.role === 'admin' && (
                                 <>
-                                  <button className="btn btn-success" style={{ padding: '6px 12px', fontSize: '12px' }} onClick={() => handleStatusUpdate(report.id, 'approved')}>
-                                    <FiCheck size={12} />
-                                  </button>
+                                  {report.status !== 'approved' && (
+                                    <button className="btn btn-success" style={{ padding: '6px 12px', fontSize: '12px' }} onClick={() => handleStatusUpdate(report.id, 'approved')}>
+                                      <FiCheck size={12} />
+                                    </button>
+                                  )}
                                   <button className="btn btn-danger" style={{ padding: '6px 12px', fontSize: '12px' }} onClick={() => handleDelete(report.id)}>
                                     <FiTrash2 size={12} />
                                   </button>
@@ -697,11 +703,13 @@ function Reports() {
                             <FiEye size={12} />
                             View
                           </button>
-                          {user.role === 'admin' && report.status !== 'approved' && (
+                          {user.role === 'admin' && (
                             <>
-                              <button className="btn btn-success" style={{ padding: '6px 12px', fontSize: '12px' }} onClick={() => handleStatusUpdate(report.id, 'approved')}>
-                                <FiCheck size={12} />
-                              </button>
+                              {report.status !== 'approved' && (
+                                <button className="btn btn-success" style={{ padding: '6px 12px', fontSize: '12px' }} onClick={() => handleStatusUpdate(report.id, 'approved')}>
+                                  <FiCheck size={12} />
+                                </button>
+                              )}
                               <button className="btn btn-danger" style={{ padding: '6px 12px', fontSize: '12px' }} onClick={() => handleDelete(report.id)}>
                                 <FiTrash2 size={12} />
                               </button>

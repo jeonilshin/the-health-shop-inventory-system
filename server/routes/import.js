@@ -308,9 +308,12 @@ router.post('/import', auth, authorize('admin', 'warehouse'), async (req, res) =
     // Default to 'update' if not specified
     const handleDuplicates = duplicateAction || 'update';
     
-    // Create a Set of selected duplicates for quick lookup
-    const selectedDuplicatesSet = new Set(
-      (selectedDuplicates || []).map(item => `${item.description}|||${item.unit}`)
+    // Create a Map of selected duplicates with their update options for quick lookup
+    const selectedDuplicatesMap = new Map(
+      (selectedDuplicates || []).map(item => [
+        `${item.description}|||${item.unit}`,
+        { updateQty: item.updateQty, updatePrice: item.updatePrice }
+      ])
     );
     
     // Track batch numbers by brand for auto-increment
@@ -385,33 +388,72 @@ router.post('/import', auth, authorize('admin', 'warehouse'), async (req, res) =
         if (existingItem.rows.length > 0) {
           // Item already exists - check if it's in the selected list
           const itemKey = `${item.description}|||${item.unit}`;
-          const isSelected = selectedDuplicatesSet.has(itemKey);
+          const updateOptions = selectedDuplicatesMap.get(itemKey);
           
-          if (!isSelected) {
+          if (!updateOptions) {
             // Not selected for update, skip it
             skipped++;
             continue;
           }
           
-          // Selected for update
+          // Selected for update - apply based on options
           if (handleDuplicates === 'skip') {
             // Skip this item
             skipped++;
             continue;
           } else if (handleDuplicates === 'update') {
-            // Update existing item (add quantities, update prices)
-            await client.query(
-              `UPDATE inventory 
-               SET quantity = quantity + $1,
-                   unit_cost = $2,
-                   suggested_selling_price = $3,
-                   expiry_date = COALESCE($4, expiry_date),
-                   main_category = COALESCE($5, main_category),
-                   sub_category = COALESCE($6, sub_category),
-                   updated_at = CURRENT_TIMESTAMP
-               WHERE id = $7`,
-              [item.quantity, item.unit_cost, item.suggested_selling_price, item.expiry_date, item.main_category, item.sub_category, existingItem.rows[0].id]
-            );
+            // Build update query based on what user wants to update
+            const updates = [];
+            const values = [];
+            let paramCount = 1;
+            
+            if (updateOptions.updateQty) {
+              updates.push(`quantity = quantity + $${paramCount}`);
+              values.push(item.quantity);
+              paramCount++;
+            }
+            
+            if (updateOptions.updatePrice) {
+              updates.push(`unit_cost = $${paramCount}`);
+              values.push(item.unit_cost);
+              paramCount++;
+              
+              updates.push(`suggested_selling_price = $${paramCount}`);
+              values.push(item.suggested_selling_price);
+              paramCount++;
+            }
+            
+            // Always update these if provided
+            if (item.expiry_date) {
+              updates.push(`expiry_date = $${paramCount}`);
+              values.push(item.expiry_date);
+              paramCount++;
+            }
+            
+            if (item.main_category) {
+              updates.push(`main_category = $${paramCount}`);
+              values.push(item.main_category);
+              paramCount++;
+            }
+            
+            if (item.sub_category) {
+              updates.push(`sub_category = $${paramCount}`);
+              values.push(item.sub_category);
+              paramCount++;
+            }
+            
+            updates.push('updated_at = CURRENT_TIMESTAMP');
+            
+            // Add WHERE clause parameter
+            values.push(existingItem.rows[0].id);
+            
+            if (updates.length > 1) { // More than just updated_at
+              await client.query(
+                `UPDATE inventory SET ${updates.join(', ')} WHERE id = $${paramCount}`,
+                values
+              );
+            }
+            
             inventoryId = existingItem.rows[0].id;
             updated++;
           }
