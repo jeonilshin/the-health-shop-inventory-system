@@ -166,14 +166,14 @@ router.post('/preview', auth, authorize('admin', 'warehouse'), upload.single('fi
         subCategory = currentSubCategory;
       }
 
-      // Generate batch number: use existing Number if available, otherwise will auto-generate during import
+      // Generate batch number: use existing Number if available, otherwise mark for auto-generation
       const batchNumber = brand && number ? `${brand}-${number.padStart(3, '0')}` : (brand ? `${brand}-AUTO` : null);
       
       return {
         rowNumber: headerRowIndex + index + 2,
         brand: brand,
         number: number,
-        batch_number: brand && number ? `${brand}-${number.padStart(3, '0')}` : null,
+        batch_number: batchNumber,
         description: description,
         unit: unit,
         unit_cost: unitCost,
