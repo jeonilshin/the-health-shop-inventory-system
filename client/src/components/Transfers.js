@@ -119,30 +119,6 @@ function Transfers() {
     }
   };
 
-  const handleHistoryItemSelect = (e) => {
-    const value = e.target.value;
-    if (value) {
-      const [description, unit] = value.split('|||');
-      const item = inventoryHistory.find(h => h.description === description && h.unit === unit);
-      if (item) {
-        setRequestFormData({
-          ...requestFormData,
-          description: item.description,
-          unit: item.unit,
-          unit_cost: item.unit_cost || ''
-        });
-      }
-    } else {
-      setRequestFormData({
-        description: '',
-        unit: '',
-        quantity: '',
-        unit_cost: '',
-        notes: ''
-      });
-    }
-  };
-
   const handleRequestSubmit = async (e) => {
     e.preventDefault();
     
