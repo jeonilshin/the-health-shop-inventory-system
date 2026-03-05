@@ -2,7 +2,7 @@ import { useState, useEffect, useContext } from 'react';
 import api from '../utils/api';
 import { AuthContext } from '../context/AuthContext';
 import { formatQuantity, formatPrice } from '../utils/formatNumber';
-import { FiPackage, FiPlus, FiDownload, FiSearch, FiAlertCircle, FiTrash2, FiUpload, FiEdit2, FiX, FiCheck } from 'react-icons/fi';
+import { FiPackage, FiPlus, FiDownload, FiSearch, FiAlertCircle, FiTrash2, FiUpload, FiEdit2, FiX, FiCheck, FiClock } from 'react-icons/fi';
 import SimpleAutocomplete from './SimpleAutocomplete';
 import ImportModal from './ImportModal';
 
@@ -26,6 +26,16 @@ function Inventory() {
   const [expiryFilter, setExpiryFilter] = useState('all'); // 'all', 'expired', 'expiring_soon', 'valid'
   const [editingId, setEditingId] = useState(null);
   const [editData, setEditData] = useState({});
+  const [viewHistory, setViewHistory] = useState(null);
+  const [productHistory, setProductHistory] = useState([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+  const [showConversionModal, setShowConversionModal] = useState(false);
+  const [conversionData, setConversionData] = useState({
+    fromItemId: '',
+    toItemId: '',
+    unitsPerBox: '',
+    boxesToConvert: ''
+  });
   const [formData, setFormData] = useState({
     description: '',
     unit: '',
@@ -302,6 +312,44 @@ function Inventory() {
     }
   };
 
+  const handleViewHistory = async (item) => {
+    setViewHistory(item);
+    setLoadingHistory(true);
+    try {
+      // Fetch history for this product (by description and unit)
+      const response = await api.get(`/inventory/history/${item.id}`);
+      setProductHistory(response.data);
+    } catch (error) {
+      console.error('Error fetching history:', error);
+      setProductHistory([]);
+    } finally {
+      setLoadingHistory(false);
+    }
+  };
+
+  const handleConvertUnits = async () => {
+    if (!conversionData.fromItemId || !conversionData.toItemId || !conversionData.unitsPerBox || !conversionData.boxesToConvert) {
+      alert('Please fill in all fields');
+      return;
+    }
+
+    try {
+      await api.post('/inventory/convert-units', {
+        fromItemId: conversionData.fromItemId,
+        toItemId: conversionData.toItemId,
+        unitsPerBox: parseFloat(conversionData.unitsPerBox),
+        boxesToConvert: parseFloat(conversionData.boxesToConvert)
+      });
+      
+      alert('Units converted successfully!');
+      setShowConversionModal(false);
+      setConversionData({ fromItemId: '', toItemId: '', unitsPerBox: '', boxesToConvert: '' });
+      fetchInventory();
+    } catch (error) {
+      alert(error.response?.data?.error || 'Error converting units');
+    }
+  };
+
   return (
     <div className="container">
       <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '24px' }}>
@@ -390,11 +438,13 @@ function Inventory() {
             }}>
               {locations.map(location => {
                 const locationInventory = inventory.filter(item => item.location_id === location.id);
-                const totalItems = locationInventory.length;
-                const totalValue = locationInventory.reduce((sum, item) => 
+                const inStockItems = locationInventory.filter(item => parseFloat(item.quantity) > 0);
+                const totalItems = inStockItems.length;
+                const totalValue = inStockItems.reduce((sum, item) => 
                   sum + (parseFloat(item.quantity) * parseFloat(item.unit_cost)), 0
                 );
-                const lowStock = locationInventory.filter(item => parseFloat(item.quantity) < 10).length;
+                const lowStock = locationInventory.filter(item => parseFloat(item.quantity) > 0 && parseFloat(item.quantity) < 10).length;
+                const noStock = locationInventory.filter(item => parseFloat(item.quantity) === 0).length;
                 
                 return (
                   <div
@@ -464,7 +514,7 @@ function Inventory() {
                     }}>
                       <div>
                         <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '4px' }}>
-                          Total Items
+                          In Stock
                         </div>
                         <div style={{ fontSize: '20px', fontWeight: '700', color: 'var(--primary)' }}>
                           {totalItems}
@@ -478,8 +528,25 @@ function Inventory() {
                           ₱{formatPrice(totalValue)}
                         </div>
                       </div>
+                      {noStock > 0 && (
+                        <div>
+                          <div style={{ 
+                            padding: '8px 12px', 
+                            background: 'rgba(107, 114, 128, 0.1)', 
+                            borderRadius: 'var(--radius)',
+                            fontSize: '12px',
+                            color: 'var(--text-muted)',
+                            fontWeight: '600',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '6px'
+                          }}>
+                            📦 {noStock} item{noStock > 1 ? 's' : ''} no stock
+                          </div>
+                        </div>
+                      )}
                       {lowStock > 0 && (
-                        <div style={{ gridColumn: '1 / -1' }}>
+                        <div>
                           <div style={{ 
                             padding: '8px 12px', 
                             background: 'rgba(239, 68, 68, 0.1)', 
@@ -521,6 +588,11 @@ function Inventory() {
                   <button className="btn btn-primary" onClick={() => setShowForm(!showForm)}>
                     <FiPlus size={16} />
                     {showForm ? 'Cancel' : 'Add Item'}
+                  </button>
+                )}
+                {(user.role === 'branch_manager' || user.role === 'branch_staff') && selectedLocation !== 'all' && (
+                  <button className="btn btn-info" onClick={() => setShowConversionModal(true)}>
+                    🔄 Convert Units
                   </button>
                 )}
               </div>
@@ -930,6 +1002,16 @@ function Inventory() {
                                 </>
                               ) : (
                                 <>
+                                  {user.role === 'admin' && (
+                                    <button 
+                                      className="btn btn-info" 
+                                      style={{ padding: '6px 10px', fontSize: '12px' }}
+                                      onClick={() => handleViewHistory(item)}
+                                      title="View History"
+                                    >
+                                      <FiClock size={12} />
+                                    </button>
+                                  )}
                                   <button 
                                     className="btn btn-primary" 
                                     style={{ padding: '6px 10px', fontSize: '12px' }}
@@ -1023,6 +1105,280 @@ function Inventory() {
           </>
         )}
       </div>
+
+      {/* Product History Modal */}
+      {viewHistory && (
+        <div className="modal-overlay" onClick={() => setViewHistory(null)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '900px', width: '95%', maxHeight: '90vh' }}>
+            <div style={{ 
+              padding: '20px 24px', 
+              borderBottom: '1px solid var(--border)',
+              background: 'linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%)',
+              color: 'white',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center'
+            }}>
+              <div>
+                <h2 style={{ fontSize: '1.25rem', fontWeight: 'bold', margin: '0 0 4px 0' }}>
+                  Product History
+                </h2>
+                <div style={{ fontSize: '0.875rem', opacity: 0.9 }}>
+                  {viewHistory.description} ({viewHistory.unit})
+                </div>
+              </div>
+              <button
+                onClick={() => setViewHistory(null)}
+                style={{ 
+                  background: 'rgba(255, 255, 255, 0.2)', 
+                  border: 'none', 
+                  color: 'white', 
+                  width: '32px', 
+                  height: '32px', 
+                  borderRadius: 'var(--radius)', 
+                  cursor: 'pointer'
+                }}
+              >
+                ✕
+              </button>
+            </div>
+
+            <div style={{ padding: '20px', overflowY: 'auto', maxHeight: 'calc(90vh - 120px)' }}>
+              {loadingHistory ? (
+                <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
+                  Loading history...
+                </div>
+              ) : productHistory.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
+                  No history found for this product
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  {productHistory.map((record, idx) => (
+                    <div
+                      key={idx}
+                      style={{
+                        padding: '16px',
+                        border: '1px solid var(--border)',
+                        borderRadius: 'var(--radius)',
+                        background: 'var(--bg-secondary)'
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          {record.type === 'sale' && (
+                            <span style={{ fontSize: '20px' }}>💰</span>
+                          )}
+                          {record.type === 'transfer' && (
+                            <span style={{ fontSize: '20px' }}>🚚</span>
+                          )}
+                          {record.type === 'adjustment' && (
+                            <span style={{ fontSize: '20px' }}>📝</span>
+                          )}
+                          <div>
+                            <div style={{ fontWeight: '600', fontSize: '14px' }}>
+                              {record.type === 'sale' && 'Sale'}
+                              {record.type === 'transfer' && 'Transfer'}
+                              {record.type === 'adjustment' && record.action}
+                            </div>
+                            <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                              {new Date(record.date || record.created_at).toLocaleString()}
+                            </div>
+                          </div>
+                        </div>
+                        <div style={{ textAlign: 'right' }}>
+                          {record.type === 'sale' && (
+                            <div style={{ fontSize: '16px', fontWeight: '700', color: 'var(--danger)' }}>
+                              -{record.quantity}
+                            </div>
+                          )}
+                          {record.type === 'transfer' && (
+                            <div style={{ fontSize: '16px', fontWeight: '700', color: record.to_location_id === viewHistory.location_id ? 'var(--success)' : 'var(--danger)' }}>
+                              {record.to_location_id === viewHistory.location_id ? '+' : '-'}{record.quantity}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      <div style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+                        {record.type === 'sale' && (
+                          <>
+                            <div>Sold by: {record.user_name}</div>
+                            <div>Price: ₱{formatPrice(record.unit_price)} × {record.quantity} = ₱{formatPrice(record.total_amount)}</div>
+                            <div>Payment: {record.payment_method}</div>
+                            {record.customer_name && <div>Customer: {record.customer_name}</div>}
+                            <div>Location: {record.location_name}</div>
+                          </>
+                        )}
+                        {record.type === 'transfer' && (
+                          <>
+                            <div>From: {record.from_location_name} → To: {record.to_location_name}</div>
+                            <div>Status: <span className={`badge badge-${record.status === 'completed' ? 'success' : record.status === 'pending' ? 'warning' : 'secondary'}`}>{record.status}</span></div>
+                            <div>Transferred by: {record.user_name}</div>
+                            <div>Unit Cost: ₱{formatPrice(record.unit_cost)}</div>
+                          </>
+                        )}
+                        {record.type === 'adjustment' && (
+                          <>
+                            <div>User: {record.user_name}</div>
+                            {record.audit_description && <div>{record.audit_description}</div>}
+                            {record.old_values && record.new_values && (
+                              <div style={{ marginTop: '8px', fontSize: '12px' }}>
+                                {record.old_values.quantity !== record.new_values.quantity && (
+                                  <div>Quantity: {record.old_values.quantity} → {record.new_values.quantity}</div>
+                                )}
+                                {record.old_values.unit_cost !== record.new_values.unit_cost && (
+                                  <div>Cost: ₱{record.old_values.unit_cost} → ₱{record.new_values.unit_cost}</div>
+                                )}
+                              </div>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Unit Conversion Modal */}
+      {showConversionModal && (
+        <div className="modal-overlay" onClick={() => setShowConversionModal(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '600px' }}>
+            <div style={{ 
+              padding: '20px 24px', 
+              borderBottom: '1px solid var(--border)',
+              background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+              color: 'white',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center'
+            }}>
+              <h2 style={{ fontSize: '1.25rem', fontWeight: 'bold', margin: 0 }}>
+                🔄 Convert Units
+              </h2>
+              <button
+                onClick={() => setShowConversionModal(false)}
+                style={{ 
+                  background: 'rgba(255, 255, 255, 0.2)', 
+                  border: 'none', 
+                  color: 'white', 
+                  width: '32px', 
+                  height: '32px', 
+                  borderRadius: 'var(--radius)', 
+                  cursor: 'pointer'
+                }}
+              >
+                ✕
+              </button>
+            </div>
+
+            <div style={{ padding: '24px' }}>
+              <div className="alert alert-info" style={{ marginBottom: '20px', fontSize: '14px' }}>
+                Convert larger units (BOX, BOT) to smaller units (PC). Example: 1 BOX of vitamins = 100 PC
+              </div>
+
+              <div className="form-group">
+                <label>From Item (BOX/BOT) *</label>
+                <select
+                  value={conversionData.fromItemId}
+                  onChange={(e) => setConversionData({...conversionData, fromItemId: e.target.value})}
+                  required
+                >
+                  <option value="">Select item to convert from...</option>
+                  {filteredInventory
+                    .filter(item => ['BOX', 'BOT', 'box', 'bot'].includes(item.unit))
+                    .map(item => (
+                      <option key={item.id} value={item.id}>
+                        {item.description} - {item.unit} (Qty: {formatQuantity(item.quantity)})
+                      </option>
+                    ))}
+                </select>
+              </div>
+
+              <div className="form-group">
+                <label>To Item (PC) *</label>
+                <select
+                  value={conversionData.toItemId}
+                  onChange={(e) => setConversionData({...conversionData, toItemId: e.target.value})}
+                  required
+                >
+                  <option value="">Select item to convert to...</option>
+                  {filteredInventory
+                    .filter(item => ['PC', 'pc', 'PCS', 'pcs'].includes(item.unit))
+                    .map(item => (
+                      <option key={item.id} value={item.id}>
+                        {item.description} - {item.unit} (Qty: {formatQuantity(item.quantity)})
+                      </option>
+                    ))}
+                </select>
+              </div>
+
+              <div className="form-group">
+                <label>Units per Box/Bottle *</label>
+                <input
+                  type="number"
+                  step="1"
+                  min="1"
+                  value={conversionData.unitsPerBox}
+                  onChange={(e) => setConversionData({...conversionData, unitsPerBox: e.target.value})}
+                  placeholder="e.g., 100 (1 BOX = 100 PC)"
+                  required
+                />
+                <small style={{ color: 'var(--text-muted)', fontSize: '12px' }}>
+                  How many pieces are in one box/bottle?
+                </small>
+              </div>
+
+              <div className="form-group">
+                <label>Boxes/Bottles to Convert *</label>
+                <input
+                  type="number"
+                  step="1"
+                  min="1"
+                  value={conversionData.boxesToConvert}
+                  onChange={(e) => setConversionData({...conversionData, boxesToConvert: e.target.value})}
+                  placeholder="e.g., 1"
+                  required
+                />
+                <small style={{ color: 'var(--text-muted)', fontSize: '12px' }}>
+                  How many boxes/bottles do you want to convert?
+                </small>
+              </div>
+
+              {conversionData.unitsPerBox && conversionData.boxesToConvert && (
+                <div className="alert alert-success" style={{ marginTop: '16px', fontSize: '14px' }}>
+                  <strong>Result:</strong> {conversionData.boxesToConvert} × {conversionData.unitsPerBox} = {parseFloat(conversionData.boxesToConvert) * parseFloat(conversionData.unitsPerBox)} pieces will be added
+                </div>
+              )}
+
+              <div style={{ display: 'flex', gap: '12px', marginTop: '24px' }}>
+                <button 
+                  className="btn btn-primary" 
+                  onClick={handleConvertUnits}
+                  disabled={!conversionData.fromItemId || !conversionData.toItemId || !conversionData.unitsPerBox || !conversionData.boxesToConvert}
+                  style={{ flex: 1 }}
+                >
+                  Convert Units
+                </button>
+                <button 
+                  className="btn btn-secondary" 
+                  onClick={() => {
+                    setShowConversionModal(false);
+                    setConversionData({ fromItemId: '', toItemId: '', unitsPerBox: '', boxesToConvert: '' });
+                  }}
+                  style={{ flex: 1 }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <ImportModal 
         isOpen={showImportModal} 

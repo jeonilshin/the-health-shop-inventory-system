@@ -178,10 +178,12 @@ function Sales() {
 
       {/* Summary Cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginBottom: '20px' }}>
-        <div className="card" style={{ padding: '16px', textAlign: 'center' }}>
-          <div style={{ fontSize: '14px', color: 'var(--text-secondary)', marginBottom: '8px' }}>Total Sales</div>
-          <div style={{ fontSize: '24px', fontWeight: 700, color: 'var(--primary)' }}>₱{formatPrice(totalSales)}</div>
-        </div>
+        {user.role === 'admin' && (
+          <div className="card" style={{ padding: '16px', textAlign: 'center' }}>
+            <div style={{ fontSize: '14px', color: 'var(--text-secondary)', marginBottom: '8px' }}>Total Sales</div>
+            <div style={{ fontSize: '24px', fontWeight: 700, color: 'var(--primary)' }}>₱{formatPrice(totalSales)}</div>
+          </div>
+        )}
         <div className="card" style={{ padding: '16px', textAlign: 'center' }}>
           <div style={{ fontSize: '14px', color: 'var(--text-secondary)', marginBottom: '8px' }}>Items Sold</div>
           <div style={{ fontSize: '24px', fontWeight: 700, color: 'var(--success)' }}>{Math.round(totalItems)}</div>
