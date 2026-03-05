@@ -72,12 +72,12 @@ function Navbar() {
 
   const navItems = [
     { to: '/', icon: FiHome, label: 'Dashboard', roles: ['admin', 'warehouse', 'branch_manager', 'branch_staff'] },
+    { to: '/sales', icon: FiDollarSign, label: 'Sales', roles: ['admin', 'warehouse', 'branch_manager', 'branch_staff'] },
     { to: '/inventory', icon: FiPackage, label: 'Inventory', roles: ['admin', 'warehouse', 'branch_manager', 'branch_staff'] },
     { to: '/transfers', icon: FiSend, label: 'Transfers', roles: ['admin', 'warehouse', 'branch_manager'] },
     { to: '/reports', icon: FiFileText, label: 'Reports', roles: ['admin', 'branch_manager', 'branch_staff'] },
     { to: '/analytics', icon: FiBarChart2, label: 'Analytics', roles: ['admin', 'branch_manager', 'branch_staff'] },
     { to: '/deliveries', icon: FiTruck, label: 'Deliveries', roles: ['admin', 'warehouse'] },
-    { to: '/sales', icon: FiDollarSign, label: 'Sales', roles: ['admin', 'warehouse', 'branch_manager', 'branch_staff'] },
     { to: '/messages', icon: FiMessageSquare, label: 'Messages', roles: ['admin', 'warehouse', 'branch_manager', 'branch_staff'] },
     { to: '/admin', icon: FiSettings, label: 'Admin', roles: ['admin'] },
     { to: '/audit', icon: FiShield, label: 'Audit Log', roles: ['admin'] },

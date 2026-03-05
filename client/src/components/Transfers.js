@@ -2,6 +2,7 @@ import { useState, useEffect, useContext } from 'react';
 import api from '../utils/api';
 import { AuthContext } from '../context/AuthContext';
 import { formatQuantity, formatPrice } from '../utils/formatNumber';
+import AutocompleteSearch from './AutocompleteSearch';
 import { FiSend, FiPackage, FiAlertCircle, FiCheck, FiX, FiTruck, FiClock, FiCheckCircle, FiXCircle, FiTrash2 } from 'react-icons/fi';
 
 function Transfers() {
@@ -531,22 +532,22 @@ function Transfers() {
             
             <div className="alert alert-info" style={{ marginBottom: '16px' }}>
               <FiAlertCircle size={16} />
-              You can only request items that have been in inventory history. Select from the list below.
+              Search for items from inventory history to request from warehouse.
             </div>
 
             <div className="form-group">
-              <label>Select Item from History</label>
-              <select
-                onChange={handleHistoryItemSelect}
-                required
-              >
-                <option value="">-- Select an item --</option>
-                {inventoryHistory.map((item, index) => (
-                  <option key={index} value={`${item.description}|||${item.unit}`}>
-                    {item.description} ({item.unit})
-                  </option>
-                ))}
-              </select>
+              <label>Search Item *</label>
+              <AutocompleteSearch
+                placeholder="Search for product to request..."
+                onSelect={(item) => {
+                  setRequestFormData({
+                    ...requestFormData,
+                    description: item.description,
+                    unit: item.unit,
+                    unit_cost: item.unit_cost || ''
+                  });
+                }}
+              />
             </div>
 
             {requestFormData.description && (
@@ -682,19 +683,24 @@ function Transfers() {
                       }}>
                         <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr auto', gap: '12px', alignItems: 'end' }}>
                           <div className="form-group" style={{ marginBottom: 0 }}>
-                            <label>Select Item</label>
-                            <select
-                              value={item.inventory_item_id}
-                              onChange={(e) => handleItemSelect(index, e.target.value)}
-                              required
-                            >
-                              <option value="">Select an item</option>
-                              {inventory.map((invItem) => (
-                                <option key={invItem.id} value={invItem.id}>
-                                  {invItem.description} - {formatQuantity(invItem.quantity)} {invItem.unit} @ ₱{formatPrice(invItem.unit_cost)}
-                                </option>
-                              ))}
-                            </select>
+                            <label>Search Item</label>
+                            <AutocompleteSearch
+                              locationId={formData.from_location_id}
+                              placeholder="Search for product..."
+                              onSelect={(invItem) => handleItemSelect(index, invItem.id.toString())}
+                            />
+                            {item.selectedItem && (
+                              <div style={{ 
+                                marginTop: '8px', 
+                                padding: '8px', 
+                                backgroundColor: 'rgba(59, 130, 246, 0.1)', 
+                                borderRadius: 'var(--radius)',
+                                fontSize: '13px',
+                                color: 'var(--primary)'
+                              }}>
+                                Selected: {item.selectedItem.description}
+                              </div>
+                            )}
                           </div>
 
                           <div className="form-group" style={{ marginBottom: 0 }}>

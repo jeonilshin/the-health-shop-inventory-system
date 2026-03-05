@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import api from '../utils/api';
 import { useToast } from '../context/ToastContext';
+import AutocompleteSearch from './AutocompleteSearch';
 import { FiPlus, FiEdit2, FiTrash2, FiRefreshCw } from 'react-icons/fi';
 
 function UnitConversions() {
@@ -124,14 +125,35 @@ function UnitConversions() {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
               <div className="form-group">
                 <label>Product Description *</label>
-                <input
-                  type="text"
-                  value={formData.product_description}
-                  onChange={(e) => setFormData({ ...formData, product_description: e.target.value })}
-                  required
-                  disabled={editingId !== null}
-                  placeholder="e.g., Paracetamol"
-                />
+                {editingId ? (
+                  <input
+                    type="text"
+                    value={formData.product_description}
+                    disabled
+                    style={{ backgroundColor: 'var(--bg-secondary)' }}
+                  />
+                ) : (
+                  <AutocompleteSearch
+                    placeholder="Search for product..."
+                    onSelect={(item) => setFormData({ 
+                      ...formData, 
+                      product_description: item.description,
+                      base_unit: item.unit
+                    })}
+                  />
+                )}
+                {!editingId && formData.product_description && (
+                  <div style={{ 
+                    marginTop: '8px', 
+                    padding: '8px', 
+                    backgroundColor: 'rgba(59, 130, 246, 0.1)', 
+                    borderRadius: 'var(--radius)',
+                    fontSize: '13px',
+                    color: 'var(--primary)'
+                  }}>
+                    Selected: {formData.product_description}
+                  </div>
+                )}
               </div>
 
               <div className="form-group">
