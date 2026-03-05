@@ -1277,7 +1277,7 @@ function Inventory() {
                       // Filter adjustments to only show those for the current location
                       if (record.type === 'adjustment') {
                         const locationId = record.new_values?.location_id || record.old_values?.location_id;
-                        return locationId == viewHistory.location_id;
+                        return locationId === viewHistory.location_id;
                       }
                       return true;
                     })
