@@ -644,7 +644,7 @@ function Inventory() {
                     {showForm ? 'Cancel' : 'Add Item'}
                   </button>
                 )}
-                {(user.role === 'branch_manager' || user.role === 'branch_staff') && selectedLocation !== 'all' && (
+                {(user.role === 'admin' || user.role === 'branch_manager' || user.role === 'branch_staff') && selectedLocation !== 'all' && (
                   <button className="btn btn-info" onClick={() => setShowConversionModal(true)}>
                     🔄 Convert Units
                   </button>

@@ -23,7 +23,8 @@ function Sales() {
   
   const [filters, setFilters] = useState({
     startDate: getSevenDaysAgo(),
-    endDate: new Date().toISOString().split('T')[0]
+    endDate: new Date().toISOString().split('T')[0],
+    locationId: 'all'
   });
   
   const [formData, setFormData] = useState({
@@ -77,6 +78,7 @@ function Sales() {
       const params = new URLSearchParams();
       if (filters.startDate) params.append('startDate', filters.startDate);
       if (filters.endDate) params.append('endDate', filters.endDate);
+      if (filters.locationId && filters.locationId !== 'all') params.append('locationId', filters.locationId);
       
       const response = await api.get(`/sales-transactions?${params.toString()}`);
       setSales(response.data);
@@ -214,6 +216,19 @@ function Sales() {
                 onChange={(e) => setFilters({...filters, endDate: e.target.value})} 
               />
             </div>
+            {user.role === 'admin' && (
+              <div className="form-group" style={{ marginBottom: 0, minWidth: '180px' }}>
+                <select 
+                  value={filters.locationId} 
+                  onChange={(e) => setFilters({...filters, locationId: e.target.value})}
+                >
+                  <option value="all">All Branches</option>
+                  {locations.map(loc => (
+                    <option key={loc.id} value={loc.id}>{loc.name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
           </div>
           {canRecordSales && (
             <button className="btn btn-primary" onClick={() => setShowForm(!showForm)}>
@@ -372,6 +387,7 @@ function Sales() {
           <thead>
             <tr>
               <th>Date</th>
+              {user.role === 'admin' && <th>Branch</th>}
               <th>Item</th>
               <th>Qty</th>
               <th>Unit Price</th>
@@ -384,7 +400,7 @@ function Sales() {
           <tbody>
             {sales.length === 0 ? (
               <tr>
-                <td colSpan={user.role === 'admin' ? "8" : "7"} style={{ textAlign: 'center', padding: '20px' }}>
+                <td colSpan={user.role === 'admin' ? "9" : "7"} style={{ textAlign: 'center', padding: '20px' }}>
                   No sales recorded for this period
                 </td>
               </tr>
@@ -405,6 +421,13 @@ function Sales() {
                         new Date(sale.transaction_date).toLocaleDateString()
                       )}
                     </td>
+                    {user.role === 'admin' && (
+                      <td>
+                        <span className={`badge ${sale.location_type === 'warehouse' ? 'badge-primary' : 'badge-info'}`}>
+                          {sale.location_name}
+                        </span>
+                      </td>
+                    )}
                     <td>
                       <div style={{ fontWeight: 600 }}>{sale.item_description}</div>
                       <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{sale.item_unit}</div>

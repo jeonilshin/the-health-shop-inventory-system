@@ -158,8 +158,8 @@ router.delete('/:id', auth, authorize('admin'), async (req, res) => {
   }
 });
 
-// Convert units (e.g., BOX to PC) - for branches only
-router.post('/convert-units', auth, authorize('branch_manager', 'branch_staff'), async (req, res) => {
+// Convert units (e.g., BOX to PC) - for branches and admin
+router.post('/convert-units', auth, authorize('admin', 'branch_manager', 'branch_staff'), async (req, res) => {
   const client = await pool.connect();
   
   try {
@@ -453,7 +453,7 @@ router.get('/history/:id', auth, async (req, res) => {
       [item.description, item.unit, item.location_id]
     );
     
-    // 3. Inventory adjustments (from audit log)
+    // 3. Inventory adjustments (from audit log) - including additions
     const adjustmentsResult = await pool.query(
       `SELECT 
         'adjustment' as type,
@@ -466,11 +466,15 @@ router.get('/history/:id', auth, async (req, res) => {
         description as audit_description
       FROM audit_log
       WHERE table_name = 'inventory'
-        AND (old_values->>'description' = $1 OR new_values->>'description' = $1)
-        AND (old_values->>'unit' = $2 OR new_values->>'unit' = $2)
+        AND action IN ('INVENTORY_ADD', 'INVENTORY_UPDATE', 'INVENTORY_DELETE')
+        AND (
+          (old_values->>'description' = $1 AND old_values->>'unit' = $2 AND (old_values->>'location_id')::int = $3)
+          OR
+          (new_values->>'description' = $1 AND new_values->>'unit' = $2 AND (new_values->>'location_id')::int = $3)
+        )
       ORDER BY created_at DESC
-      LIMIT 50`,
-      [item.description, item.unit]
+      LIMIT 100`,
+      [item.description, item.unit, item.location_id]
     );
     
     // Combine and sort all history
