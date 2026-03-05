@@ -279,10 +279,9 @@ function Sales() {
             <div className="form-group">
               <label>Search Item *</label>
               <AutocompleteSearch
-                items={inventory}
+                locationId={formData.location_id}
                 onSelect={handleItemSelect}
                 placeholder="Search for item to sell..."
-                displayField="description"
               />
             </div>
 
