@@ -8,7 +8,6 @@ import { FiShoppingCart, FiPlus, FiTrash2, FiDollarSign, FiCalendar, FiEdit2, Fi
 function Sales() {
   const { user } = useContext(AuthContext);
   const [locations, setLocations] = useState([]);
-  const [inventory, setInventory] = useState([]);
   const [sales, setSales] = useState([]);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
@@ -48,31 +47,12 @@ function Sales() {
     // eslint-disable-next-line
   }, [filters]);
 
-  useEffect(() => {
-    if (formData.location_id) {
-      fetchInventory();
-    }
-    // eslint-disable-next-line
-  }, [formData.location_id]);
-
   const fetchLocations = async () => {
     try {
       const response = await api.get('/locations');
       setLocations(response.data);
     } catch (error) {
       console.error('Error fetching locations:', error);
-    }
-  };
-
-  const fetchInventory = async () => {
-    if (!formData.location_id) {
-      return; // Don't fetch if no location selected
-    }
-    try {
-      const response = await api.get(`/inventory/location/${formData.location_id}`);
-      setInventory(response.data);
-    } catch (error) {
-      console.error('Error fetching inventory:', error);
     }
   };
 
@@ -107,7 +87,6 @@ function Sales() {
       setShowForm(false);
       resetForm();
       fetchSales();
-      fetchInventory();
     } catch (error) {
       alert(error.response?.data?.error || 'Error recording sale');
     }
@@ -136,7 +115,6 @@ function Sales() {
       await api.delete(`/sales-transactions/${id}`);
       alert('Sale deleted and inventory restored!');
       fetchSales();
-      fetchInventory();
     } catch (error) {
       alert(error.response?.data?.error || 'Error deleting sale');
     }
@@ -166,7 +144,6 @@ function Sales() {
       setEditingId(null);
       setEditData({});
       fetchSales();
-      fetchInventory();
     } catch (error) {
       alert(error.response?.data?.error || 'Error updating sale');
     }
