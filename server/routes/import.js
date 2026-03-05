@@ -15,7 +15,7 @@ router.post('/preview', auth, authorize('admin', 'warehouse'), upload.single('fi
       return res.status(400).json({ error: 'No file uploaded' });
     }
 
-    const { sheetName } = req.body;
+    const { sheetName, locationId } = req.body;
 
     // Parse Excel file
     const workbook = xlsx.read(req.file.buffer, { type: 'buffer' });
@@ -228,15 +228,15 @@ router.post('/preview', auth, authorize('admin', 'warehouse'), upload.single('fi
     let duplicates = [];
     let duplicateDetails = [];
     
-    if (itemsToCheck.length > 0) {
-      // Check for duplicates based on description + unit (the actual unique constraint)
+    if (itemsToCheck.length > 0 && locationId) {
+      // Check for duplicates based on description + unit + location (the actual unique constraint)
       for (const item of itemsToCheck) {
         const duplicateQuery = await pool.query(
           `SELECT id, batch_number, description, unit, quantity, unit_cost, suggested_selling_price 
            FROM inventory 
-           WHERE description = $1 AND unit = $2 
+           WHERE location_id = $1 AND description = $2 AND unit = $3 
            LIMIT 1`,
-          [item.description, item.unit]
+          [locationId, item.description, item.unit]
         );
         
         if (duplicateQuery.rows.length > 0) {

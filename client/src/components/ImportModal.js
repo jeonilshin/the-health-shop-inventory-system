@@ -91,9 +91,15 @@ function ImportModal({ isOpen, onClose, onImportComplete }) {
       return;
     }
 
+    if (!selectedLocation) {
+      showToast().error('Error', 'Please select a location first');
+      return;
+    }
+
     setLoading(true);
     const formData = new FormData();
     formData.append('file', file);
+    formData.append('locationId', selectedLocation);
     
     // Add sheet name if multiple sheets exist
     if (sheets.length > 0 && selectedSheet) {

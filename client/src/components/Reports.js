@@ -326,7 +326,11 @@ function Reports() {
       {showForm && (
         <div className="card" style={{ marginBottom: '20px' }}>
           <h3>Submit Sales Report</h3>
-          <form onSubmit={handleSubmit}>
+          <form onSubmit={handleSubmit} onKeyDown={(e) => {
+            if (e.key === 'Enter' && e.target.tagName !== 'TEXTAREA') {
+              e.preventDefault();
+            }
+          }}>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginBottom: '20px' }}>
               <div className="form-group" style={{ marginBottom: 0 }}>
                 <label>Report Date *</label>
