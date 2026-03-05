@@ -36,7 +36,10 @@ function Sales() {
     unit_price: '',
     payment_method: 'cash',
     customer_name: '',
-    notes: ''
+    notes: '',
+    discount_type: 'none',
+    custom_discount_percent: '',
+    discount_reason: ''
   });
 
   useEffect(() => {
@@ -120,7 +123,10 @@ function Sales() {
       unit_price: '',
       payment_method: 'cash',
       customer_name: '',
-      notes: ''
+      notes: '',
+      discount_type: 'none',
+      custom_discount_percent: '',
+      discount_reason: ''
     });
   };
 
@@ -351,15 +357,165 @@ function Sales() {
                   placeholder="Optional"
                 />
               </div>
-              <div className="form-group" style={{ marginBottom: 0 }}>
-                <label>Total Amount</label>
-                <input 
-                  type="text" 
-                  value={`₱${formatPrice((parseFloat(formData.quantity_sold) || 0) * (parseFloat(formData.unit_price) || 0))}`}
-                  readOnly
-                  style={{ backgroundColor: 'var(--bg-secondary)', fontWeight: 600, color: 'var(--primary)' }}
-                />
+            </div>
+
+            {/* Discount Section */}
+            <div style={{ 
+              padding: '16px', 
+              backgroundColor: 'rgba(59, 130, 246, 0.05)', 
+              borderRadius: 'var(--radius)', 
+              marginBottom: '16px',
+              border: '1px solid rgba(59, 130, 246, 0.2)'
+            }}>
+              <h4 style={{ marginTop: 0, marginBottom: '12px', fontSize: '14px', color: 'var(--primary)' }}>
+                Discount Options
+              </h4>
+              
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label>Discount Type</label>
+                  <select 
+                    value={formData.discount_type} 
+                    onChange={(e) => {
+                      setFormData({
+                        ...formData, 
+                        discount_type: e.target.value,
+                        custom_discount_percent: e.target.value === 'custom' ? formData.custom_discount_percent : '',
+                        discount_reason: e.target.value === 'custom' ? formData.discount_reason : 
+                                       e.target.value === 'pwd' ? 'PWD Discount' :
+                                       e.target.value === 'senior' ? 'Senior Citizen Discount' : ''
+                      });
+                    }}
+                  >
+                    <option value="none">No Discount</option>
+                    <option value="pwd">PWD (20%)</option>
+                    <option value="senior">Senior Citizen (20%)</option>
+                    <option value="custom">Custom Discount</option>
+                  </select>
+                </div>
+
+                {formData.discount_type === 'custom' && (
+                  <>
+                    <div className="form-group" style={{ marginBottom: 0 }}>
+                      <label>Discount Percentage *</label>
+                      <input 
+                        type="number" 
+                        step="0.01"
+                        min="0"
+                        max="100"
+                        value={formData.custom_discount_percent} 
+                        onChange={(e) => setFormData({...formData, custom_discount_percent: e.target.value})} 
+                        placeholder="e.g., 10"
+                        required={formData.discount_type === 'custom'}
+                      />
+                    </div>
+                    <div className="form-group" style={{ marginBottom: 0 }}>
+                      <label>Discount Reason *</label>
+                      <input 
+                        type="text" 
+                        value={formData.discount_reason} 
+                        onChange={(e) => setFormData({...formData, discount_reason: e.target.value})} 
+                        placeholder="e.g., Holiday Promo, Loyalty Discount"
+                        required={formData.discount_type === 'custom'}
+                      />
+                    </div>
+                  </>
+                )}
               </div>
+
+              {formData.discount_type !== 'none' && (
+                <div style={{ 
+                  marginTop: '12px', 
+                  padding: '12px', 
+                  backgroundColor: 'rgba(16, 185, 129, 0.1)', 
+                  borderRadius: 'var(--radius)',
+                  border: '1px solid rgba(16, 185, 129, 0.3)'
+                }}>
+                  <div style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+                    {formData.discount_type === 'pwd' && 'PWD Discount (20% on net of VAT + VAT Exempt)'}
+                    {formData.discount_type === 'senior' && 'Senior Citizen Discount (20% on net of VAT + VAT Exempt)'}
+                    {formData.discount_type === 'custom' && formData.custom_discount_percent && 
+                      `Custom Discount (${formData.custom_discount_percent}%)`}
+                    {formData.discount_reason && ` - ${formData.discount_reason}`}
+                  </div>
+                  {(formData.discount_type === 'pwd' || formData.discount_type === 'senior') && (
+                    <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                      Formula: Price ÷ 1.12 × 0.20 = Discount, then Price - Discount = Final
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Price Summary */}
+            <div style={{ 
+              padding: '16px', 
+              backgroundColor: 'rgba(16, 185, 129, 0.1)', 
+              borderRadius: 'var(--radius)', 
+              marginBottom: '16px',
+              border: '2px solid rgba(16, 185, 129, 0.3)'
+            }}>
+              {(() => {
+                const grossAmount = (parseFloat(formData.quantity_sold) || 0) * (parseFloat(formData.unit_price) || 0);
+                let discountAmount = 0;
+                let finalTotal = grossAmount;
+                
+                if (formData.discount_type === 'pwd' || formData.discount_type === 'senior') {
+                  // Philippine PWD/Senior Citizen Formula:
+                  // 1. Remove VAT to get net amount: Price / 1.12
+                  const netOfVat = grossAmount / 1.12;
+                  // 2. Calculate 20% discount on net of VAT
+                  discountAmount = netOfVat * 0.20;
+                  // 3. Subtract discount from original price
+                  finalTotal = grossAmount - discountAmount;
+                } else if (formData.discount_type === 'custom') {
+                  // Custom discount: simple percentage off
+                  const discountPercent = parseFloat(formData.custom_discount_percent) || 0;
+                  discountAmount = grossAmount * (discountPercent / 100);
+                  finalTotal = grossAmount - discountAmount;
+                }
+                
+                return (
+                  <>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                      <span style={{ fontSize: '14px' }}>Gross Amount:</span>
+                      <span style={{ fontSize: '14px', fontWeight: 600 }}>₱{formatPrice(grossAmount)}</span>
+                    </div>
+                    
+                    {(formData.discount_type === 'pwd' || formData.discount_type === 'senior') && (
+                      <>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '12px', color: 'var(--text-muted)' }}>
+                          <span>Net of VAT (÷1.12):</span>
+                          <span>₱{formatPrice(grossAmount / 1.12)}</span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', color: '#ef4444' }}>
+                          <span style={{ fontSize: '14px' }}>Less: SC/PWD Discount (20%):</span>
+                          <span style={{ fontSize: '14px', fontWeight: 600 }}>-₱{formatPrice(discountAmount)}</span>
+                        </div>
+                      </>
+                    )}
+                    
+                    {formData.discount_type === 'custom' && discountAmount > 0 && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', color: '#ef4444' }}>
+                        <span style={{ fontSize: '14px' }}>Discount ({formData.custom_discount_percent}%):</span>
+                        <span style={{ fontSize: '14px', fontWeight: 600 }}>-₱{formatPrice(discountAmount)}</span>
+                      </div>
+                    )}
+                    
+                    <div style={{ 
+                      display: 'flex', 
+                      justifyContent: 'space-between', 
+                      paddingTop: '8px', 
+                      borderTop: '2px solid rgba(16, 185, 129, 0.3)' 
+                    }}>
+                      <span style={{ fontSize: '16px', fontWeight: 700 }}>Amount Due:</span>
+                      <span style={{ fontSize: '20px', fontWeight: 700, color: 'var(--success)' }}>
+                        ₱{formatPrice(finalTotal)}
+                      </span>
+                    </div>
+                  </>
+                );
+              })()}
             </div>
 
             <div className="form-group">
@@ -391,6 +547,7 @@ function Sales() {
               <th>Item</th>
               <th>Qty</th>
               <th>Unit Price</th>
+              <th>Discount</th>
               <th>Total</th>
               <th>Payment</th>
               <th>Sold By</th>
@@ -400,7 +557,7 @@ function Sales() {
           <tbody>
             {sales.length === 0 ? (
               <tr>
-                <td colSpan={user.role === 'admin' ? "9" : "7"} style={{ textAlign: 'center', padding: '20px' }}>
+                <td colSpan={user.role === 'admin' ? "10" : "8"} style={{ textAlign: 'center', padding: '20px' }}>
                   No sales recorded for this period
                 </td>
               </tr>
@@ -458,6 +615,22 @@ function Sales() {
                         />
                       ) : (
                         `₱${formatPrice(sale.unit_price)}`
+                      )}
+                    </td>
+                    <td>
+                      {sale.discount_percent > 0 ? (
+                        <div>
+                          <span className="badge badge-warning" style={{ fontSize: '11px' }}>
+                            {sale.discount_percent}% OFF
+                          </span>
+                          {sale.discount_reason && (
+                            <div style={{ fontSize: '10px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                              {sale.discount_reason}
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <span style={{ color: 'var(--text-muted)', fontSize: '12px' }}>-</span>
                       )}
                     </td>
                     <td style={{ fontWeight: 600 }}>

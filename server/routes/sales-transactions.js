@@ -59,7 +59,8 @@ router.post('/', auth, authorize('admin', 'warehouse', 'branch_manager', 'branch
   try {
     const {
       transaction_date, location_id, item_description, item_unit,
-      quantity_sold, unit_price, payment_method, customer_name, notes
+      quantity_sold, unit_price, payment_method, customer_name, notes,
+      discount_type, custom_discount_percent, discount_reason
     } = req.body;
     
     // Validate location access
@@ -69,19 +70,64 @@ router.post('/', auth, authorize('admin', 'warehouse', 'branch_manager', 'branch
     
     await client.query('BEGIN');
     
-    const total_amount = parseFloat(quantity_sold) * parseFloat(unit_price);
+    // Calculate discount using proper Philippine formula
+    let discount_percent = 0;
+    let final_discount_reason = '';
+    let discount_amount = 0;
+    let total_amount = 0;
+    
+    const grossAmount = parseFloat(quantity_sold) * parseFloat(unit_price);
+    
+    if (discount_type === 'pwd') {
+      discount_percent = 20;
+      final_discount_reason = discount_reason || 'PWD Discount';
+      
+      // Philippine PWD Formula:
+      // 1. Remove VAT: Price / 1.12
+      const netOfVat = grossAmount / 1.12;
+      // 2. Calculate 20% discount on net of VAT
+      discount_amount = netOfVat * 0.20;
+      // 3. Subtract discount from original price
+      total_amount = grossAmount - discount_amount;
+      
+    } else if (discount_type === 'senior') {
+      discount_percent = 20;
+      final_discount_reason = discount_reason || 'Senior Citizen Discount';
+      
+      // Philippine Senior Citizen Formula:
+      // 1. Remove VAT: Price / 1.12
+      const netOfVat = grossAmount / 1.12;
+      // 2. Calculate 20% discount on net of VAT
+      discount_amount = netOfVat * 0.20;
+      // 3. Subtract discount from original price
+      total_amount = grossAmount - discount_amount;
+      
+    } else if (discount_type === 'custom' && custom_discount_percent) {
+      discount_percent = parseFloat(custom_discount_percent);
+      final_discount_reason = discount_reason || 'Custom Discount';
+      
+      // Custom discount: simple percentage off
+      discount_amount = grossAmount * (discount_percent / 100);
+      total_amount = grossAmount - discount_amount;
+      
+    } else {
+      // No discount
+      total_amount = grossAmount;
+    }
     
     // Insert sales transaction
     const saleResult = await client.query(
       `INSERT INTO sales_transactions (
         transaction_date, location_id, item_description, item_unit,
-        quantity_sold, unit_price, total_amount, payment_method,
+        quantity_sold, unit_price, discount_percent, discount_amount,
+        discount_reason, total_amount, payment_method,
         sold_by, sold_by_name, customer_name, notes
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
       RETURNING *`,
       [
         transaction_date || new Date().toISOString().split('T')[0],
         location_id, item_description, item_unit, quantity_sold, unit_price,
+        discount_percent, discount_amount, final_discount_reason || null,
         total_amount, payment_method, req.user.id,
         req.user.full_name || req.user.username, customer_name, notes
       ]
@@ -116,7 +162,7 @@ router.post('/', auth, authorize('admin', 'warehouse', 'branch_manager', 'branch
       newValues: saleResult.rows[0],
       ipAddress: req.ip,
       userAgent: req.get('user-agent'),
-      description: `Sold ${quantity_sold} ${item_unit} of ${item_description}`
+      description: `Sold ${quantity_sold} ${item_unit} of ${item_description}${discount_percent > 0 ? ` with ${discount_percent}% discount` : ''}`
     });
     
     res.status(201).json({
