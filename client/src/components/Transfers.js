@@ -11,7 +11,6 @@ function Transfers() {
   const [transfers, setTransfers] = useState([]);
   const [pendingApprovals, setPendingApprovals] = useState([]);
   const [inventory, setInventory] = useState([]);
-  const [inventoryHistory, setInventoryHistory] = useState([]);
   const [showForm, setShowForm] = useState(false);
   const [showRequestForm, setShowRequestForm] = useState(false);
   const [showRejectModal, setShowRejectModal] = useState(false);
@@ -37,9 +36,6 @@ function Transfers() {
     fetchTransfers();
     if (user.role === 'admin') {
       fetchPendingApprovals();
-    }
-    if (user.role === 'branch_manager') {
-      fetchInventoryHistory();
     }
     
     // Real-time updates every 5 seconds
@@ -107,15 +103,6 @@ function Transfers() {
       setPendingApprovals(response.data);
     } catch (error) {
       // Error fetching pending approvals
-    }
-  };
-
-  const fetchInventoryHistory = async () => {
-    try {
-      const response = await api.get('/inventory/history');
-      setInventoryHistory(response.data);
-    } catch (error) {
-      // Error fetching inventory history
     }
   };
 
