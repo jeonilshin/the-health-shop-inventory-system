@@ -1272,7 +1272,16 @@ function Inventory() {
                 </div>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                  {productHistory.map((record, idx) => (
+                  {productHistory
+                    .filter(record => {
+                      // Filter adjustments to only show those for the current location
+                      if (record.type === 'adjustment') {
+                        const locationId = record.new_values?.location_id || record.old_values?.location_id;
+                        return locationId == viewHistory.location_id;
+                      }
+                      return true;
+                    })
+                    .map((record, idx) => (
                     <div
                       key={idx}
                       style={{
@@ -1340,7 +1349,18 @@ function Inventory() {
                           <>
                             <div>User: {record.user_name}</div>
                             {record.audit_description && <div>{record.audit_description}</div>}
-                            {record.old_values && record.new_values && (
+                            {record.action === 'INVENTORY_ADD' && record.new_values && (
+                              <div style={{ marginTop: '8px', fontSize: '12px' }}>
+                                <div style={{ color: 'var(--success)', fontWeight: '600' }}>
+                                  Added: {record.new_values.quantity} {record.new_values.unit}
+                                </div>
+                                <div>Unit Cost: ₱{formatPrice(record.new_values.unit_cost)}</div>
+                                {record.new_values.suggested_selling_price && (
+                                  <div>Selling Price: ₱{formatPrice(record.new_values.suggested_selling_price)}</div>
+                                )}
+                              </div>
+                            )}
+                            {record.action === 'INVENTORY_UPDATE' && record.old_values && record.new_values && (
                               <div style={{ marginTop: '8px', fontSize: '12px' }}>
                                 {record.old_values.quantity !== record.new_values.quantity && (
                                   <div>Quantity: {record.old_values.quantity} → {record.new_values.quantity}</div>
@@ -1348,6 +1368,11 @@ function Inventory() {
                                 {record.old_values.unit_cost !== record.new_values.unit_cost && (
                                   <div>Cost: ₱{record.old_values.unit_cost} → ₱{record.new_values.unit_cost}</div>
                                 )}
+                              </div>
+                            )}
+                            {record.action === 'INVENTORY_DELETE' && record.old_values && (
+                              <div style={{ marginTop: '8px', fontSize: '12px', color: 'var(--danger)' }}>
+                                Deleted: {record.old_values.quantity} {record.old_values.unit}
                               </div>
                             )}
                           </>

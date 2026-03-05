@@ -468,13 +468,13 @@ router.get('/history/:id', auth, async (req, res) => {
       WHERE table_name = 'inventory'
         AND action IN ('INVENTORY_ADD', 'INVENTORY_UPDATE', 'INVENTORY_DELETE')
         AND (
-          (old_values->>'description' = $1 AND old_values->>'unit' = $2 AND (old_values->>'location_id')::int = $3)
+          (new_values->>'description' = $1 AND new_values->>'unit' = $2)
           OR
-          (new_values->>'description' = $1 AND new_values->>'unit' = $2 AND (new_values->>'location_id')::int = $3)
+          (old_values->>'description' = $1 AND old_values->>'unit' = $2)
         )
       ORDER BY created_at DESC
       LIMIT 100`,
-      [item.description, item.unit, item.location_id]
+      [item.description, item.unit]
     );
     
     // Combine and sort all history
