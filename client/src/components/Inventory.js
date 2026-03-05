@@ -23,6 +23,7 @@ function Inventory() {
   const [itemsPerPage, setItemsPerPage] = useState(50);
   const [selectedCategory, setSelectedCategory] = useState('all'); // 'all' or specific category
   const [availableCategories, setAvailableCategories] = useState([]);
+  const [expiryFilter, setExpiryFilter] = useState('all'); // 'all', 'expired', 'expiring_soon', 'valid'
   const [editingId, setEditingId] = useState(null);
   const [editData, setEditData] = useState({});
   const [formData, setFormData] = useState({
@@ -109,6 +110,26 @@ function Inventory() {
       filtered = filtered.filter(item => item.main_category === selectedCategory);
     }
     
+    // Apply expiry filter
+    if (expiryFilter !== 'all') {
+      const today = new Date();
+      filtered = filtered.filter(item => {
+        if (!item.expiry_date) return expiryFilter === 'valid'; // Items without expiry are considered valid
+        
+        const expiryDate = new Date(item.expiry_date);
+        const daysUntilExpiry = Math.ceil((expiryDate - today) / (1000 * 60 * 60 * 24));
+        
+        if (expiryFilter === 'expired') {
+          return daysUntilExpiry < 0;
+        } else if (expiryFilter === 'expiring_soon') {
+          return daysUntilExpiry >= 0 && daysUntilExpiry <= 30;
+        } else if (expiryFilter === 'valid') {
+          return daysUntilExpiry > 30 || !item.expiry_date;
+        }
+        return true;
+      });
+    }
+    
     // Apply search filter
     if (searchTerm) {
       filtered = filtered.filter(item =>
@@ -142,7 +163,7 @@ function Inventory() {
     
     setFilteredInventory(filtered);
     setCurrentPage(1); // Reset to first page when filtering/sorting
-  }, [searchTerm, inventory, sortBy, sortOrder, selectedCategory]);
+  }, [searchTerm, inventory, sortBy, sortOrder, selectedCategory, expiryFilter]);
 
   const handleExport = () => {
     const headers = selectedLocation === 'all' 
@@ -317,45 +338,196 @@ function Inventory() {
       )}
       
       <div className="card">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '10px' }}>
-          <div className="form-group" style={{ marginBottom: 0, width: '300px' }}>
-            <label>Select Location</label>
-            <select
-              value={selectedLocation}
-              onChange={(e) => setSelectedLocation(e.target.value)}
-              disabled={user.role !== 'admin' && user.location_id}
+        {/* Breadcrumb Navigation */}
+        {selectedLocation && selectedLocation !== 'all' && user.role === 'admin' && (
+          <div style={{ 
+            marginBottom: '20px', 
+            padding: '12px 16px', 
+            background: 'var(--bg-secondary)', 
+            borderRadius: 'var(--radius)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            fontSize: '14px'
+          }}>
+            <button 
+              className="btn btn-secondary"
+              onClick={() => setSelectedLocation('all')}
+              style={{ padding: '6px 12px', fontSize: '13px' }}
             >
-              <option value="">Select location</option>
-              {user.role === 'admin' && <option value="all">View All</option>}
-              {locations.map((loc) => (
-                <option key={loc.id} value={loc.id}>
-                  {loc.name} ({loc.type})
-                </option>
-              ))}
-            </select>
-          </div>
-          <div style={{ display: 'flex', gap: '10px' }}>
-            <button className="btn" onClick={handleExport} disabled={filteredInventory.length === 0}>
-              <FiDownload size={16} />
-              Export CSV
+              ← Back
             </button>
-            {(user.role === 'admin' || user.role === 'warehouse') && (
-              <button className="btn btn-success" onClick={() => setShowImportModal(true)}>
-                <FiUpload size={16} />
-                Import Excel
-              </button>
-            )}
-            {canAddInventory && (
-              <button className="btn btn-primary" onClick={() => setShowForm(!showForm)}>
-                <FiPlus size={16} />
-                {showForm ? 'Cancel' : 'Add Item'}
-              </button>
-            )}
+            <span style={{ color: 'var(--text-muted)' }}>/</span>
+            <button 
+              onClick={() => setSelectedLocation('all')}
+              style={{ 
+                background: 'none', 
+                border: 'none', 
+                color: 'var(--primary)', 
+                cursor: 'pointer',
+                textDecoration: 'underline',
+                padding: 0,
+                font: 'inherit'
+              }}
+            >
+              All Locations
+            </button>
+            <span style={{ color: 'var(--text-muted)' }}>/</span>
+            <span style={{ fontWeight: '600' }}>
+              {locations.find(l => l.id === parseInt(selectedLocation))?.name}
+            </span>
           </div>
-        </div>
+        )}
+
+        {/* Location Cards View (when "all" is selected) */}
+        {selectedLocation === 'all' && user.role === 'admin' ? (
+          <div>
+            <h3 style={{ marginBottom: '20px' }}>Select a Location</h3>
+            <div style={{ 
+              display: 'grid', 
+              gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', 
+              gap: '20px' 
+            }}>
+              {locations.map(location => {
+                const locationInventory = inventory.filter(item => item.location_id === location.id);
+                const totalItems = locationInventory.length;
+                const totalValue = locationInventory.reduce((sum, item) => 
+                  sum + (parseFloat(item.quantity) * parseFloat(item.unit_cost)), 0
+                );
+                const lowStock = locationInventory.filter(item => parseFloat(item.quantity) < 10).length;
+                
+                return (
+                  <div
+                    key={location.id}
+                    onClick={() => setSelectedLocation(location.id)}
+                    style={{
+                      padding: '24px',
+                      border: '2px solid var(--border)',
+                      borderRadius: 'var(--radius-lg)',
+                      cursor: 'pointer',
+                      transition: 'var(--transition)',
+                      background: 'var(--bg-primary)',
+                      position: 'relative',
+                      overflow: 'hidden'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.borderColor = 'var(--primary)';
+                      e.currentTarget.style.transform = 'translateY(-4px)';
+                      e.currentTarget.style.boxShadow = '0 8px 16px rgba(0,0,0,0.1)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.borderColor = 'var(--border)';
+                      e.currentTarget.style.transform = 'translateY(0)';
+                      e.currentTarget.style.boxShadow = 'none';
+                    }}
+                  >
+                    <div style={{ 
+                      position: 'absolute', 
+                      top: 0, 
+                      left: 0, 
+                      right: 0, 
+                      height: '4px', 
+                      background: location.type === 'warehouse' ? 'var(--primary)' : 'var(--success)'
+                    }} />
+                    
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+                      <div style={{ 
+                        width: '48px', 
+                        height: '48px', 
+                        borderRadius: '12px', 
+                        background: location.type === 'warehouse' ? 'rgba(37, 99, 235, 0.1)' : 'rgba(16, 185, 129, 0.1)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: '24px'
+                      }}>
+                        {location.type === 'warehouse' ? '📦' : '🏪'}
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <h4 style={{ margin: 0, fontSize: '18px', fontWeight: '700' }}>
+                          {location.name}
+                        </h4>
+                        <span className={`badge ${location.type === 'warehouse' ? 'badge-primary' : 'badge-success'}`} 
+                          style={{ fontSize: '11px', marginTop: '4px' }}>
+                          {location.type}
+                        </span>
+                      </div>
+                    </div>
+                    
+                    <div style={{ 
+                      display: 'grid', 
+                      gridTemplateColumns: '1fr 1fr', 
+                      gap: '12px',
+                      marginTop: '16px',
+                      paddingTop: '16px',
+                      borderTop: '1px solid var(--border)'
+                    }}>
+                      <div>
+                        <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '4px' }}>
+                          Total Items
+                        </div>
+                        <div style={{ fontSize: '20px', fontWeight: '700', color: 'var(--primary)' }}>
+                          {totalItems}
+                        </div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '4px' }}>
+                          Total Value
+                        </div>
+                        <div style={{ fontSize: '16px', fontWeight: '700' }}>
+                          ₱{formatPrice(totalValue)}
+                        </div>
+                      </div>
+                      {lowStock > 0 && (
+                        <div style={{ gridColumn: '1 / -1' }}>
+                          <div style={{ 
+                            padding: '8px 12px', 
+                            background: 'rgba(239, 68, 68, 0.1)', 
+                            borderRadius: 'var(--radius)',
+                            fontSize: '12px',
+                            color: 'var(--danger)',
+                            fontWeight: '600',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '6px'
+                          }}>
+                            <FiAlertCircle size={14} />
+                            {lowStock} item{lowStock > 1 ? 's' : ''} low stock
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ) : (
+          <>
+            {/* Regular Inventory View */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '10px' }}>
+              <div style={{ display: 'flex', gap: '10px' }}>
+                <button className="btn" onClick={handleExport} disabled={filteredInventory.length === 0}>
+                  <FiDownload size={16} />
+                  Export CSV
+                </button>
+                {(user.role === 'admin' || user.role === 'warehouse') && (
+                  <button className="btn btn-success" onClick={() => setShowImportModal(true)}>
+                    <FiUpload size={16} />
+                    Import Excel
+                  </button>
+                )}
+                {canAddInventory && (
+                  <button className="btn btn-primary" onClick={() => setShowForm(!showForm)}>
+                    <FiPlus size={16} />
+                    {showForm ? 'Cancel' : 'Add Item'}
+                  </button>
+                )}
+              </div>
+            </div>
 
         <div className="form-group" style={{ marginBottom: '20px' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr auto auto auto auto', gap: '12px', alignItems: 'center' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr auto auto auto auto auto', gap: '12px', alignItems: 'center' }}>
             <div style={{ position: 'relative' }}>
               <FiSearch style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} size={18} />
               <input
@@ -376,6 +548,17 @@ function Inventory() {
               {availableCategories.map(category => (
                 <option key={category} value={category}>{category}</option>
               ))}
+            </select>
+            
+            <select 
+              value={expiryFilter} 
+              onChange={(e) => setExpiryFilter(e.target.value)}
+              style={{ minWidth: '160px' }}
+            >
+              <option value="all">All Items</option>
+              <option value="expired">🔴 Expired</option>
+              <option value="expiring_soon">🟡 Expiring Soon (30d)</option>
+              <option value="valid">🟢 Valid</option>
             </select>
             
             <select 
@@ -778,7 +961,7 @@ function Inventory() {
       </div>
       
       {/* Pagination Controls */}
-      {filteredInventory.length > 0 && (
+      {selectedLocation !== 'all' && filteredInventory.length > 0 && (
         <div style={{ 
           display: 'flex', 
           justifyContent: 'space-between', 
@@ -837,6 +1020,8 @@ function Inventory() {
           )}
         </div>
       )}
+          </>
+        )}
       </div>
 
       <ImportModal 
