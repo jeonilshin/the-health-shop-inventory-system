@@ -50,8 +50,8 @@ router.post('/', auth, authorize('admin', 'warehouse'), async (req, res) => {
     }
 
     const result = await pool.query(
-      `INSERT INTO inventory (location_id, description, unit, quantity, unit_cost, suggested_selling_price, expiry_date, batch_number) 
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) 
+      `INSERT INTO inventory (location_id, description, unit, quantity, unit_cost, suggested_selling_price, expiry_date, batch_number, max_quantity) 
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $4) 
        ON CONFLICT (location_id, description, unit) 
        DO UPDATE SET 
          quantity = inventory.quantity + $4, 
@@ -59,6 +59,7 @@ router.post('/', auth, authorize('admin', 'warehouse'), async (req, res) => {
          suggested_selling_price = $6,
          expiry_date = COALESCE($7, inventory.expiry_date),
          batch_number = COALESCE($8, inventory.batch_number),
+         max_quantity = GREATEST(inventory.max_quantity, inventory.quantity + $4),
          updated_at = CURRENT_TIMESTAMP
        RETURNING *`,
       [location_id, description, unit, quantity, unit_cost, suggested_selling_price, expiry_date, batch_number]
@@ -95,7 +96,9 @@ router.put('/:id', auth, authorize('admin'), async (req, res) => {
     const result = await pool.query(
       `UPDATE inventory 
        SET description = $1, unit = $2, quantity = $3, unit_cost = $4, suggested_selling_price = $5, 
-           expiry_date = $6, batch_number = $7, updated_at = CURRENT_TIMESTAMP
+           expiry_date = $6, batch_number = $7, 
+           max_quantity = GREATEST(COALESCE(max_quantity, 0), $3),
+           updated_at = CURRENT_TIMESTAMP
        WHERE id = $8 RETURNING *`,
       [description, unit, quantity, unit_cost, suggested_selling_price, expiry_date, batch_number, id]
     );

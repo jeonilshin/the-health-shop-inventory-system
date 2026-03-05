@@ -358,6 +358,28 @@ function Inventory() {
     }
   };
 
+  // Helper function to determine stock status based on percentage
+  const getStockStatus = (quantity, maxQuantity) => {
+    const qty = parseFloat(quantity);
+    const max = parseFloat(maxQuantity) || 0;
+    
+    if (qty === 0) return 'no-stock';
+    if (max === 0) return 'normal'; // No max set yet
+    
+    const percentage = (qty / max) * 100;
+    
+    if (percentage <= 10) return 'dangerous'; // 10% or less
+    if (percentage <= 30) return 'low'; // 30% or less
+    return 'normal';
+  };
+
+  const getStockBadgeClass = (status) => {
+    if (status === 'no-stock') return 'badge-secondary';
+    if (status === 'dangerous') return 'badge-danger';
+    if (status === 'low') return 'badge-warning';
+    return 'badge-success';
+  };
+
   return (
     <div className="container">
       <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '24px' }}>
@@ -451,7 +473,14 @@ function Inventory() {
                 const totalValue = inStockItems.reduce((sum, item) => 
                   sum + (parseFloat(item.quantity) * parseFloat(item.unit_cost)), 0
                 );
-                const lowStock = locationInventory.filter(item => parseFloat(item.quantity) > 0 && parseFloat(item.quantity) < 10).length;
+                const dangerousStock = locationInventory.filter(item => {
+                  const status = getStockStatus(item.quantity, item.max_quantity);
+                  return status === 'dangerous';
+                }).length;
+                const lowStock = locationInventory.filter(item => {
+                  const status = getStockStatus(item.quantity, item.max_quantity);
+                  return status === 'low';
+                }).length;
                 const noStock = locationInventory.filter(item => parseFloat(item.quantity) === 0).length;
                 
                 return (
@@ -549,7 +578,24 @@ function Inventory() {
                             alignItems: 'center',
                             gap: '6px'
                           }}>
-                            📦 {noStock} item{noStock > 1 ? 's' : ''} no stock
+                            📦 {noStock} no stock
+                          </div>
+                        </div>
+                      )}
+                      {dangerousStock > 0 && (
+                        <div>
+                          <div style={{ 
+                            padding: '8px 12px', 
+                            background: 'rgba(239, 68, 68, 0.2)', 
+                            borderRadius: 'var(--radius)',
+                            fontSize: '12px',
+                            color: '#dc2626',
+                            fontWeight: '700',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '6px'
+                          }}>
+                            ⚠️ {dangerousStock} critical (≤10%)
                           </div>
                         </div>
                       )}
@@ -557,17 +603,17 @@ function Inventory() {
                         <div>
                           <div style={{ 
                             padding: '8px 12px', 
-                            background: 'rgba(239, 68, 68, 0.1)', 
+                            background: 'rgba(245, 158, 11, 0.1)', 
                             borderRadius: 'var(--radius)',
                             fontSize: '12px',
-                            color: 'var(--danger)',
+                            color: '#d97706',
                             fontWeight: '600',
                             display: 'flex',
                             alignItems: 'center',
                             gap: '6px'
                           }}>
                             <FiAlertCircle size={14} />
-                            {lowStock} item{lowStock > 1 ? 's' : ''} low stock
+                            {lowStock} low stock (≤30%)
                           </div>
                         </div>
                       )}
@@ -884,7 +930,7 @@ function Inventory() {
                           <td style={{ fontWeight: 600 }}>{item.description}</td>
                           <td>{item.unit}</td>
                           <td>
-                            <span className={`badge ${parseFloat(item.quantity) < 10 ? 'badge-danger' : 'badge-success'}`}>
+                            <span className={`badge ${getStockBadgeClass(getStockStatus(item.quantity, item.max_quantity))}`}>
                               {formatQuantity(item.quantity)}
                             </span>
                           </td>
@@ -974,7 +1020,7 @@ function Inventory() {
                               style={{ width: '80px', padding: '4px' }}
                             />
                           ) : (
-                            <span className={`badge ${parseFloat(item.quantity) < 10 ? 'badge-danger' : 'badge-success'}`}>
+                            <span className={`badge ${getStockBadgeClass(getStockStatus(item.quantity, item.max_quantity))}`}>
                               {formatQuantity(item.quantity)}
                             </span>
                           )}
