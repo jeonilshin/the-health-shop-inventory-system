@@ -24,6 +24,7 @@ function Inventory() {
   const [selectedCategory, setSelectedCategory] = useState('all'); // 'all' or specific category
   const [availableCategories, setAvailableCategories] = useState([]);
   const [expiryFilter, setExpiryFilter] = useState('all'); // 'all', 'expired', 'expiring_soon', 'valid'
+  const [stockFilter, setStockFilter] = useState('all'); // 'all', 'in_stock', 'out_of_stock'
   const [editingId, setEditingId] = useState(null);
   const [editData, setEditData] = useState({});
   const [viewHistory, setViewHistory] = useState(null);
@@ -120,6 +121,13 @@ function Inventory() {
       filtered = filtered.filter(item => item.main_category === selectedCategory);
     }
     
+    // Apply stock filter
+    if (stockFilter === 'in_stock') {
+      filtered = filtered.filter(item => parseFloat(item.quantity) > 0);
+    } else if (stockFilter === 'out_of_stock') {
+      filtered = filtered.filter(item => parseFloat(item.quantity) === 0);
+    }
+    
     // Apply expiry filter
     if (expiryFilter !== 'all') {
       const today = new Date();
@@ -173,7 +181,7 @@ function Inventory() {
     
     setFilteredInventory(filtered);
     setCurrentPage(1); // Reset to first page when filtering/sorting
-  }, [searchTerm, inventory, sortBy, sortOrder, selectedCategory, expiryFilter]);
+  }, [searchTerm, inventory, sortBy, sortOrder, selectedCategory, expiryFilter, stockFilter]);
 
   const handleExport = () => {
     const headers = selectedLocation === 'all' 
@@ -599,7 +607,7 @@ function Inventory() {
             </div>
 
         <div className="form-group" style={{ marginBottom: '20px' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr auto auto auto auto auto', gap: '12px', alignItems: 'center' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr auto auto auto auto auto auto', gap: '12px', alignItems: 'center' }}>
             <div style={{ position: 'relative' }}>
               <FiSearch style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} size={18} />
               <input
@@ -623,11 +631,21 @@ function Inventory() {
             </select>
             
             <select 
+              value={stockFilter} 
+              onChange={(e) => setStockFilter(e.target.value)}
+              style={{ minWidth: '140px' }}
+            >
+              <option value="all">All Stock</option>
+              <option value="in_stock">✅ In Stock</option>
+              <option value="out_of_stock">❌ Out of Stock</option>
+            </select>
+            
+            <select 
               value={expiryFilter} 
               onChange={(e) => setExpiryFilter(e.target.value)}
               style={{ minWidth: '160px' }}
             >
-              <option value="all">All Items</option>
+              <option value="all">All Expiry</option>
               <option value="expired">🔴 Expired</option>
               <option value="expiring_soon">🟡 Expiring Soon (30d)</option>
               <option value="valid">🟢 Valid</option>
@@ -666,6 +684,60 @@ function Inventory() {
             </select>
           </div>
         </div>
+
+        {/* Summary Stats for Admin */}
+        {user.role === 'admin' && selectedLocation !== 'all' && filteredInventory.length > 0 && (
+          <div style={{ 
+            display: 'grid', 
+            gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', 
+            gap: '16px',
+            marginBottom: '20px'
+          }}>
+            <div style={{ 
+              padding: '16px', 
+              background: 'var(--bg-secondary)', 
+              borderRadius: 'var(--radius)',
+              border: '1px solid var(--border)'
+            }}>
+              <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '4px' }}>
+                Total Items
+              </div>
+              <div style={{ fontSize: '24px', fontWeight: '700', color: 'var(--primary)' }}>
+                {filteredInventory.length}
+              </div>
+            </div>
+            <div style={{ 
+              padding: '16px', 
+              background: 'var(--bg-secondary)', 
+              borderRadius: 'var(--radius)',
+              border: '1px solid var(--border)'
+            }}>
+              <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '4px' }}>
+                In Stock
+              </div>
+              <div style={{ fontSize: '24px', fontWeight: '700', color: 'var(--success)' }}>
+                {filteredInventory.filter(item => parseFloat(item.quantity) > 0).length}
+              </div>
+            </div>
+            <div style={{ 
+              padding: '16px', 
+              background: 'var(--bg-secondary)', 
+              borderRadius: 'var(--radius)',
+              border: '1px solid var(--border)'
+            }}>
+              <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '4px' }}>
+                Total Value (In Stock)
+              </div>
+              <div style={{ fontSize: '24px', fontWeight: '700' }}>
+                ₱{formatPrice(
+                  filteredInventory
+                    .filter(item => parseFloat(item.quantity) > 0)
+                    .reduce((sum, item) => sum + (parseFloat(item.quantity) * parseFloat(item.unit_cost)), 0)
+                )}
+              </div>
+            </div>
+          </div>
+        )}
 
         {showForm && (
           <form onSubmit={handleSubmit} style={{ marginBottom: '20px', padding: '20px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
