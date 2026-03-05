@@ -466,13 +466,14 @@ function Sales() {
                   const netOfVat = grossAmount / 1.12;
                   // 2. Calculate 20% discount on net of VAT
                   discountAmount = netOfVat * 0.20;
-                  // 3. Subtract discount from original price
-                  finalTotal = grossAmount - discountAmount;
+                  // 3. Subtract discount from original price and round off
+                  finalTotal = Math.round(grossAmount - discountAmount);
                 } else if (formData.discount_type === 'custom') {
                   // Custom discount: simple percentage off
                   const discountPercent = parseFloat(formData.custom_discount_percent) || 0;
                   discountAmount = grossAmount * (discountPercent / 100);
-                  finalTotal = grossAmount - discountAmount;
+                  // Round off for custom discounts too
+                  finalTotal = Math.round(grossAmount - discountAmount);
                 }
                 
                 return (
@@ -510,7 +511,9 @@ function Sales() {
                     }}>
                       <span style={{ fontSize: '16px', fontWeight: 700 }}>Amount Due:</span>
                       <span style={{ fontSize: '20px', fontWeight: 700, color: 'var(--success)' }}>
-                        ₱{formatPrice(finalTotal)}
+                        ₱{(formData.discount_type !== 'none' && discountAmount > 0) 
+                          ? finalTotal.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })
+                          : formatPrice(finalTotal)}
                       </span>
                     </div>
                   </>
