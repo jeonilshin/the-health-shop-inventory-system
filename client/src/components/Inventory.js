@@ -55,6 +55,16 @@ function Inventory() {
       setLoading(false);
     };
     initializeData();
+    
+    // Listen for tab visibility changes
+    const handleTabVisible = () => {
+      if (selectedLocation) {
+        fetchInventory();
+      }
+    };
+    
+    window.addEventListener('tab-visible', handleTabVisible);
+    return () => window.removeEventListener('tab-visible', handleTabVisible);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

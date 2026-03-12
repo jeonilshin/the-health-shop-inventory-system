@@ -6,6 +6,16 @@ const pool = require('../config/database');
 const { auth } = require('../middleware/auth');
 const { logAudit } = require('../middleware/auditLog');
 
+// Verify token
+router.get('/verify', auth, async (req, res) => {
+  try {
+    // Token is valid if we reach here (auth middleware passed)
+    res.json({ valid: true, user: req.user });
+  } catch (error) {
+    res.status(401).json({ error: 'Invalid token' });
+  }
+});
+
 // Login
 router.post('/login', async (req, res) => {
   try {

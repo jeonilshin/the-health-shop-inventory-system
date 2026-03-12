@@ -44,6 +44,17 @@ function Sales() {
   useEffect(() => {
     fetchLocations();
     fetchSales();
+    
+    // Listen for tab visibility changes
+    const handleTabVisible = () => {
+      fetchSales();
+      if (formData.location_id) {
+        fetchInventory();
+      }
+    };
+    
+    window.addEventListener('tab-visible', handleTabVisible);
+    return () => window.removeEventListener('tab-visible', handleTabVisible);
     // eslint-disable-next-line
   }, [filters]);
 
