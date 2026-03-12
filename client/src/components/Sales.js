@@ -81,6 +81,25 @@ function Sales() {
     }
   };
 
+  const fetchInventory = async () => {
+    if (!formData.location_id) {
+      return;
+    }
+    try {
+      const response = await api.get(`/inventory/location/${formData.location_id}`);
+      setInventory(response.data);
+    } catch (error) {
+      console.error('Error fetching inventory:', error);
+    }
+  };
+
+  useEffect(() => {
+    if (formData.location_id) {
+      fetchInventory();
+    }
+    // eslint-disable-next-line
+  }, [formData.location_id]);
+
   const handleItemSelect = (item) => {
     setFormData({
       ...formData,
