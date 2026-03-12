@@ -8,6 +8,7 @@ import { FiShoppingCart, FiPlus, FiTrash2, FiDollarSign, FiCalendar, FiEdit2, Fi
 function Sales() {
   const { user } = useContext(AuthContext);
   const [locations, setLocations] = useState([]);
+  const [inventory, setInventory] = useState([]);
   const [sales, setSales] = useState([]);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
