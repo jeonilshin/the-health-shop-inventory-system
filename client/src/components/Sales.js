@@ -8,7 +8,6 @@ import { FiShoppingCart, FiPlus, FiTrash2, FiDollarSign, FiCalendar, FiEdit2, Fi
 function Sales() {
   const { user } = useContext(AuthContext);
   const [locations, setLocations] = useState([]);
-  const [inventory, setInventory] = useState([]);
   const [sales, setSales] = useState([]);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
@@ -49,9 +48,6 @@ function Sales() {
     // Listen for tab visibility changes
     const handleTabVisible = () => {
       fetchSales();
-      if (formData.location_id) {
-        fetchInventory();
-      }
     };
     
     window.addEventListener('tab-visible', handleTabVisible);
@@ -81,25 +77,6 @@ function Sales() {
       console.error('Error fetching sales:', error);
     }
   };
-
-  const fetchInventory = async () => {
-    if (!formData.location_id) {
-      return;
-    }
-    try {
-      const response = await api.get(`/inventory/location/${formData.location_id}`);
-      setInventory(response.data);
-    } catch (error) {
-      console.error('Error fetching inventory:', error);
-    }
-  };
-
-  useEffect(() => {
-    if (formData.location_id) {
-      fetchInventory();
-    }
-    // eslint-disable-next-line
-  }, [formData.location_id]);
 
   const handleItemSelect = (item) => {
     setFormData({
