@@ -73,8 +73,9 @@ function Inventory() {
     // Cleanup function
     return () => {
       window.removeEventListener('tab-visible', handleTabVisible);
-      // Clear all debounce timers
-      Object.values(autoDetectTimerRef.current).forEach(timer => {
+      // Clear all debounce timers - capture current ref value
+      const currentTimers = autoDetectTimerRef.current;
+      Object.values(currentTimers).forEach(timer => {
         if (timer) clearTimeout(timer);
       });
     };
