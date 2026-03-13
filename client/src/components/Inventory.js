@@ -124,55 +124,70 @@ function Inventory() {
         : `/inventory/location/${selectedLocation}`;
       const response = await api.get(endpoint);
       
-      // Group items by description and unit for better display
-      const groupedInventory = {};
-      response.data.forEach(item => {
-        const key = `${item.description}-${item.unit}`;
-        if (!groupedInventory[key]) {
-          groupedInventory[key] = {
-            ...item,
-            costBatches: [],
-            totalQuantity: 0,
-            hasMultipleCosts: false
-          };
-        }
+      if (selectedLocation === 'all') {
+        // For 'all' view, don't group - keep items separate by location
+        setInventory(response.data);
+        setFilteredInventory(response.data);
         
-        groupedInventory[key].costBatches.push({
-          id: item.id,
-          cost_batch_id: item.cost_batch_id,
-          unit_cost: item.unit_cost,
-          suggested_selling_price: item.suggested_selling_price,
-          quantity: item.quantity,
-          batch_number: item.batch_number,
-          expiry_date: item.expiry_date,
-          is_new_cost: item.is_new_cost,
-          is_new_item: item.is_new_item,
-          original_batch_date: item.original_batch_date
+        // Extract unique categories
+        const categories = new Set();
+        response.data.forEach(item => {
+          if (item.main_category) {
+            categories.add(item.main_category);
+          }
+        });
+        setAvailableCategories(Array.from(categories).sort());
+      } else {
+        // For single location view, group items by description and unit for better display
+        const groupedInventory = {};
+        response.data.forEach(item => {
+          const key = `${item.description}-${item.unit}`;
+          if (!groupedInventory[key]) {
+            groupedInventory[key] = {
+              ...item,
+              costBatches: [],
+              totalQuantity: 0,
+              hasMultipleCosts: false
+            };
+          }
+          
+          groupedInventory[key].costBatches.push({
+            id: item.id,
+            cost_batch_id: item.cost_batch_id,
+            unit_cost: item.unit_cost,
+            suggested_selling_price: item.suggested_selling_price,
+            quantity: item.quantity,
+            batch_number: item.batch_number,
+            expiry_date: item.expiry_date,
+            is_new_cost: item.is_new_cost,
+            is_new_item: item.is_new_item,
+            original_batch_date: item.original_batch_date
+          });
+          
+          groupedInventory[key].totalQuantity += parseFloat(item.quantity);
+          
+          // Check if there are multiple different costs
+          const uniqueCosts = new Set(groupedInventory[key].costBatches.map(b => b.unit_cost));
+          groupedInventory[key].hasMultipleCosts = uniqueCosts.size > 1;
+          
+          // Update main category if not set
+          if (item.main_category) {
+            groupedInventory[key].main_category = item.main_category;
+          }
         });
         
-        groupedInventory[key].totalQuantity += parseFloat(item.quantity);
+        setInventory(Object.values(groupedInventory));
+        setFilteredInventory(Object.values(groupedInventory));
         
-        // Check if there are multiple different costs
-        const uniqueCosts = new Set(groupedInventory[key].costBatches.map(b => b.unit_cost));
-        groupedInventory[key].hasMultipleCosts = uniqueCosts.size > 1;
-        
-        // Update main category if not set
-        if (item.main_category) {
-          groupedInventory[key].main_category = item.main_category;
-        }
-      });
-      
-      setInventory(Object.values(groupedInventory));
-      setFilteredInventory(Object.values(groupedInventory));
-      
-      // Extract unique categories
-      const categories = new Set();
-      Object.values(groupedInventory).forEach(item => {
-        if (item.main_category) {
-          categories.add(item.main_category);
-        }
-      });
-      setAvailableCategories(Array.from(categories).sort());
+        // Extract unique categories
+        const categories = new Set();
+        Object.values(groupedInventory).forEach(item => {
+          if (item.main_category) {
+            categories.add(item.main_category);
+          }
+        });
+        setAvailableCategories(Array.from(categories).sort());
+      }
     } catch (error) {
       // Error fetching inventory
     }
