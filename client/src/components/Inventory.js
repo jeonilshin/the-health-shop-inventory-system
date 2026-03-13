@@ -2,7 +2,7 @@ import React, { useState, useEffect, useContext } from 'react';
 import api from '../utils/api';
 import { AuthContext } from '../context/AuthContext';
 import { formatQuantity, formatPrice } from '../utils/formatNumber';
-import { FiPackage, FiPlus, FiDownload, FiSearch, FiAlertCircle, FiTrash2, FiUpload, FiEdit2, FiClock, FiStar, FiDollarSign, FiGitBranch, FiX, FiCheck } from 'react-icons/fi';
+import { FiPackage, FiPlus, FiDownload, FiSearch, FiAlertCircle, FiTrash2, FiUpload, FiEdit2, FiClock, FiStar, FiDollarSign, FiGitBranch, FiX, FiCheck, FiChevronRight, FiChevronDown } from 'react-icons/fi';
 import SimpleAutocomplete from './SimpleAutocomplete';
 import ImportModal from './ImportModal';
 
@@ -1343,21 +1343,26 @@ function Inventory() {
                                       background: 'none',
                                       border: 'none',
                                       cursor: 'pointer',
-                                      padding: '2px',
+                                      padding: '4px',
                                       display: 'flex',
                                       alignItems: 'center',
                                       color: expandedBranches.has(`${item.description}-${item.unit}`) ? 'var(--primary)' : 'var(--text-muted)',
-                                      transition: 'color 0.2s'
+                                      transition: 'all 0.2s',
+                                      borderRadius: '4px'
                                     }}
                                     title={expandedBranches.has(`${item.description}-${item.unit}`) ? 'Collapse branches' : 'Expand branches'}
+                                    onMouseEnter={(e) => {
+                                      e.target.style.backgroundColor = 'rgba(59, 130, 246, 0.1)';
+                                    }}
+                                    onMouseLeave={(e) => {
+                                      e.target.style.backgroundColor = 'transparent';
+                                    }}
                                   >
-                                    <FiGitBranch 
-                                      size={14} 
-                                      style={{ 
-                                        transform: expandedBranches.has(`${item.description}-${item.unit}`) ? 'rotate(0deg)' : 'rotate(-90deg)',
-                                        transition: 'transform 0.2s'
-                                      }} 
-                                    />
+                                    {expandedBranches.has(`${item.description}-${item.unit}`) ? (
+                                      <FiChevronDown size={16} />
+                                    ) : (
+                                      <FiChevronRight size={16} />
+                                    )}
                                   </button>
                                 )}
                                 <span>{item.description}</span>
@@ -1570,6 +1575,18 @@ function Inventory() {
                                       <span className={`badge ${branchItem.location_type === 'warehouse' ? 'badge-primary' : 'badge-info'}`} style={{ fontSize: '10px' }}>
                                         {branchItem.location_name}
                                       </span>
+                                      {branchItem.batch_number && (
+                                        <span style={{ 
+                                          fontSize: '8px', 
+                                          background: 'rgba(107, 114, 128, 0.1)', 
+                                          color: 'var(--text-muted)', 
+                                          padding: '1px 4px', 
+                                          borderRadius: '6px',
+                                          fontWeight: '600'
+                                        }}>
+                                          {branchItem.batch_number}
+                                        </span>
+                                      )}
                                       {branchItem.is_new_item && (
                                         <span style={{ 
                                           fontSize: '8px', 
@@ -1596,7 +1613,7 @@ function Inventory() {
                                       )}
                                     </div>
                                   </td>
-                                  <td style={{ fontSize: '12px' }}>{item.unit}</td>
+                                  <td style={{ fontSize: '12px' }}>{branchItem.unit}</td>
                                   <td>
                                     <span className={`badge ${getStockBadgeClass(getStockStatus(branchItem.quantity, branchItem.max_quantity))}`} style={{ fontSize: '10px' }}>
                                       {formatQuantity(branchItem.quantity)}
