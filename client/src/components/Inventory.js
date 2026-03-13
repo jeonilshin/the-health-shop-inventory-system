@@ -301,10 +301,14 @@ function Inventory() {
         }
 
         try {
-          await api.post('/inventory', {
+          // Prepare item data with proper null handling for empty dates
+          const itemData = {
             location_id: selectedLocation,
-            ...item
-          });
+            ...item,
+            expiry_date: item.expiry_date === '' ? null : item.expiry_date
+          };
+          
+          await api.post('/inventory', itemData);
           successCount++;
         } catch (error) {
           errors.push(`${item.description}: ${error.response?.data?.error || error.message}`);
@@ -568,7 +572,13 @@ function Inventory() {
 
   const handleSaveBatchEdit = async (id) => {
     try {
-      await api.put(`/inventory/${id}`, batchEditData);
+      // Prepare data with proper null handling for empty dates
+      const dataToSend = {
+        ...batchEditData,
+        expiry_date: batchEditData.expiry_date === '' ? null : batchEditData.expiry_date
+      };
+      
+      await api.put(`/inventory/${id}`, dataToSend);
       alert('Batch updated successfully!');
       setEditingBatchId(null);
       setBatchEditData({});
@@ -1630,7 +1640,7 @@ function Inventory() {
                                   {isEditing ? (
                                     <input 
                                       type="date"
-                                      value={batchEditData.expiry_date ? new Date(batchEditData.expiry_date).toISOString().split('T')[0] : ''}
+                                      value={batchEditData.expiry_date && batchEditData.expiry_date !== '' ? new Date(batchEditData.expiry_date).toISOString().split('T')[0] : ''}
                                       onChange={(e) => setBatchEditData({...batchEditData, expiry_date: e.target.value})}
                                       style={{ 
                                         width: '130px', 
