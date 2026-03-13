@@ -2,7 +2,7 @@ import React, { useState, useEffect, useContext } from 'react';
 import api from '../utils/api';
 import { AuthContext } from '../context/AuthContext';
 import { formatQuantity, formatPrice } from '../utils/formatNumber';
-import { FiPackage, FiPlus, FiDownload, FiSearch, FiAlertCircle, FiTrash2, FiUpload, FiEdit2, FiClock } from 'react-icons/fi';
+import { FiPackage, FiPlus, FiDownload, FiSearch, FiAlertCircle, FiTrash2, FiUpload, FiEdit2, FiClock, FiStar, FiDollarSign, FiGitBranch, FiX } from 'react-icons/fi';
 import SimpleAutocomplete from './SimpleAutocomplete';
 import ImportModal from './ImportModal';
 
@@ -39,15 +39,17 @@ function Inventory() {
     boxesToConvert: ''
   });
   const [formData, setFormData] = useState({
-    description: '',
-    unit: '',
-    quantity: '',
-    unit_cost: '',
-    suggested_selling_price: '',
-    expiry_date: '',
-    batch_number: '',
-    is_new_item: false,
-    is_new_cost: false
+    items: [{
+      description: '',
+      unit: '',
+      quantity: '',
+      unit_cost: '',
+      suggested_selling_price: '',
+      expiry_date: '',
+      batch_number: '',
+      is_new_item: false,
+      is_new_cost: false
+    }]
   });
 
   useEffect(() => {
@@ -276,12 +278,96 @@ function Inventory() {
     }
     
     try {
-      await api.post('/inventory', {
-        location_id: selectedLocation,
-        ...formData
-      });
-      setShowForm(false);
-      setFormData({
+      let successCount = 0;
+      let errorCount = 0;
+      const errors = [];
+
+      for (const item of formData.items) {
+        if (!item.description || !item.unit || !item.quantity || !item.unit_cost) {
+          errors.push(`Item ${formData.items.indexOf(item) + 1}: Missing required fields`);
+          errorCount++;
+          continue;
+        }
+
+        try {
+          await api.post('/inventory', {
+            location_id: selectedLocation,
+            ...item
+          });
+          successCount++;
+        } catch (error) {
+          errors.push(`${item.description}: ${error.response?.data?.error || error.message}`);
+          errorCount++;
+        }
+      }
+
+      if (successCount > 0) {
+        alert(`Successfully added ${successCount} item(s)${errorCount > 0 ? `. ${errorCount} failed.` : '!'}`);
+        setShowForm(false);
+        setFormData({
+          items: [{
+            description: '',
+            unit: '',
+            quantity: '',
+            unit_cost: '',
+            suggested_selling_price: '',
+            expiry_date: '',
+            batch_number: '',
+            is_new_item: false,
+            is_new_cost: false
+          }]
+        });
+        fetchInventory();
+        fetchInventoryHistory();
+      }
+
+      if (errors.length > 0) {
+        console.error('Errors:', errors);
+        if (successCount === 0) {
+          alert('Failed to add items. Check console for details.');
+        }
+      }
+    } catch (error) {
+      alert(error.response?.data?.error || 'Error adding inventory');
+    }
+  };
+
+  const handleDescriptionSelect = (item, index) => {
+    const newItems = [...formData.items];
+    newItems[index] = {
+      ...newItems[index],
+      description: item.description,
+      unit: item.unit,
+      unit_cost: item.unit_cost || '',
+      suggested_selling_price: item.suggested_selling_price || '',
+      batch_number: item.batch_number || '',
+      // Keep quantity and expiry_date empty for user input
+      quantity: '',
+      expiry_date: ''
+    };
+    setFormData({ ...formData, items: newItems });
+  };
+
+  const handleBatchNumberSelect = (item, index) => {
+    const newItems = [...formData.items];
+    newItems[index] = {
+      ...newItems[index],
+      batch_number: item.batch_number,
+      description: item.description,
+      unit: item.unit,
+      unit_cost: item.unit_cost || '',
+      suggested_selling_price: item.suggested_selling_price || '',
+      // Keep quantity and expiry_date empty for user input
+      quantity: '',
+      expiry_date: ''
+    };
+    setFormData({ ...formData, items: newItems });
+  };
+
+  const addItem = () => {
+    setFormData({
+      ...formData,
+      items: [...formData.items, {
         description: '',
         unit: '',
         quantity: '',
@@ -291,42 +377,21 @@ function Inventory() {
         batch_number: '',
         is_new_item: false,
         is_new_cost: false
-      });
-      fetchInventory();
-      fetchInventoryHistory(); // Refresh history
-    } catch (error) {
-      alert(error.response?.data?.error || 'Error adding inventory');
+      }]
+    });
+  };
+
+  const removeItem = (index) => {
+    if (formData.items.length > 1) {
+      const newItems = formData.items.filter((_, i) => i !== index);
+      setFormData({ ...formData, items: newItems });
     }
   };
 
-  const handleDescriptionSelect = (item) => {
-    // Auto-fill all fields except quantity and expiry_date
-    setFormData({
-      ...formData,
-      description: item.description,
-      unit: item.unit,
-      unit_cost: item.unit_cost || '',
-      suggested_selling_price: item.suggested_selling_price || '',
-      batch_number: item.batch_number || '',
-      // Keep quantity and expiry_date empty for user input
-      quantity: '',
-      expiry_date: ''
-    });
-  };
-
-  const handleBatchNumberSelect = (item) => {
-    // When batch number is selected, auto-fill related fields
-    setFormData({
-      ...formData,
-      batch_number: item.batch_number,
-      description: item.description,
-      unit: item.unit,
-      unit_cost: item.unit_cost || '',
-      suggested_selling_price: item.suggested_selling_price || '',
-      // Keep quantity and expiry_date empty for user input
-      quantity: '',
-      expiry_date: ''
-    });
+  const updateItem = (index, field, value) => {
+    const newItems = [...formData.items];
+    newItems[index][field] = value;
+    setFormData({ ...formData, items: newItems });
   };
 
   const canAddInventory = user.role === 'admin' || user.role === 'warehouse';
@@ -823,140 +888,261 @@ function Inventory() {
         )}
 
         {showForm && (
-          <form onSubmit={handleSubmit} style={{ marginBottom: '20px', padding: '20px', backgroundColor: 'var(--bg-secondary)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '16px' }}>
-              <div className="form-group" style={{ marginBottom: 0 }}>
-                <label>Description *</label>
-                <SimpleAutocomplete
-                  items={inventoryHistory}
-                  value={formData.description}
-                  onChange={(value) => setFormData({ ...formData, description: value })}
-                  onSelect={handleDescriptionSelect}
-                  displayField="description"
-                  placeholder="Start typing to search..."
-                  required={true}
-                />
-              </div>
-              <div className="form-group" style={{ marginBottom: 0 }}>
-                <label>Unit *</label>
-                <input
-                  type="text"
-                  value={formData.unit}
-                  onChange={(e) => setFormData({ ...formData, unit: e.target.value })}
-                  placeholder="e.g., kg, pcs, box"
-                  required
-                />
-              </div>
-              <div className="form-group" style={{ marginBottom: 0 }}>
-                <label>Quantity *</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={formData.quantity}
-                  onChange={(e) => setFormData({ ...formData, quantity: e.target.value })}
-                  required
-                />
-              </div>
-              <div className="form-group" style={{ marginBottom: 0 }}>
-                <label>Unit Cost *</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={formData.unit_cost}
-                  onChange={(e) => setFormData({ ...formData, unit_cost: e.target.value })}
-                  required
-                />
-              </div>
-              <div className="form-group" style={{ marginBottom: 0 }}>
-                <label>Suggested Selling Price</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={formData.suggested_selling_price}
-                  onChange={(e) => setFormData({ ...formData, suggested_selling_price: e.target.value })}
-                />
-              </div>
-              <div className="form-group" style={{ marginBottom: 0 }}>
-                <label>Batch Number</label>
-                <SimpleAutocomplete
-                  items={inventoryHistory.filter(item => item.batch_number)}
-                  value={formData.batch_number}
-                  onChange={(value) => setFormData({ ...formData, batch_number: value })}
-                  onSelect={handleBatchNumberSelect}
-                  displayField="batch_number"
-                  placeholder="Start typing batch number..."
-                  required={false}
-                />
-              </div>
-              <div className="form-group" style={{ marginBottom: 0 }}>
-                <label>Expiry Date</label>
-                <input
-                  type="date"
-                  value={formData.expiry_date}
-                  onChange={(e) => setFormData({ ...formData, expiry_date: e.target.value })}
-                  min={new Date().toISOString().split('T')[0]}
-                />
-              </div>
-            </div>
-            
-            {/* New Item and New Cost Options */}
+          <div className="card" style={{ marginBottom: '20px' }}>
             <div style={{ 
               display: 'flex', 
-              gap: '16px', 
-              marginTop: '16px', 
-              padding: '16px', 
-              background: 'var(--bg-secondary)', 
-              borderRadius: 'var(--radius)',
-              border: '1px solid var(--border)'
+              justifyContent: 'space-between', 
+              alignItems: 'center', 
+              marginBottom: '20px',
+              paddingBottom: '16px',
+              borderBottom: '2px solid var(--border)'
             }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <input
-                  type="checkbox"
-                  id="is_new_item"
-                  checked={formData.is_new_item}
-                  onChange={(e) => setFormData({ ...formData, is_new_item: e.target.checked })}
-                />
-                <label htmlFor="is_new_item" style={{ 
-                  display: 'flex', 
-                  alignItems: 'center', 
-                  gap: '6px',
-                  cursor: 'pointer',
-                  fontWeight: '600',
-                  color: 'var(--success)'
-                }}>
-                  🆕 New Item
-                </label>
-              </div>
-              
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <input
-                  type="checkbox"
-                  id="is_new_cost"
-                  checked={formData.is_new_cost}
-                  onChange={(e) => setFormData({ ...formData, is_new_cost: e.target.checked })}
-                />
-                <label htmlFor="is_new_cost" style={{ 
-                  display: 'flex', 
-                  alignItems: 'center', 
-                  gap: '6px',
-                  cursor: 'pointer',
-                  fontWeight: '600',
-                  color: 'var(--warning)'
-                }}>
-                  💰 New Cost
-                </label>
-              </div>
-              
-              <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginLeft: 'auto', alignSelf: 'center' }}>
-                Check "New Item" for completely new products. Check "New Cost" for existing items with different prices.
-              </div>
+              <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <FiPackage size={20} />
+                Add Inventory Items
+              </h3>
+              <button 
+                className="btn btn-success" 
+                onClick={addItem}
+                style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+              >
+                <FiPlus size={16} />
+                Add More Item
+              </button>
             </div>
-            
-            <button type="submit" className="btn btn-success" style={{ marginTop: '16px' }}>
-              <FiPlus size={16} />
-              Add to Inventory
-            </button>
-          </form>
+
+            <form onSubmit={handleSubmit}>
+              {formData.items.map((item, index) => (
+                <div key={index} style={{ 
+                  marginBottom: '24px', 
+                  padding: '20px', 
+                  backgroundColor: 'var(--bg-secondary)', 
+                  borderRadius: 'var(--radius-md)', 
+                  border: '2px solid var(--border)',
+                  position: 'relative'
+                }}>
+                  <div style={{ 
+                    display: 'flex', 
+                    justifyContent: 'space-between', 
+                    alignItems: 'center', 
+                    marginBottom: '16px' 
+                  }}>
+                    <h4 style={{ 
+                      margin: 0, 
+                      color: 'var(--primary)', 
+                      display: 'flex', 
+                      alignItems: 'center', 
+                      gap: '8px' 
+                    }}>
+                      <FiPackage size={16} />
+                      Item {index + 1}
+                    </h4>
+                    {formData.items.length > 1 && (
+                      <button 
+                        type="button"
+                        className="btn btn-danger" 
+                        onClick={() => removeItem(index)}
+                        style={{ 
+                          padding: '6px 12px', 
+                          fontSize: '12px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '4px'
+                        }}
+                      >
+                        <FiX size={14} />
+                        Remove
+                      </button>
+                    )}
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '16px' }}>
+                    <div className="form-group" style={{ marginBottom: 0 }}>
+                      <label>Description *</label>
+                      <SimpleAutocomplete
+                        items={inventoryHistory}
+                        value={item.description}
+                        onChange={(value) => updateItem(index, 'description', value)}
+                        onSelect={(selectedItem) => handleDescriptionSelect(selectedItem, index)}
+                        displayField="description"
+                        placeholder="Start typing to search..."
+                        required={true}
+                      />
+                    </div>
+                    <div className="form-group" style={{ marginBottom: 0 }}>
+                      <label>Unit *</label>
+                      <input
+                        type="text"
+                        value={item.unit}
+                        onChange={(e) => updateItem(index, 'unit', e.target.value)}
+                        placeholder="e.g., kg, pcs, box"
+                        required
+                      />
+                    </div>
+                    <div className="form-group" style={{ marginBottom: 0 }}>
+                      <label>Quantity *</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={item.quantity}
+                        onChange={(e) => updateItem(index, 'quantity', e.target.value)}
+                        required
+                      />
+                    </div>
+                    <div className="form-group" style={{ marginBottom: 0 }}>
+                      <label>Unit Cost *</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={item.unit_cost}
+                        onChange={(e) => updateItem(index, 'unit_cost', e.target.value)}
+                        required
+                      />
+                    </div>
+                    <div className="form-group" style={{ marginBottom: 0 }}>
+                      <label>Suggested Selling Price</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={item.suggested_selling_price}
+                        onChange={(e) => updateItem(index, 'suggested_selling_price', e.target.value)}
+                      />
+                    </div>
+                    <div className="form-group" style={{ marginBottom: 0 }}>
+                      <label>Batch Number</label>
+                      <SimpleAutocomplete
+                        items={inventoryHistory.filter(histItem => histItem.batch_number)}
+                        value={item.batch_number}
+                        onChange={(value) => updateItem(index, 'batch_number', value)}
+                        onSelect={(selectedItem) => handleBatchNumberSelect(selectedItem, index)}
+                        displayField="batch_number"
+                        placeholder="Start typing batch number..."
+                        required={false}
+                      />
+                    </div>
+                    <div className="form-group" style={{ marginBottom: 0 }}>
+                      <label>Expiry Date</label>
+                      <input
+                        type="date"
+                        value={item.expiry_date}
+                        onChange={(e) => updateItem(index, 'expiry_date', e.target.value)}
+                        min={new Date().toISOString().split('T')[0]}
+                      />
+                    </div>
+                  </div>
+                  
+                  {/* New Item and New Cost Options */}
+                  <div style={{ 
+                    display: 'flex', 
+                    gap: '20px', 
+                    marginTop: '16px', 
+                    padding: '16px', 
+                    background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.05) 0%, rgba(16, 185, 129, 0.05) 100%)', 
+                    borderRadius: 'var(--radius)',
+                    border: '1px solid rgba(59, 130, 246, 0.2)'
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <input
+                        type="checkbox"
+                        id={`is_new_item_${index}`}
+                        checked={item.is_new_item}
+                        onChange={(e) => updateItem(index, 'is_new_item', e.target.checked)}
+                      />
+                      <label htmlFor={`is_new_item_${index}`} style={{ 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        gap: '8px',
+                        cursor: 'pointer',
+                        fontWeight: '600',
+                        color: 'var(--success)',
+                        fontSize: '14px'
+                      }}>
+                        <FiStar size={16} />
+                        New Item
+                      </label>
+                    </div>
+                    
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <input
+                        type="checkbox"
+                        id={`is_new_cost_${index}`}
+                        checked={item.is_new_cost}
+                        onChange={(e) => updateItem(index, 'is_new_cost', e.target.checked)}
+                      />
+                      <label htmlFor={`is_new_cost_${index}`} style={{ 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        gap: '8px',
+                        cursor: 'pointer',
+                        fontWeight: '600',
+                        color: 'var(--warning)',
+                        fontSize: '14px'
+                      }}>
+                        <FiDollarSign size={16} />
+                        New Cost
+                      </label>
+                    </div>
+                    
+                    <div style={{ 
+                      fontSize: '12px', 
+                      color: 'var(--text-muted)', 
+                      marginLeft: 'auto', 
+                      alignSelf: 'center',
+                      maxWidth: '200px',
+                      textAlign: 'right'
+                    }}>
+                      Mark "New Item" for completely new products or "New Cost" for existing items with different prices.
+                    </div>
+                  </div>
+                </div>
+              ))}
+              
+              <div style={{ 
+                display: 'flex', 
+                gap: '12px', 
+                justifyContent: 'center',
+                paddingTop: '20px',
+                borderTop: '2px solid var(--border)'
+              }}>
+                <button type="submit" className="btn btn-success" style={{ 
+                  padding: '12px 24px',
+                  fontSize: '16px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px'
+                }}>
+                  <FiPlus size={18} />
+                  Add {formData.items.length} Item{formData.items.length > 1 ? 's' : ''} to Inventory
+                </button>
+                <button 
+                  type="button" 
+                  className="btn btn-secondary" 
+                  onClick={() => {
+                    setShowForm(false);
+                    setFormData({
+                      items: [{
+                        description: '',
+                        unit: '',
+                        quantity: '',
+                        unit_cost: '',
+                        suggested_selling_price: '',
+                        expiry_date: '',
+                        batch_number: '',
+                        is_new_item: false,
+                        is_new_cost: false
+                      }]
+                    });
+                  }}
+                  style={{ 
+                    padding: '12px 24px',
+                    fontSize: '16px'
+                  }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </div>
         )}
 
         <div style={{ overflowX: 'auto', marginTop: '20px' }}>
@@ -1105,9 +1291,13 @@ function Inventory() {
                                     color: 'white', 
                                     padding: '2px 6px', 
                                     borderRadius: '12px',
-                                    fontWeight: '700'
+                                    fontWeight: '700',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '4px'
                                   }}>
-                                    🌳 MULTI-COST
+                                    <FiGitBranch size={10} />
+                                    MULTI-COST
                                   </span>
                                 )}
                               </div>
