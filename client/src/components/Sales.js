@@ -1,7 +1,7 @@
 import { useState, useEffect, useContext } from 'react';
 import api from '../utils/api';
 import { AuthContext } from '../context/AuthContext';
-import { formatPrice } from '../utils/formatNumber';
+import { formatPrice, formatQuantity } from '../utils/formatNumber';
 import AutocompleteSearch from './AutocompleteSearch';
 import { FiShoppingCart, FiPlus, FiTrash2, FiDollarSign, FiCalendar, FiEdit2, FiX, FiCheck } from 'react-icons/fi';
 
