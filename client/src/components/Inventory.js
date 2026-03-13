@@ -444,7 +444,6 @@ function Inventory() {
 
   const updateItem = async (index, field, value) => {
     const newItems = [...formData.items];
-    const oldValue = newItems[index][field];
     newItems[index][field] = value;
     
     // Auto-detect if this should be marked as new cost
