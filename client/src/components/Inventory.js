@@ -53,6 +53,9 @@ function Inventory() {
   });
 
   useEffect(() => {
+    // Capture the current ref value at the start of the effect
+    const timersRef = autoDetectTimerRef.current;
+    
     const initializeData = async () => {
       setLoading(true);
       await fetchLocations();
@@ -73,9 +76,8 @@ function Inventory() {
     // Cleanup function
     return () => {
       window.removeEventListener('tab-visible', handleTabVisible);
-      // Clear all debounce timers - capture current ref value
-      const currentTimers = autoDetectTimerRef.current;
-      Object.values(currentTimers).forEach(timer => {
+      // Clear all debounce timers using captured ref value
+      Object.values(timersRef).forEach(timer => {
         if (timer) clearTimeout(timer);
       });
     };
