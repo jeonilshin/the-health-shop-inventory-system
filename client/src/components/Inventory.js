@@ -1479,12 +1479,21 @@ function Inventory() {
                                 >
                                   <FiClock size={12} />
                                 </button>
-                                {item.hasMultipleCosts && (
+                                {item.hasMultipleCosts ? (
                                   <button 
                                     className={`btn ${viewBatches && viewBatches.id === item.id ? 'btn-primary' : 'btn-secondary'}`}
                                     style={{ padding: '6px 10px', fontSize: '12px' }}
                                     onClick={() => handleViewBatches(item)}
                                     title={viewBatches && viewBatches.id === item.id ? 'Hide Batches' : 'Edit Batches'}
+                                  >
+                                    <FiEdit2 size={12} />
+                                  </button>
+                                ) : (
+                                  <button 
+                                    className="btn btn-primary" 
+                                    style={{ padding: '6px 10px', fontSize: '12px' }}
+                                    onClick={() => handleEditBatch(item.costBatches[0])}
+                                    title="Edit Item"
                                   >
                                     <FiEdit2 size={12} />
                                   </button>
