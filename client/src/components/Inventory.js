@@ -1490,7 +1490,7 @@ function Inventory() {
                                     onClick={() => setViewBatches(item)}
                                     title="View Batches"
                                   >
-                                    🌳
+                                    <FiGitBranch size={12} />
                                   </button>
                                 )}
                               </div>
