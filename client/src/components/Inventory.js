@@ -2,7 +2,7 @@ import React, { useState, useEffect, useContext } from 'react';
 import api from '../utils/api';
 import { AuthContext } from '../context/AuthContext';
 import { formatQuantity, formatPrice } from '../utils/formatNumber';
-import { FiPackage, FiPlus, FiDownload, FiSearch, FiAlertCircle, FiTrash2, FiUpload, FiEdit2, FiX, FiCheck, FiClock } from 'react-icons/fi';
+import { FiPackage, FiPlus, FiDownload, FiSearch, FiAlertCircle, FiTrash2, FiUpload, FiEdit2, FiClock } from 'react-icons/fi';
 import SimpleAutocomplete from './SimpleAutocomplete';
 import ImportModal from './ImportModal';
 
@@ -355,23 +355,6 @@ function Inventory() {
       expiry_date: item.expiry_date ? item.expiry_date.split('T')[0] : '',
       batch_number: item.batch_number
     });
-  };
-
-  const handleCancelEdit = () => {
-    setEditingId(null);
-    setEditData({});
-  };
-
-  const handleSaveEdit = async (id) => {
-    try {
-      await api.put(`/inventory/${id}`, editData);
-      alert('Inventory updated successfully!');
-      setEditingId(null);
-      setEditData({});
-      fetchInventory();
-    } catch (error) {
-      alert(error.response?.data?.error || 'Error updating inventory');
-    }
   };
 
   const handleViewHistory = async (item) => {
