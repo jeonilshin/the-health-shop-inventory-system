@@ -84,7 +84,7 @@ router.post('/', auth, authorize('admin', 'warehouse'), async (req, res) => {
     const timestamp = Date.now();
     const costBatchId = `BATCH-${timestamp}-${Math.random().toString(36).substr(2, 9)}`;
 
-    // Check if item exists with different cost
+    // Check if item exists with different cost/price/expiry
     const existingItems = await pool.query(
       'SELECT * FROM inventory WHERE location_id = $1 AND description = $2 AND unit = $3',
       [location_id, description, unit]
@@ -92,13 +92,16 @@ router.post('/', auth, authorize('admin', 'warehouse'), async (req, res) => {
 
     let shouldCreateNewBatch = is_new_cost || is_new_item;
     
-    // If not explicitly marked as new cost, check if cost differs from existing
+    // If not explicitly marked as new cost, check if cost/price/expiry differs from existing
     if (!shouldCreateNewBatch && existingItems.rows.length > 0) {
-      const hasDifferentCost = existingItems.rows.some(item => 
-        parseFloat(item.unit_cost) !== parseFloat(unit_cost) ||
-        parseFloat(item.suggested_selling_price || 0) !== parseFloat(suggested_selling_price || 0)
-      );
-      shouldCreateNewBatch = hasDifferentCost;
+      const hasDifferentCostOrPriceOrExpiry = existingItems.rows.every(item => {
+        const costDiffers = parseFloat(item.unit_cost) !== parseFloat(unit_cost);
+        const priceDiffers = parseFloat(item.suggested_selling_price || 0) !== parseFloat(suggested_selling_price || 0);
+        const expiryDiffers = (item.expiry_date ? new Date(item.expiry_date).toISOString().split('T')[0] : '') !== (expiry_date || '');
+        
+        return costDiffers || priceDiffers || expiryDiffers;
+      });
+      shouldCreateNewBatch = hasDifferentCostOrPriceOrExpiry;
     }
 
     let result;
@@ -115,12 +118,17 @@ router.post('/', auth, authorize('admin', 'warehouse'), async (req, res) => {
          expiry_date, batch_number, is_new_item, shouldCreateNewBatch, costBatchId]
       );
     } else {
-      // Add to existing batch with same cost
-      const existingItem = existingItems.rows.find(item => 
-        parseFloat(item.unit_cost) === parseFloat(unit_cost)
-      );
+      // Find matching batch with same cost, price, AND expiry
+      const matchingBatch = existingItems.rows.find(item => {
+        const costMatches = parseFloat(item.unit_cost) === parseFloat(unit_cost);
+        const priceMatches = parseFloat(item.suggested_selling_price || 0) === parseFloat(suggested_selling_price || 0);
+        const expiryMatches = (item.expiry_date ? new Date(item.expiry_date).toISOString().split('T')[0] : '') === (expiry_date || '');
+        
+        return costMatches && priceMatches && expiryMatches;
+      });
       
-      if (existingItem) {
+      if (matchingBatch) {
+        // Add to existing batch
         result = await pool.query(
           `UPDATE inventory 
            SET quantity = quantity + $1, 
@@ -128,10 +136,10 @@ router.post('/', auth, authorize('admin', 'warehouse'), async (req, res) => {
                updated_at = CURRENT_TIMESTAMP
            WHERE id = $2 
            RETURNING *`,
-          [quantity, existingItem.id]
+          [quantity, matchingBatch.id]
         );
       } else {
-        // Create new batch for different cost
+        // Create new batch for different cost/price/expiry
         result = await pool.query(
           `INSERT INTO inventory 
            (location_id, description, unit, quantity, unit_cost, suggested_selling_price, 

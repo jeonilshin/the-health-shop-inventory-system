@@ -332,36 +332,90 @@ function Inventory() {
     }
   };
 
-  const handleDescriptionSelect = (item, index) => {
-    const newItems = [...formData.items];
-    newItems[index] = {
-      ...newItems[index],
-      description: item.description,
-      unit: item.unit,
-      unit_cost: item.unit_cost || '',
-      suggested_selling_price: item.suggested_selling_price || '',
-      batch_number: item.batch_number || '',
-      // Keep quantity and expiry_date empty for user input
-      quantity: '',
-      expiry_date: ''
-    };
-    setFormData({ ...formData, items: newItems });
+  const handleDescriptionSelect = async (item, index) => {
+    // Fetch all batches for this product at current location
+    try {
+      const response = await api.get(`/inventory/cost-batches/${selectedLocation}/${encodeURIComponent(item.description)}/${encodeURIComponent(item.unit)}`);
+      const batches = response.data;
+      
+      // Use the most recent batch as default
+      const latestBatch = batches.length > 0 ? batches[0] : item;
+      
+      const newItems = [...formData.items];
+      newItems[index] = {
+        ...newItems[index],
+        description: item.description,
+        unit: item.unit,
+        unit_cost: latestBatch.unit_cost || item.unit_cost || '',
+        suggested_selling_price: latestBatch.suggested_selling_price || item.suggested_selling_price || '',
+        batch_number: latestBatch.batch_number || item.batch_number || '',
+        expiry_date: latestBatch.expiry_date ? new Date(latestBatch.expiry_date).toISOString().split('T')[0] : '',
+        // Keep quantity empty for user input
+        quantity: '',
+        is_new_item: false,
+        is_new_cost: false
+      };
+      setFormData({ ...formData, items: newItems });
+    } catch (error) {
+      // Fallback to basic item data if fetch fails
+      const newItems = [...formData.items];
+      newItems[index] = {
+        ...newItems[index],
+        description: item.description,
+        unit: item.unit,
+        unit_cost: item.unit_cost || '',
+        suggested_selling_price: item.suggested_selling_price || '',
+        batch_number: item.batch_number || '',
+        expiry_date: '',
+        quantity: '',
+        is_new_item: false,
+        is_new_cost: false
+      };
+      setFormData({ ...formData, items: newItems });
+    }
   };
 
-  const handleBatchNumberSelect = (item, index) => {
-    const newItems = [...formData.items];
-    newItems[index] = {
-      ...newItems[index],
-      batch_number: item.batch_number,
-      description: item.description,
-      unit: item.unit,
-      unit_cost: item.unit_cost || '',
-      suggested_selling_price: item.suggested_selling_price || '',
-      // Keep quantity and expiry_date empty for user input
-      quantity: '',
-      expiry_date: ''
-    };
-    setFormData({ ...formData, items: newItems });
+  const handleBatchNumberSelect = async (item, index) => {
+    // Fetch the specific batch details
+    try {
+      const response = await api.get(`/inventory/cost-batches/${selectedLocation}/${encodeURIComponent(item.description)}/${encodeURIComponent(item.unit)}`);
+      const batches = response.data;
+      
+      // Find the batch with matching batch number
+      const selectedBatch = batches.find(b => b.batch_number === item.batch_number) || item;
+      
+      const newItems = [...formData.items];
+      newItems[index] = {
+        ...newItems[index],
+        batch_number: selectedBatch.batch_number || item.batch_number,
+        description: item.description,
+        unit: item.unit,
+        unit_cost: selectedBatch.unit_cost || item.unit_cost || '',
+        suggested_selling_price: selectedBatch.suggested_selling_price || item.suggested_selling_price || '',
+        expiry_date: selectedBatch.expiry_date ? new Date(selectedBatch.expiry_date).toISOString().split('T')[0] : '',
+        // Keep quantity empty for user input
+        quantity: '',
+        is_new_item: false,
+        is_new_cost: false
+      };
+      setFormData({ ...formData, items: newItems });
+    } catch (error) {
+      // Fallback to basic item data
+      const newItems = [...formData.items];
+      newItems[index] = {
+        ...newItems[index],
+        batch_number: item.batch_number,
+        description: item.description,
+        unit: item.unit,
+        unit_cost: item.unit_cost || '',
+        suggested_selling_price: item.suggested_selling_price || '',
+        expiry_date: '',
+        quantity: '',
+        is_new_item: false,
+        is_new_cost: false
+      };
+      setFormData({ ...formData, items: newItems });
+    }
   };
 
   const addItem = () => {
@@ -388,9 +442,43 @@ function Inventory() {
     }
   };
 
-  const updateItem = (index, field, value) => {
+  const updateItem = async (index, field, value) => {
     const newItems = [...formData.items];
+    const oldValue = newItems[index][field];
     newItems[index][field] = value;
+    
+    // Auto-detect if this should be marked as new cost
+    if ((field === 'unit_cost' || field === 'suggested_selling_price' || field === 'expiry_date') && 
+        newItems[index].description && newItems[index].unit && selectedLocation && selectedLocation !== 'all') {
+      
+      try {
+        // Fetch existing batches to compare
+        const response = await api.get(`/inventory/cost-batches/${selectedLocation}/${encodeURIComponent(newItems[index].description)}/${encodeURIComponent(newItems[index].unit)}`);
+        const batches = response.data;
+        
+        if (batches.length > 0) {
+          // Check if the new values differ from any existing batch
+          const hasMatchingBatch = batches.some(batch => {
+            const costMatches = parseFloat(batch.unit_cost) === parseFloat(newItems[index].unit_cost || 0);
+            const priceMatches = parseFloat(batch.suggested_selling_price || 0) === parseFloat(newItems[index].suggested_selling_price || 0);
+            const expiryMatches = (batch.expiry_date ? new Date(batch.expiry_date).toISOString().split('T')[0] : '') === (newItems[index].expiry_date || '');
+            
+            return costMatches && priceMatches && expiryMatches;
+          });
+          
+          // Auto-check "New Cost" if no matching batch found
+          if (!hasMatchingBatch && (newItems[index].unit_cost || newItems[index].suggested_selling_price)) {
+            newItems[index].is_new_cost = true;
+          } else if (hasMatchingBatch) {
+            // Uncheck if it matches an existing batch
+            newItems[index].is_new_cost = false;
+          }
+        }
+      } catch (error) {
+        // Silently fail - user can manually check the box
+      }
+    }
+    
     setFormData({ ...formData, items: newItems });
   };
 
@@ -1107,11 +1195,11 @@ function Inventory() {
                         gap: '8px',
                         cursor: 'pointer',
                         fontWeight: '600',
-                        color: 'var(--warning)',
+                        color: item.is_new_cost ? 'var(--warning)' : 'var(--text-muted)',
                         fontSize: '14px'
                       }}>
                         <FiDollarSign size={16} />
-                        New Cost
+                        New Cost {item.is_new_cost && '(Auto-detected)'}
                       </label>
                     </div>
                     
@@ -1120,10 +1208,10 @@ function Inventory() {
                       color: 'var(--text-muted)', 
                       marginLeft: 'auto', 
                       alignSelf: 'center',
-                      maxWidth: '200px',
+                      maxWidth: '250px',
                       textAlign: 'right'
                     }}>
-                      Mark "New Item" for completely new products or "New Cost" for existing items with different prices.
+                      "New Cost" is auto-checked when price or expiry differs from existing batches. Uncheck to add to existing batch.
                     </div>
                   </div>
                 </div>
