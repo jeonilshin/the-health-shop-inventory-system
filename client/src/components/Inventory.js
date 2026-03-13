@@ -69,7 +69,15 @@ function Inventory() {
     };
     
     window.addEventListener('tab-visible', handleTabVisible);
-    return () => window.removeEventListener('tab-visible', handleTabVisible);
+    
+    // Cleanup function
+    return () => {
+      window.removeEventListener('tab-visible', handleTabVisible);
+      // Clear all debounce timers
+      Object.values(autoDetectTimerRef.current).forEach(timer => {
+        if (timer) clearTimeout(timer);
+      });
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -442,43 +450,61 @@ function Inventory() {
     }
   };
 
-  const updateItem = async (index, field, value) => {
+  // Debounce timer ref for auto-detect new cost
+  const autoDetectTimerRef = React.useRef({});
+
+  const updateItem = (index, field, value) => {
     const newItems = [...formData.items];
     newItems[index][field] = value;
+    setFormData({ ...formData, items: newItems });
     
-    // Auto-detect if this should be marked as new cost
+    // Auto-detect if this should be marked as new cost (debounced)
     if ((field === 'unit_cost' || field === 'suggested_selling_price' || field === 'expiry_date') && 
         newItems[index].description && newItems[index].unit && selectedLocation && selectedLocation !== 'all') {
       
-      try {
-        // Fetch existing batches to compare
-        const response = await api.get(`/inventory/cost-batches/${selectedLocation}/${encodeURIComponent(newItems[index].description)}/${encodeURIComponent(newItems[index].unit)}`);
-        const batches = response.data;
-        
-        if (batches.length > 0) {
-          // Check if the new values differ from any existing batch
-          const hasMatchingBatch = batches.some(batch => {
-            const costMatches = parseFloat(batch.unit_cost) === parseFloat(newItems[index].unit_cost || 0);
-            const priceMatches = parseFloat(batch.suggested_selling_price || 0) === parseFloat(newItems[index].suggested_selling_price || 0);
-            const expiryMatches = (batch.expiry_date ? new Date(batch.expiry_date).toISOString().split('T')[0] : '') === (newItems[index].expiry_date || '');
-            
-            return costMatches && priceMatches && expiryMatches;
-          });
-          
-          // Auto-check "New Cost" if no matching batch found
-          if (!hasMatchingBatch && (newItems[index].unit_cost || newItems[index].suggested_selling_price)) {
-            newItems[index].is_new_cost = true;
-          } else if (hasMatchingBatch) {
-            // Uncheck if it matches an existing batch
-            newItems[index].is_new_cost = false;
-          }
-        }
-      } catch (error) {
-        // Silently fail - user can manually check the box
+      // Clear existing timer for this item
+      if (autoDetectTimerRef.current[index]) {
+        clearTimeout(autoDetectTimerRef.current[index]);
       }
+      
+      // Set new timer - only run API call after user stops typing for 800ms
+      autoDetectTimerRef.current[index] = setTimeout(async () => {
+        try {
+          // Fetch existing batches to compare
+          const response = await api.get(`/inventory/cost-batches/${selectedLocation}/${encodeURIComponent(newItems[index].description)}/${encodeURIComponent(newItems[index].unit)}`);
+          const batches = response.data;
+          
+          if (batches.length > 0) {
+            // Check if the new values differ from any existing batch
+            const hasMatchingBatch = batches.some(batch => {
+              const costMatches = parseFloat(batch.unit_cost) === parseFloat(newItems[index].unit_cost || 0);
+              const priceMatches = parseFloat(batch.suggested_selling_price || 0) === parseFloat(newItems[index].suggested_selling_price || 0);
+              const expiryMatches = (batch.expiry_date ? new Date(batch.expiry_date).toISOString().split('T')[0] : '') === (newItems[index].expiry_date || '');
+              
+              return costMatches && priceMatches && expiryMatches;
+            });
+            
+            // Auto-check "New Cost" if no matching batch found
+            if (!hasMatchingBatch && (newItems[index].unit_cost || newItems[index].suggested_selling_price)) {
+              setFormData(prev => {
+                const updated = [...prev.items];
+                updated[index].is_new_cost = true;
+                return { ...prev, items: updated };
+              });
+            } else if (hasMatchingBatch) {
+              // Uncheck if it matches an existing batch
+              setFormData(prev => {
+                const updated = [...prev.items];
+                updated[index].is_new_cost = false;
+                return { ...prev, items: updated };
+              });
+            }
+          }
+        } catch (error) {
+          // Silently fail - user can manually check the box
+        }
+      }, 800);
     }
-    
-    setFormData({ ...formData, items: newItems });
   };
 
   const canAddInventory = user.role === 'admin' || user.role === 'warehouse';
