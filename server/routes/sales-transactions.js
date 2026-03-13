@@ -58,7 +58,7 @@ router.post('/', auth, authorize('admin', 'warehouse', 'branch_manager', 'branch
   
   try {
     const {
-      transaction_date, location_id, item_description, item_unit,
+      transaction_date, location_id, item_description, item_unit, cost_batch_id,
       quantity_sold, unit_price, payment_method, customer_name, notes,
       discount_type, custom_discount_percent, discount_reason
     } = req.body;
@@ -69,6 +69,31 @@ router.post('/', auth, authorize('admin', 'warehouse', 'branch_manager', 'branch
     }
     
     await client.query('BEGIN');
+    
+    // If cost_batch_id is provided, validate and update specific batch
+    let inventoryUpdateQuery;
+    let inventoryParams;
+    
+    if (cost_batch_id) {
+      // Update specific cost batch
+      inventoryUpdateQuery = `
+        UPDATE inventory 
+        SET quantity = quantity - $1, updated_at = CURRENT_TIMESTAMP 
+        WHERE location_id = $2 AND description = $3 AND unit = $4 AND cost_batch_id = $5 AND quantity >= $1
+        RETURNING *
+      `;
+      inventoryParams = [quantity_sold, location_id, item_description, item_unit, cost_batch_id];
+    } else {
+      // Update any available inventory (legacy behavior)
+      inventoryUpdateQuery = `
+        UPDATE inventory 
+        SET quantity = quantity - $1, updated_at = CURRENT_TIMESTAMP 
+        WHERE location_id = $2 AND description = $3 AND unit = $4 AND quantity >= $1
+        LIMIT 1
+        RETURNING *
+      `;
+      inventoryParams = [quantity_sold, location_id, item_description, item_unit];
+    }
     
     // Calculate discount using proper Philippine formula
     let discount_percent = 0;

@@ -42,28 +42,87 @@ router.get('/location/:locationId', auth, async (req, res) => {
 // Add inventory item (admin and warehouse only)
 router.post('/', auth, authorize('admin', 'warehouse'), async (req, res) => {
   try {
-    const { location_id, description, unit, quantity, unit_cost, suggested_selling_price, expiry_date, batch_number } = req.body;
+    const { 
+      location_id, 
+      description, 
+      unit, 
+      quantity, 
+      unit_cost, 
+      suggested_selling_price, 
+      expiry_date, 
+      batch_number,
+      is_new_item = false,
+      is_new_cost = false
+    } = req.body;
     
     // Check if user has access to this location
     if (req.user.role === 'warehouse' && req.user.location_id != location_id) {
       return res.status(403).json({ error: 'Warehouse staff can only add inventory to their own location' });
     }
 
-    const result = await pool.query(
-      `INSERT INTO inventory (location_id, description, unit, quantity, unit_cost, suggested_selling_price, expiry_date, batch_number, max_quantity) 
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $4) 
-       ON CONFLICT (location_id, description, unit) 
-       DO UPDATE SET 
-         quantity = inventory.quantity + $4, 
-         unit_cost = $5, 
-         suggested_selling_price = $6,
-         expiry_date = COALESCE($7, inventory.expiry_date),
-         batch_number = COALESCE($8, inventory.batch_number),
-         max_quantity = GREATEST(inventory.max_quantity, inventory.quantity + $4),
-         updated_at = CURRENT_TIMESTAMP
-       RETURNING *`,
-      [location_id, description, unit, quantity, unit_cost, suggested_selling_price, expiry_date, batch_number]
+    // Generate cost batch ID
+    const timestamp = Date.now();
+    const costBatchId = `BATCH-${timestamp}-${Math.random().toString(36).substr(2, 9)}`;
+
+    // Check if item exists with different cost
+    const existingItems = await pool.query(
+      'SELECT * FROM inventory WHERE location_id = $1 AND description = $2 AND unit = $3',
+      [location_id, description, unit]
     );
+
+    let shouldCreateNewBatch = is_new_cost || is_new_item;
+    
+    // If not explicitly marked as new cost, check if cost differs from existing
+    if (!shouldCreateNewBatch && existingItems.rows.length > 0) {
+      const hasDifferentCost = existingItems.rows.some(item => 
+        parseFloat(item.unit_cost) !== parseFloat(unit_cost) ||
+        parseFloat(item.suggested_selling_price || 0) !== parseFloat(suggested_selling_price || 0)
+      );
+      shouldCreateNewBatch = hasDifferentCost;
+    }
+
+    let result;
+    
+    if (shouldCreateNewBatch || existingItems.rows.length === 0) {
+      // Create new batch entry
+      result = await pool.query(
+        `INSERT INTO inventory 
+         (location_id, description, unit, quantity, unit_cost, suggested_selling_price, 
+          expiry_date, batch_number, max_quantity, is_new_item, is_new_cost, cost_batch_id) 
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $4, $9, $10, $11) 
+         RETURNING *`,
+        [location_id, description, unit, quantity, unit_cost, suggested_selling_price, 
+         expiry_date, batch_number, is_new_item, shouldCreateNewBatch, costBatchId]
+      );
+    } else {
+      // Add to existing batch with same cost
+      const existingItem = existingItems.rows.find(item => 
+        parseFloat(item.unit_cost) === parseFloat(unit_cost)
+      );
+      
+      if (existingItem) {
+        result = await pool.query(
+          `UPDATE inventory 
+           SET quantity = quantity + $1, 
+               max_quantity = GREATEST(max_quantity, quantity + $1),
+               updated_at = CURRENT_TIMESTAMP
+           WHERE id = $2 
+           RETURNING *`,
+          [quantity, existingItem.id]
+        );
+      } else {
+        // Create new batch for different cost
+        result = await pool.query(
+          `INSERT INTO inventory 
+           (location_id, description, unit, quantity, unit_cost, suggested_selling_price, 
+            expiry_date, batch_number, max_quantity, is_new_item, is_new_cost, cost_batch_id) 
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $4, $9, true, $10) 
+           RETURNING *`,
+          [location_id, description, unit, quantity, unit_cost, suggested_selling_price, 
+           expiry_date, batch_number, is_new_item, costBatchId]
+        );
+      }
+    }
     
     // Log audit
     await logAudit({
@@ -75,7 +134,7 @@ router.post('/', auth, authorize('admin', 'warehouse'), async (req, res) => {
       newValues: result.rows[0],
       ipAddress: req.ip,
       userAgent: req.get('user-agent'),
-      description: `Added ${quantity} ${unit} of ${description} to inventory`
+      description: `Added ${quantity} ${unit} of ${description} to inventory${shouldCreateNewBatch ? ' (new cost batch)' : ''}`
     });
     
     res.status(201).json(result.rows[0]);
@@ -268,6 +327,31 @@ router.post('/convert-units', auth, authorize('admin', 'branch_manager', 'branch
     res.status(500).json({ error: error.message });
   } finally {
     client.release();
+  }
+});
+
+// Get cost batches for a specific item (for transfers and sales)
+router.get('/cost-batches/:locationId/:description/:unit', auth, async (req, res) => {
+  try {
+    const { locationId, description, unit } = req.params;
+    
+    // Check if user has access to this location
+    if (req.user.role !== 'admin' && req.user.location_id != locationId) {
+      return res.status(403).json({ error: 'Access denied to this location' });
+    }
+
+    const result = await pool.query(
+      `SELECT id, cost_batch_id, unit_cost, suggested_selling_price, quantity, 
+              batch_number, expiry_date, is_new_cost, original_batch_date
+       FROM inventory 
+       WHERE location_id = $1 AND description = $2 AND unit = $3 AND quantity > 0
+       ORDER BY original_batch_date DESC`,
+      [locationId, description, unit]
+    );
+    
+    res.json(result.rows);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
 });
 

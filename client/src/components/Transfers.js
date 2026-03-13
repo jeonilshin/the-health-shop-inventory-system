@@ -11,6 +11,7 @@ function Transfers() {
   const [transfers, setTransfers] = useState([]);
   const [pendingApprovals, setPendingApprovals] = useState([]);
   const [inventory, setInventory] = useState([]);
+  const [costBatches, setCostBatches] = useState({});
   const [showForm, setShowForm] = useState(false);
   const [showRequestForm, setShowRequestForm] = useState(false);
   const [showRejectModal, setShowRejectModal] = useState(false);
@@ -21,7 +22,7 @@ function Transfers() {
     from_location_id: '',
     to_location_id: '',
     notes: '',
-    items: [{ inventory_item_id: '', quantity: '', selectedItem: null }]
+    items: [{ inventory_item_id: '', cost_batch_id: '', quantity: '', selectedItem: null }]
   });
   const [requestFormData, setRequestFormData] = useState({
     description: '',
@@ -145,7 +146,7 @@ function Transfers() {
     }
   };
 
-  const handleItemSelect = (index, itemId) => {
+  const handleItemSelect = async (index, itemId) => {
     const newItems = [...formData.items];
     newItems[index].inventory_item_id = itemId;
     
@@ -153,6 +154,18 @@ function Transfers() {
       const item = inventory.find(inv => inv.id === parseInt(itemId));
       newItems[index].selectedItem = item;
       newItems[index].quantity = '';
+      newItems[index].cost_batch_id = '';
+      
+      // Fetch cost batches for this item
+      try {
+        const response = await api.get(`/inventory/cost-batches/${formData.from_location_id}/${encodeURIComponent(item.description)}/${encodeURIComponent(item.unit)}`);
+        setCostBatches(prev => ({
+          ...prev,
+          [`${item.description}-${item.unit}`]: response.data
+        }));
+      } catch (error) {
+        console.error('Error fetching cost batches:', error);
+      }
     } else {
       newItems[index].selectedItem = null;
     }
@@ -160,10 +173,16 @@ function Transfers() {
     setFormData({ ...formData, items: newItems });
   };
 
+  const handleBatchSelect = (index, batchId) => {
+    const newItems = [...formData.items];
+    newItems[index].cost_batch_id = batchId;
+    setFormData({ ...formData, items: newItems });
+  };
+
   const addItem = () => {
     setFormData({
       ...formData,
-      items: [...formData.items, { inventory_item_id: '', quantity: '', selectedItem: null }]
+      items: [...formData.items, { inventory_item_id: '', cost_batch_id: '', quantity: '', selectedItem: null }]
     });
   };
 
@@ -644,7 +663,7 @@ function Transfers() {
                         marginBottom: '12px',
                         border: '1px solid var(--border)'
                       }}>
-                        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr auto', gap: '12px', alignItems: 'end' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr auto', gap: '12px', alignItems: 'end' }}>
                           <div className="form-group" style={{ marginBottom: 0 }}>
                             <label>Search Item</label>
                             <AutocompleteSearch
@@ -659,12 +678,59 @@ function Transfers() {
                                 backgroundColor: 'rgba(59, 130, 246, 0.1)', 
                                 borderRadius: 'var(--radius)',
                                 fontSize: '13px',
-                                color: 'var(--primary)'
+                                color: 'var(--primary)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '6px'
                               }}>
-                                Selected: {item.selectedItem.description}
+                                <span>Selected: {item.selectedItem.description}</span>
+                                {item.selectedItem.is_new_item && (
+                                  <span style={{ 
+                                    fontSize: '9px', 
+                                    background: 'var(--success)', 
+                                    color: 'white', 
+                                    padding: '1px 4px', 
+                                    borderRadius: '8px',
+                                    fontWeight: '700'
+                                  }}>
+                                    🆕 NEW
+                                  </span>
+                                )}
                               </div>
                             )}
                           </div>
+
+                          {/* Cost Batch Selection */}
+                          {item.selectedItem && costBatches[`${item.selectedItem.description}-${item.selectedItem.unit}`] && (
+                            <div className="form-group" style={{ marginBottom: 0 }}>
+                              <label>Cost Batch</label>
+                              <select
+                                value={item.cost_batch_id}
+                                onChange={(e) => handleBatchSelect(index, e.target.value)}
+                                required
+                              >
+                                <option value="">Select batch...</option>
+                                {costBatches[`${item.selectedItem.description}-${item.selectedItem.unit}`].map((batch) => (
+                                  <option key={batch.cost_batch_id} value={batch.cost_batch_id}>
+                                    ₱{formatPrice(batch.unit_cost)} - Qty: {formatQuantity(batch.quantity)}
+                                    {batch.is_new_cost && ' (NEW COST)'}
+                                  </option>
+                                ))}
+                              </select>
+                              {item.cost_batch_id && (
+                                <div style={{ 
+                                  marginTop: '4px', 
+                                  fontSize: '11px', 
+                                  color: 'var(--text-muted)' 
+                                }}>
+                                  {(() => {
+                                    const selectedBatch = costBatches[`${item.selectedItem.description}-${item.selectedItem.unit}`]?.find(b => b.cost_batch_id === item.cost_batch_id);
+                                    return selectedBatch ? `Batch: ${selectedBatch.batch_number || 'N/A'} | Exp: ${selectedBatch.expiry_date ? new Date(selectedBatch.expiry_date).toLocaleDateString() : 'N/A'}` : '';
+                                  })()}
+                                </div>
+                              )}
+                            </div>
+                          )}
 
                           <div className="form-group" style={{ marginBottom: 0 }}>
                             <label>Quantity</label>
@@ -672,11 +738,20 @@ function Transfers() {
                               type="number"
                               step="0.01"
                               min="0.01"
-                              max={item.selectedItem ? item.selectedItem.quantity : undefined}
+                              max={(() => {
+                                if (!item.selectedItem || !item.cost_batch_id) return undefined;
+                                const batch = costBatches[`${item.selectedItem.description}-${item.selectedItem.unit}`]?.find(b => b.cost_batch_id === item.cost_batch_id);
+                                return batch ? batch.quantity : item.selectedItem.quantity;
+                              })()}
                               value={item.quantity}
                               onChange={(e) => updateItemQuantity(index, e.target.value)}
-                              placeholder={item.selectedItem ? `Max: ${item.selectedItem.quantity}` : 'Select item first'}
-                              disabled={!item.selectedItem}
+                              placeholder={(() => {
+                                if (!item.selectedItem) return 'Select item first';
+                                if (!item.cost_batch_id) return 'Select batch first';
+                                const batch = costBatches[`${item.selectedItem.description}-${item.selectedItem.unit}`]?.find(b => b.cost_batch_id === item.cost_batch_id);
+                                return batch ? `Max: ${batch.quantity}` : `Max: ${item.selectedItem.quantity}`;
+                              })()}
+                              disabled={!item.selectedItem || !item.cost_batch_id}
                               required
                             />
                           </div>

@@ -9,6 +9,7 @@ function Sales() {
   const { user } = useContext(AuthContext);
   const [locations, setLocations] = useState([]);
   const [sales, setSales] = useState([]);
+  const [costBatches, setCostBatches] = useState([]);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [editData, setEditData] = useState({});
@@ -31,6 +32,7 @@ function Sales() {
     location_id: user.location_id || '',
     item_description: '',
     item_unit: '',
+    cost_batch_id: '',
     quantity_sold: '',
     unit_price: '',
     payment_method: 'cash',
@@ -78,13 +80,23 @@ function Sales() {
     }
   };
 
-  const handleItemSelect = (item) => {
+  const handleItemSelect = async (item) => {
     setFormData({
       ...formData,
       item_description: item.description,
       item_unit: item.unit,
-      unit_price: item.suggested_selling_price || item.unit_cost
+      unit_price: item.suggested_selling_price || item.unit_cost,
+      cost_batch_id: ''
     });
+    
+    // Fetch cost batches for this item
+    try {
+      const response = await api.get(`/inventory/cost-batches/${formData.location_id}/${encodeURIComponent(item.description)}/${encodeURIComponent(item.unit)}`);
+      setCostBatches(response.data);
+    } catch (error) {
+      console.error('Error fetching cost batches:', error);
+      setCostBatches([]);
+    }
   };
 
   const handleSubmit = async (e) => {
@@ -106,6 +118,7 @@ function Sales() {
       location_id: user.location_id || '',
       item_description: '',
       item_unit: '',
+      cost_batch_id: '',
       quantity_sold: '',
       unit_price: '',
       payment_method: 'cash',
@@ -115,6 +128,7 @@ function Sales() {
       custom_discount_percent: '',
       discount_reason: ''
     });
+    setCostBatches([]);
   };
 
   const handleDelete = async (id) => {
@@ -270,6 +284,52 @@ function Sales() {
               />
             </div>
 
+            {/* Cost Batch Selection */}
+            {costBatches.length > 0 && (
+              <div className="form-group">
+                <label>Select Cost Batch *</label>
+                <select
+                  value={formData.cost_batch_id}
+                  onChange={(e) => {
+                    const selectedBatch = costBatches.find(b => b.cost_batch_id === e.target.value);
+                    setFormData({
+                      ...formData,
+                      cost_batch_id: e.target.value,
+                      unit_price: selectedBatch ? selectedBatch.suggested_selling_price || selectedBatch.unit_cost : formData.unit_price
+                    });
+                  }}
+                  required
+                  style={{ 
+                    background: costBatches.some(b => b.is_new_cost) ? 'rgba(245, 158, 11, 0.1)' : 'white',
+                    border: costBatches.some(b => b.is_new_cost) ? '2px solid var(--warning)' : '1px solid var(--border)'
+                  }}
+                >
+                  <option value="">Choose which batch to sell from...</option>
+                  {costBatches.map((batch) => (
+                    <option key={batch.cost_batch_id} value={batch.cost_batch_id}>
+                      Cost: ₱{formatPrice(batch.unit_cost)} | Price: ₱{formatPrice(batch.suggested_selling_price || 0)} | 
+                      Qty: {formatQuantity(batch.quantity)} | 
+                      Batch: {batch.batch_number || 'N/A'}
+                      {batch.is_new_cost ? ' (NEW COST)' : ''}
+                    </option>
+                  ))}
+                </select>
+                {costBatches.some(b => b.is_new_cost) && (
+                  <div style={{ 
+                    marginTop: '8px', 
+                    padding: '8px', 
+                    background: 'rgba(245, 158, 11, 0.1)', 
+                    borderRadius: 'var(--radius)',
+                    fontSize: '12px',
+                    color: 'var(--warning)',
+                    fontWeight: '600'
+                  }}>
+                    🌳 This item has multiple cost batches. Choose carefully!
+                  </div>
+                )}
+              </div>
+            )}
+
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginBottom: '16px' }}>
               <div className="form-group" style={{ marginBottom: 0 }}>
                 <label>Item Description *</label>
@@ -301,6 +361,17 @@ function Sales() {
                   onChange={(e) => setFormData({...formData, quantity_sold: e.target.value})} 
                   required 
                   min="1"
+                  max={(() => {
+                    if (!formData.cost_batch_id) return undefined;
+                    const selectedBatch = costBatches.find(b => b.cost_batch_id === formData.cost_batch_id);
+                    return selectedBatch ? selectedBatch.quantity : undefined;
+                  })()}
+                  placeholder={(() => {
+                    if (!formData.cost_batch_id) return 'Select batch first';
+                    const selectedBatch = costBatches.find(b => b.cost_batch_id === formData.cost_batch_id);
+                    return selectedBatch ? `Max: ${selectedBatch.quantity}` : '';
+                  })()}
+                  disabled={!formData.cost_batch_id && costBatches.length > 0}
                   onWheel={(e) => e.target.blur()}
                 />
               </div>

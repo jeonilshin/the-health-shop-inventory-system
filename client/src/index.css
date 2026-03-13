@@ -328,6 +328,9 @@ body:has(.sidebar.closed) .container {
   font-weight: 700;
   color: var(--text-primary);
   margin-bottom: var(--spacing-xs);
+  word-break: break-word;
+  line-height: 1.2;
+  overflow-wrap: break-word;
 }
 
 .stat-card-label {
@@ -663,6 +666,10 @@ tbody tr:last-child td {
   .stats-grid {
     grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
   }
+  
+  .stat-card-value {
+    font-size: 1.75rem;
+  }
 }
 
 @media (max-width: 768px) {
@@ -674,6 +681,14 @@ tbody tr:last-child td {
   
   .navbar h1 {
     font-size: 1.25rem;
+  }
+  
+  .stat-card-value {
+    font-size: 1.5rem;
+  }
+  
+  .stat-card-label {
+    font-size: 0.8rem;
   }
   
   .navbar > div {
@@ -781,16 +796,27 @@ tbody tr:last-child td {
     margin-bottom: var(--spacing-md);
   }
   
+  .stats-grid {
+    grid-template-columns: 1fr;
+    gap: var(--spacing-sm);
+  }
+  
   .stat-card {
     padding: var(--spacing-md);
   }
   
   .stat-card-value {
-    font-size: 1.25rem;
+    font-size: 1.15rem;
   }
   
   .stat-card-label {
-    font-size: 0.75rem;
+    font-size: 0.7rem;
+  }
+  
+  .stat-card-icon {
+    width: 32px;
+    height: 32px;
+    font-size: 14px;
   }
   
   .stat-card-icon {

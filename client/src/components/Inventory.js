@@ -1,4 +1,4 @@
-import { useState, useEffect, useContext } from 'react';
+import React, { useState, useEffect, useContext } from 'react';
 import api from '../utils/api';
 import { AuthContext } from '../context/AuthContext';
 import { formatQuantity, formatPrice } from '../utils/formatNumber';
@@ -30,6 +30,7 @@ function Inventory() {
   const [viewHistory, setViewHistory] = useState(null);
   const [productHistory, setProductHistory] = useState([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
+  const [viewBatches, setViewBatches] = useState(null);
   const [showConversionModal, setShowConversionModal] = useState(false);
   const [conversionData, setConversionData] = useState({
     fromItemId: '',
@@ -44,7 +45,9 @@ function Inventory() {
     unit_cost: '',
     suggested_selling_price: '',
     expiry_date: '',
-    batch_number: ''
+    batch_number: '',
+    is_new_item: false,
+    is_new_cost: false
   });
 
   useEffect(() => {
@@ -107,12 +110,51 @@ function Inventory() {
         ? '/inventory/all' 
         : `/inventory/location/${selectedLocation}`;
       const response = await api.get(endpoint);
-      setInventory(response.data);
-      setFilteredInventory(response.data);
+      
+      // Group items by description and unit for better display
+      const groupedInventory = {};
+      response.data.forEach(item => {
+        const key = `${item.description}-${item.unit}`;
+        if (!groupedInventory[key]) {
+          groupedInventory[key] = {
+            ...item,
+            costBatches: [],
+            totalQuantity: 0,
+            hasMultipleCosts: false
+          };
+        }
+        
+        groupedInventory[key].costBatches.push({
+          id: item.id,
+          cost_batch_id: item.cost_batch_id,
+          unit_cost: item.unit_cost,
+          suggested_selling_price: item.suggested_selling_price,
+          quantity: item.quantity,
+          batch_number: item.batch_number,
+          expiry_date: item.expiry_date,
+          is_new_cost: item.is_new_cost,
+          is_new_item: item.is_new_item,
+          original_batch_date: item.original_batch_date
+        });
+        
+        groupedInventory[key].totalQuantity += parseFloat(item.quantity);
+        
+        // Check if there are multiple different costs
+        const uniqueCosts = new Set(groupedInventory[key].costBatches.map(b => b.unit_cost));
+        groupedInventory[key].hasMultipleCosts = uniqueCosts.size > 1;
+        
+        // Update main category if not set
+        if (item.main_category) {
+          groupedInventory[key].main_category = item.main_category;
+        }
+      });
+      
+      setInventory(Object.values(groupedInventory));
+      setFilteredInventory(Object.values(groupedInventory));
       
       // Extract unique categories
       const categories = new Set();
-      response.data.forEach(item => {
+      Object.values(groupedInventory).forEach(item => {
         if (item.main_category) {
           categories.add(item.main_category);
         }
@@ -246,7 +288,9 @@ function Inventory() {
         unit_cost: '',
         suggested_selling_price: '',
         expiry_date: '',
-        batch_number: ''
+        batch_number: '',
+        is_new_item: false,
+        is_new_cost: false
       });
       fetchInventory();
       fetchInventoryHistory(); // Refresh history
@@ -871,6 +915,60 @@ function Inventory() {
                 />
               </div>
             </div>
+            
+            {/* New Item and New Cost Options */}
+            <div style={{ 
+              display: 'flex', 
+              gap: '16px', 
+              marginTop: '16px', 
+              padding: '16px', 
+              background: 'var(--bg-secondary)', 
+              borderRadius: 'var(--radius)',
+              border: '1px solid var(--border)'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <input
+                  type="checkbox"
+                  id="is_new_item"
+                  checked={formData.is_new_item}
+                  onChange={(e) => setFormData({ ...formData, is_new_item: e.target.checked })}
+                />
+                <label htmlFor="is_new_item" style={{ 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  gap: '6px',
+                  cursor: 'pointer',
+                  fontWeight: '600',
+                  color: 'var(--success)'
+                }}>
+                  🆕 New Item
+                </label>
+              </div>
+              
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <input
+                  type="checkbox"
+                  id="is_new_cost"
+                  checked={formData.is_new_cost}
+                  onChange={(e) => setFormData({ ...formData, is_new_cost: e.target.checked })}
+                />
+                <label htmlFor="is_new_cost" style={{ 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  gap: '6px',
+                  cursor: 'pointer',
+                  fontWeight: '600',
+                  color: 'var(--warning)'
+                }}>
+                  💰 New Cost
+                </label>
+              </div>
+              
+              <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginLeft: 'auto', alignSelf: 'center' }}>
+                Check "New Item" for completely new products. Check "New Cost" for existing items with different prices.
+              </div>
+            </div>
+            
             <button type="submit" className="btn btn-success" style={{ marginTop: '16px' }}>
               <FiPlus size={16} />
               Add to Inventory
@@ -989,178 +1087,209 @@ function Inventory() {
                   // Single location view
                   return currentItems.map((item) => {
                     const isEditing = editingId === item.id;
-                    const expiryDate = item.expiry_date ? new Date(item.expiry_date) : null;
-                    const today = new Date();
-                    const daysUntilExpiry = expiryDate ? Math.ceil((expiryDate - today) / (1000 * 60 * 60 * 24)) : null;
-                    const isExpired = daysUntilExpiry !== null && daysUntilExpiry < 0;
-                    const isExpiringSoon = daysUntilExpiry !== null && daysUntilExpiry >= 0 && daysUntilExpiry <= 30;
                     
                     return (
-                      <tr key={item.id}>
-                        <td style={{ fontWeight: 600 }}>
-                          {isEditing ? (
-                            <input 
-                              type="text" 
-                              value={editData.description}
-                              onChange={(e) => setEditData({...editData, description: e.target.value})}
-                              style={{ width: '100%', padding: '4px' }}
-                            />
-                          ) : (
-                            item.description
-                          )}
-                        </td>
-                        <td>
-                          {isEditing ? (
-                            <input 
-                              type="text" 
-                              value={editData.unit}
-                              onChange={(e) => setEditData({...editData, unit: e.target.value})}
-                              style={{ width: '80px', padding: '4px' }}
-                            />
-                          ) : (
-                            item.unit
-                          )}
-                        </td>
-                        <td>
-                          {isEditing ? (
-                            <input 
-                              type="number" 
-                              value={editData.quantity}
-                              onChange={(e) => setEditData({...editData, quantity: e.target.value})}
-                              style={{ width: '80px', padding: '4px' }}
-                            />
-                          ) : (
-                            <span className={`badge ${getStockBadgeClass(getStockStatus(item.quantity, item.max_quantity))}`}>
-                              {formatQuantity(item.quantity)}
-                            </span>
-                          )}
-                        </td>
-                        <td style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                          {isEditing ? (
-                            <input 
-                              type="text" 
-                              value={editData.batch_number}
-                              onChange={(e) => setEditData({...editData, batch_number: e.target.value})}
-                              style={{ width: '100px', padding: '4px' }}
-                            />
-                          ) : (
-                            item.batch_number || '-'
-                          )}
-                        </td>
-                        <td>
-                          {isEditing ? (
-                            <input 
-                              type="date" 
-                              value={editData.expiry_date}
-                              onChange={(e) => setEditData({...editData, expiry_date: e.target.value})}
-                              style={{ width: '140px', padding: '4px' }}
-                            />
-                          ) : expiryDate ? (
-                            <span style={{ 
-                              fontSize: '12px',
-                              color: isExpired ? '#ef4444' : isExpiringSoon ? '#f59e0b' : 'var(--text-secondary)',
-                              fontWeight: (isExpired || isExpiringSoon) ? 600 : 400
-                            }}>
-                              {expiryDate.toLocaleDateString()}
-                              {isExpired && ' (Expired)'}
-                              {isExpiringSoon && ` (${daysUntilExpiry}d)`}
-                            </span>
-                          ) : (
-                            <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>-</span>
-                          )}
-                        </td>
-                        {user.role === 'admin' && (
-                          <>
-                            <td>
-                              {isEditing ? (
-                                <input 
-                                  type="number" 
-                                  step="0.01"
-                                  value={editData.unit_cost}
-                                  onChange={(e) => setEditData({...editData, unit_cost: e.target.value})}
-                                  style={{ width: '100px', padding: '4px' }}
-                                />
-                              ) : (
-                                `₱${formatPrice(item.unit_cost)}`
-                              )}
-                            </td>
-                            <td>
-                              {isEditing ? (
-                                <input 
-                                  type="number" 
-                                  step="0.01"
-                                  value={editData.suggested_selling_price}
-                                  onChange={(e) => setEditData({...editData, suggested_selling_price: e.target.value})}
-                                  style={{ width: '100px', padding: '4px' }}
-                                />
-                              ) : (
-                                `₱${formatPrice(item.suggested_selling_price || 0)}`
-                              )}
-                            </td>
-                            <td style={{ fontWeight: 600 }}>
-                              {isEditing ? (
-                                `₱${formatPrice(parseFloat(editData.quantity || 0) * parseFloat(editData.unit_cost || 0))}`
-                              ) : (
-                                `₱${formatPrice(parseFloat(item.quantity) * parseFloat(item.unit_cost))}`
-                              )}
-                            </td>
-                          </>
-                        )}
-                        {user.role === 'admin' && (
+                      <React.Fragment key={item.id}>
+                        {/* Main Item Row */}
+                        <tr style={{ backgroundColor: item.hasMultipleCosts ? 'rgba(245, 158, 11, 0.05)' : 'transparent' }}>
+                          <td style={{ fontWeight: 600 }}>
+                            {isEditing ? (
+                              <input 
+                                type="text" 
+                                value={editData.description}
+                                onChange={(e) => setEditData({...editData, description: e.target.value})}
+                                style={{ width: '100%', padding: '4px' }}
+                              />
+                            ) : (
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <span>{item.description}</span>
+                                {item.costBatches.some(b => b.is_new_item) && (
+                                  <span style={{ 
+                                    fontSize: '10px', 
+                                    background: 'var(--success)', 
+                                    color: 'white', 
+                                    padding: '2px 6px', 
+                                    borderRadius: '12px',
+                                    fontWeight: '700'
+                                  }}>
+                                    🆕 NEW
+                                  </span>
+                                )}
+                                {item.hasMultipleCosts && (
+                                  <span style={{ 
+                                    fontSize: '10px', 
+                                    background: 'var(--warning)', 
+                                    color: 'white', 
+                                    padding: '2px 6px', 
+                                    borderRadius: '12px',
+                                    fontWeight: '700'
+                                  }}>
+                                    🌳 MULTI-COST
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                          </td>
                           <td>
-                            <div style={{ display: 'flex', gap: '4px' }}>
-                              {isEditing ? (
-                                <>
-                                  <button 
-                                    className="btn btn-success" 
-                                    style={{ padding: '6px 10px', fontSize: '12px' }}
-                                    onClick={() => handleSaveEdit(item.id)}
-                                    title="Save"
-                                  >
-                                    <FiCheck size={14} />
-                                  </button>
+                            {isEditing ? (
+                              <input 
+                                type="text" 
+                                value={editData.unit}
+                                onChange={(e) => setEditData({...editData, unit: e.target.value})}
+                                style={{ width: '80px', padding: '4px' }}
+                              />
+                            ) : (
+                              item.unit
+                            )}
+                          </td>
+                          <td>
+                            <span className={`badge ${getStockBadgeClass(getStockStatus(item.totalQuantity, item.max_quantity))}`}>
+                              {formatQuantity(item.totalQuantity)}
+                            </span>
+                            {item.hasMultipleCosts && (
+                              <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                                {item.costBatches.length} batches
+                              </div>
+                            )}
+                          </td>
+                          <td style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                            {item.batch_number || '-'}
+                          </td>
+                          <td>
+                            {item.expiry_date ? (
+                              <span style={{ fontSize: '12px' }}>
+                                {new Date(item.expiry_date).toLocaleDateString()}
+                              </span>
+                            ) : (
+                              <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>-</span>
+                            )}
+                          </td>
+                          {user.role === 'admin' && (
+                            <>
+                              <td>
+                                {item.hasMultipleCosts ? (
+                                  <div style={{ fontSize: '11px' }}>
+                                    <div>₱{formatPrice(Math.min(...item.costBatches.map(b => b.unit_cost)))}</div>
+                                    <div style={{ color: 'var(--text-muted)' }}>
+                                      to ₱{formatPrice(Math.max(...item.costBatches.map(b => b.unit_cost)))}
+                                    </div>
+                                  </div>
+                                ) : (
+                                  `₱${formatPrice(item.unit_cost)}`
+                                )}
+                              </td>
+                              <td>
+                                {item.hasMultipleCosts ? (
+                                  <div style={{ fontSize: '11px' }}>
+                                    <div>₱{formatPrice(Math.min(...item.costBatches.map(b => b.suggested_selling_price || 0)))}</div>
+                                    <div style={{ color: 'var(--text-muted)' }}>
+                                      to ₱{formatPrice(Math.max(...item.costBatches.map(b => b.suggested_selling_price || 0)))}
+                                    </div>
+                                  </div>
+                                ) : (
+                                  `₱${formatPrice(item.suggested_selling_price || 0)}`
+                                )}
+                              </td>
+                              <td style={{ fontWeight: 600 }}>
+                                ₱{formatPrice(item.costBatches.reduce((sum, batch) => 
+                                  sum + (parseFloat(batch.quantity) * parseFloat(batch.unit_cost)), 0
+                                ))}
+                              </td>
+                            </>
+                          )}
+                          {user.role === 'admin' && (
+                            <td>
+                              <div style={{ display: 'flex', gap: '4px' }}>
+                                <button 
+                                  className="btn btn-info" 
+                                  style={{ padding: '6px 10px', fontSize: '12px' }}
+                                  onClick={() => handleViewHistory(item)}
+                                  title="View History"
+                                >
+                                  <FiClock size={12} />
+                                </button>
+                                <button 
+                                  className="btn btn-primary" 
+                                  style={{ padding: '6px 10px', fontSize: '12px' }}
+                                  onClick={() => handleEdit(item)}
+                                  title="Edit"
+                                >
+                                  <FiEdit2 size={12} />
+                                </button>
+                                {item.hasMultipleCosts && (
                                   <button 
                                     className="btn btn-secondary" 
                                     style={{ padding: '6px 10px', fontSize: '12px' }}
-                                    onClick={handleCancelEdit}
-                                    title="Cancel"
+                                    onClick={() => setViewBatches(item)}
+                                    title="View Batches"
                                   >
-                                    <FiX size={14} />
+                                    🌳
                                   </button>
-                                </>
-                              ) : (
+                                )}
+                              </div>
+                            </td>
+                          )}
+                        </tr>
+                        
+                        {/* Cost Batch Details (if expanded) */}
+                        {viewBatches && viewBatches.id === item.id && item.hasMultipleCosts && (
+                          item.costBatches.map((batch, idx) => (
+                            <tr key={`batch-${batch.id}`} style={{ 
+                              backgroundColor: 'rgba(245, 158, 11, 0.02)',
+                              borderLeft: '3px solid var(--warning)'
+                            }}>
+                              <td style={{ paddingLeft: '24px', fontSize: '12px', color: 'var(--text-muted)' }}>
+                                └ Batch {idx + 1}
+                                {batch.is_new_cost && (
+                                  <span style={{ 
+                                    fontSize: '9px', 
+                                    background: 'var(--warning)', 
+                                    color: 'white', 
+                                    padding: '1px 4px', 
+                                    borderRadius: '8px',
+                                    marginLeft: '6px'
+                                  }}>
+                                    NEW
+                                  </span>
+                                )}
+                              </td>
+                              <td style={{ fontSize: '12px' }}>{item.unit}</td>
+                              <td>
+                                <span className={`badge ${getStockBadgeClass(getStockStatus(batch.quantity, item.max_quantity))}`} style={{ fontSize: '10px' }}>
+                                  {formatQuantity(batch.quantity)}
+                                </span>
+                              </td>
+                              <td style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+                                {batch.batch_number || '-'}
+                              </td>
+                              <td style={{ fontSize: '11px' }}>
+                                {batch.expiry_date ? new Date(batch.expiry_date).toLocaleDateString() : '-'}
+                              </td>
+                              {user.role === 'admin' && (
                                 <>
-                                  {user.role === 'admin' && (
-                                    <button 
-                                      className="btn btn-info" 
-                                      style={{ padding: '6px 10px', fontSize: '12px' }}
-                                      onClick={() => handleViewHistory(item)}
-                                      title="View History"
-                                    >
-                                      <FiClock size={12} />
-                                    </button>
-                                  )}
-                                  <button 
-                                    className="btn btn-primary" 
-                                    style={{ padding: '6px 10px', fontSize: '12px' }}
-                                    onClick={() => handleEdit(item)}
-                                    title="Edit"
-                                  >
-                                    <FiEdit2 size={12} />
-                                  </button>
-                                  <button
-                                    className="btn btn-danger"
-                                    style={{ padding: '6px 12px', fontSize: '12px' }}
-                                    onClick={() => handleDeleteInventory(item.id)}
-                                  >
-                                    <FiTrash2 size={12} />
-                                  </button>
+                                  <td style={{ fontSize: '12px' }}>₱{formatPrice(batch.unit_cost)}</td>
+                                  <td style={{ fontSize: '12px' }}>₱{formatPrice(batch.suggested_selling_price || 0)}</td>
+                                  <td style={{ fontSize: '12px', fontWeight: 600 }}>
+                                    ₱{formatPrice(parseFloat(batch.quantity) * parseFloat(batch.unit_cost))}
+                                  </td>
                                 </>
                               )}
-                            </div>
-                          </td>
+                              {user.role === 'admin' && (
+                                <td>
+                                  <button
+                                    className="btn btn-danger"
+                                    style={{ padding: '4px 8px', fontSize: '10px' }}
+                                    onClick={() => handleDeleteInventory(batch.id)}
+                                    title="Delete Batch"
+                                  >
+                                    <FiTrash2 size={10} />
+                                  </button>
+                                </td>
+                              )}
+                            </tr>
+                          ))
                         )}
-                      </tr>
+                      </React.Fragment>
                     );
                   });
                 }
