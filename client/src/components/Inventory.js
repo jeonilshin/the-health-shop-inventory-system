@@ -29,10 +29,8 @@ function Inventory() {
   const [productHistory, setProductHistory] = useState([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [viewBatches, setViewBatches] = useState(null);
-  const [expandedBranches, setExpandedBranches] = useState(new Set());
-  const [branchInventory, setBranchInventory] = useState({});
-  const [editingBranchId, setEditingBranchId] = useState(null);
-  const [branchEditData, setBranchEditData] = useState({});
+  const [editingBatchId, setEditingBatchId] = useState(null);
+  const [batchEditData, setBatchEditData] = useState({});
   const [showConversionModal, setShowConversionModal] = useState(false);
   const [conversionData, setConversionData] = useState({
     fromItemId: '',
@@ -426,65 +424,49 @@ function Inventory() {
     }
   };
 
-  const handleViewBranches = async (item) => {
-    const itemKey = `${item.description}-${item.unit}`;
-    
-    if (expandedBranches.has(itemKey)) {
-      // Collapse - remove from expanded set
-      const newExpanded = new Set(expandedBranches);
-      newExpanded.delete(itemKey);
-      setExpandedBranches(newExpanded);
+  const handleViewBatches = (item) => {
+    if (viewBatches && viewBatches.id === item.id) {
+      // Close if already open
+      setViewBatches(null);
+      setEditingBatchId(null);
+      setBatchEditData({});
     } else {
-      // Expand - fetch data and add to expanded set
-      try {
-        const response = await api.get(`/inventory/product-branches/${encodeURIComponent(item.description)}/${encodeURIComponent(item.unit)}`);
-        setBranchInventory(prev => ({
-          ...prev,
-          [itemKey]: response.data
-        }));
-        
-        const newExpanded = new Set(expandedBranches);
-        newExpanded.add(itemKey);
-        setExpandedBranches(newExpanded);
-      } catch (error) {
-        console.error('Error fetching branch inventory:', error);
-      }
+      // Open batches view
+      setViewBatches(item);
+      setEditingBatchId(null);
+      setBatchEditData({});
     }
   };
 
-  const handleEditBranch = (branchItem) => {
-    setEditingBranchId(branchItem.id);
-    setBranchEditData({
-      unit_cost: branchItem.unit_cost,
-      suggested_selling_price: branchItem.suggested_selling_price
+  const handleEditBatch = (batch) => {
+    setEditingBatchId(batch.id);
+    setBatchEditData({
+      description: batch.description || viewBatches.description,
+      unit: batch.unit || viewBatches.unit,
+      quantity: batch.quantity,
+      expiry_date: batch.expiry_date || '',
+      unit_cost: batch.unit_cost,
+      suggested_selling_price: batch.suggested_selling_price || ''
     });
   };
 
-  const handleSaveBranchEdit = async (id, item) => {
+  const handleSaveBatchEdit = async (id) => {
     try {
-      await api.put(`/inventory/branch-price/${id}`, branchEditData);
-      alert('Prices updated successfully!');
-      setEditingBranchId(null);
-      setBranchEditData({});
+      await api.put(`/inventory/${id}`, batchEditData);
+      alert('Batch updated successfully!');
+      setEditingBatchId(null);
+      setBatchEditData({});
       
-      // Refresh branch inventory for this item
-      const itemKey = `${item.description}-${item.unit}`;
-      const response = await api.get(`/inventory/product-branches/${encodeURIComponent(item.description)}/${encodeURIComponent(item.unit)}`);
-      setBranchInventory(prev => ({
-        ...prev,
-        [itemKey]: response.data
-      }));
-      
-      // Refresh main inventory
+      // Refresh inventory
       fetchInventory();
     } catch (error) {
-      alert(error.response?.data?.error || 'Error updating prices');
+      alert(error.response?.data?.error || 'Error updating batch');
     }
   };
 
-  const handleCancelBranchEdit = () => {
-    setEditingBranchId(null);
-    setBranchEditData({});
+  const handleCancelBatchEdit = () => {
+    setEditingBatchId(null);
+    setBatchEditData({});
   };
 
   const handleConvertUnits = async () => {
@@ -1409,22 +1391,14 @@ function Inventory() {
                                 >
                                   <FiClock size={12} />
                                 </button>
-                                <button 
-                                  className={`btn ${expandedBranches.has(`${item.description}-${item.unit}`) ? 'btn-primary' : 'btn-success'}`}
-                                  style={{ padding: '6px 10px', fontSize: '12px' }}
-                                  onClick={() => handleViewBranches(item)}
-                                  title={expandedBranches.has(`${item.description}-${item.unit}`) ? 'Hide branches' : 'Show branches'}
-                                >
-                                  <FiGitBranch size={12} />
-                                </button>
                                 {item.hasMultipleCosts && (
                                   <button 
-                                    className="btn btn-secondary" 
+                                    className={`btn ${viewBatches && viewBatches.id === item.id ? 'btn-primary' : 'btn-secondary'}`}
                                     style={{ padding: '6px 10px', fontSize: '12px' }}
-                                    onClick={() => setViewBatches(item)}
-                                    title="View Batches"
+                                    onClick={() => handleViewBatches(item)}
+                                    title={viewBatches && viewBatches.id === item.id ? 'Hide Batches' : 'Edit Batches'}
                                   >
-                                    <FiGitBranch size={12} />
+                                    <FiEdit2 size={12} />
                                   </button>
                                 )}
                               </div>
@@ -1434,233 +1408,229 @@ function Inventory() {
                         
                         {/* Cost Batch Details (if expanded) */}
                         {viewBatches && viewBatches.id === item.id && item.hasMultipleCosts && (
-                          item.costBatches.map((batch, idx) => (
-                            <tr key={`batch-${batch.id}`} style={{ 
-                              backgroundColor: 'rgba(245, 158, 11, 0.02)',
-                              borderLeft: '3px solid var(--warning)'
-                            }}>
-                              <td style={{ paddingLeft: '24px', fontSize: '12px', color: 'var(--text-muted)' }}>
-                                └ Batch {idx + 1}
-                                {batch.is_new_cost && (
-                                  <span style={{ 
-                                    fontSize: '9px', 
-                                    background: 'var(--warning)', 
-                                    color: 'white', 
-                                    padding: '1px 4px', 
-                                    borderRadius: '8px',
-                                    marginLeft: '6px'
-                                  }}>
-                                    NEW
-                                  </span>
-                                )}
-                              </td>
-                              <td style={{ fontSize: '12px' }}>{item.unit}</td>
-                              <td>
-                                <span className={`badge ${getStockBadgeClass(getStockStatus(batch.quantity, item.max_quantity))}`} style={{ fontSize: '10px' }}>
-                                  {formatQuantity(batch.quantity)}
-                                </span>
-                              </td>
-                              <td style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
-                                {batch.batch_number || '-'}
-                              </td>
-                              <td style={{ fontSize: '11px' }}>
-                                {batch.expiry_date ? new Date(batch.expiry_date).toLocaleDateString() : '-'}
-                              </td>
-                              {user.role === 'admin' && (
-                                <>
-                                  <td style={{ fontSize: '12px' }}>₱{formatPrice(batch.unit_cost)}</td>
-                                  <td style={{ fontSize: '12px' }}>₱{formatPrice(batch.suggested_selling_price || 0)}</td>
-                                  <td style={{ fontSize: '12px', fontWeight: 600 }}>
-                                    ₱{formatPrice(parseFloat(batch.quantity) * parseFloat(batch.unit_cost))}
-                                  </td>
-                                </>
-                              )}
-                              {user.role === 'admin' && (
-                                <td>
-                                  <button
-                                    className="btn btn-danger"
-                                    style={{ padding: '4px 8px', fontSize: '10px' }}
-                                    onClick={() => handleDeleteInventory(batch.id)}
-                                    title="Delete Batch"
-                                  >
-                                    <FiTrash2 size={10} />
-                                  </button>
-                                </td>
-                              )}
-                            </tr>
-                          ))
-                        )}
-                        
-                        {/* Branch Details (if expanded) */}
-                        {expandedBranches.has(`${item.description}-${item.unit}`) && 
-                         branchInventory[`${item.description}-${item.unit}`] && (
-                          branchInventory[`${item.description}-${item.unit}`]
-                            .filter(branchItem => branchItem.location_id !== item.location_id) // Exclude current location
-                            .map((branchItem) => {
-                              const isEditing = editingBranchId === branchItem.id;
-                              return (
-                                <tr key={`branch-${branchItem.id}`} style={{ 
-                                  backgroundColor: 'rgba(16, 185, 129, 0.02)',
-                                  borderLeft: '3px solid var(--success)'
-                                }}>
-                                  <td style={{ paddingLeft: '24px', fontSize: '12px' }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                      <FiGitBranch size={10} style={{ color: 'var(--success)' }} />
-                                      <span className={`badge ${branchItem.location_type === 'warehouse' ? 'badge-primary' : 'badge-info'}`} style={{ fontSize: '10px' }}>
-                                        {branchItem.location_name}
-                                      </span>
-                                      {branchItem.batch_number && (
+                          item.costBatches.map((batch, idx) => {
+                            const isEditing = editingBatchId === batch.id;
+                            const expiryDate = batch.expiry_date ? new Date(batch.expiry_date) : null;
+                            const today = new Date();
+                            const daysUntilExpiry = expiryDate ? Math.ceil((expiryDate - today) / (1000 * 60 * 60 * 24)) : null;
+                            const isExpired = daysUntilExpiry !== null && daysUntilExpiry < 0;
+                            const isExpiringSoon = daysUntilExpiry !== null && daysUntilExpiry >= 0 && daysUntilExpiry <= 30;
+                            
+                            return (
+                              <tr key={`batch-${batch.id}`} style={{ 
+                                backgroundColor: 'rgba(245, 158, 11, 0.05)',
+                                borderLeft: '4px solid var(--warning)'
+                              }}>
+                                <td style={{ paddingLeft: '24px', fontSize: '12px' }}>
+                                  {isEditing ? (
+                                    <input 
+                                      type="text"
+                                      value={batchEditData.description}
+                                      onChange={(e) => setBatchEditData({...batchEditData, description: e.target.value})}
+                                      style={{ 
+                                        width: '100%', 
+                                        padding: '4px 8px', 
+                                        fontSize: '11px',
+                                        border: '2px solid var(--primary)',
+                                        borderRadius: 'var(--radius)',
+                                        background: 'var(--bg-primary)',
+                                        color: 'var(--text-primary)'
+                                      }}
+                                    />
+                                  ) : (
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 600 }}>
+                                      └ Batch {idx + 1}
+                                      {batch.is_new_cost && (
                                         <span style={{ 
-                                          fontSize: '8px', 
-                                          background: 'rgba(107, 114, 128, 0.1)', 
-                                          color: 'var(--text-muted)', 
-                                          padding: '1px 4px', 
-                                          borderRadius: '6px',
-                                          fontWeight: '600'
-                                        }}>
-                                          {branchItem.batch_number}
-                                        </span>
-                                      )}
-                                      {branchItem.is_new_item && (
-                                        <span style={{ 
-                                          fontSize: '8px', 
-                                          background: 'var(--success)', 
+                                          fontSize: '9px', 
+                                          background: 'var(--warning)', 
                                           color: 'white', 
-                                          padding: '1px 3px', 
-                                          borderRadius: '6px',
-                                          fontWeight: '700'
+                                          padding: '1px 4px', 
+                                          borderRadius: '8px'
                                         }}>
                                           NEW
                                         </span>
                                       )}
-                                      {branchItem.is_new_cost && (
-                                        <span style={{ 
-                                          fontSize: '8px', 
-                                          background: 'var(--warning)', 
-                                          color: 'white', 
-                                          padding: '1px 3px', 
-                                          borderRadius: '6px',
-                                          fontWeight: '700'
-                                        }}>
-                                          NEW COST
-                                        </span>
-                                      )}
                                     </div>
-                                  </td>
-                                  <td style={{ fontSize: '12px' }}>{branchItem.unit}</td>
-                                  <td>
-                                    <span className={`badge ${getStockBadgeClass(getStockStatus(branchItem.quantity, branchItem.max_quantity))}`} style={{ fontSize: '10px' }}>
-                                      {formatQuantity(branchItem.quantity)}
-                                    </span>
-                                  </td>
-                                  <td style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
-                                    {branchItem.batch_number || '-'}
-                                  </td>
-                                  <td style={{ fontSize: '11px' }}>
-                                    {branchItem.expiry_date ? (
-                                      <span style={{ 
-                                        color: new Date(branchItem.expiry_date) < new Date() ? '#ef4444' : 
-                                              Math.ceil((new Date(branchItem.expiry_date) - new Date()) / (1000 * 60 * 60 * 24)) <= 30 ? '#f59e0b' : 
-                                              'var(--text-secondary)'
-                                      }}>
-                                        {new Date(branchItem.expiry_date).toLocaleDateString()}
-                                      </span>
-                                    ) : (
-                                      '-'
-                                    )}
-                                  </td>
-                                  {user.role === 'admin' && (
-                                    <>
-                                      <td style={{ fontSize: '12px' }}>
-                                        {isEditing ? (
-                                          <input 
-                                            type="number" 
-                                            step="0.01"
-                                            min="0"
-                                            value={branchEditData.unit_cost}
-                                            onChange={(e) => setBranchEditData({...branchEditData, unit_cost: e.target.value})}
-                                            style={{ 
-                                              width: '90px', 
-                                              padding: '4px 8px', 
-                                              fontSize: '11px',
-                                              border: '2px solid var(--primary)',
-                                              borderRadius: 'var(--radius)',
-                                              background: 'var(--bg-primary)',
-                                              color: 'var(--text-primary)',
-                                              outline: 'none'
-                                            }}
-                                          />
-                                        ) : (
-                                          `₱${formatPrice(branchItem.unit_cost)}`
-                                        )}
-                                      </td>
-                                      <td style={{ fontSize: '12px' }}>
-                                        {isEditing ? (
-                                          <input 
-                                            type="number" 
-                                            step="0.01"
-                                            min="0"
-                                            value={branchEditData.suggested_selling_price}
-                                            onChange={(e) => setBranchEditData({...branchEditData, suggested_selling_price: e.target.value})}
-                                            style={{ 
-                                              width: '90px', 
-                                              padding: '4px 8px', 
-                                              fontSize: '11px',
-                                              border: '2px solid var(--primary)',
-                                              borderRadius: 'var(--radius)',
-                                              background: 'var(--bg-primary)',
-                                              color: 'var(--text-primary)',
-                                              outline: 'none'
-                                            }}
-                                          />
-                                        ) : (
-                                          `₱${formatPrice(branchItem.suggested_selling_price || 0)}`
-                                        )}
-                                      </td>
-                                      <td style={{ fontSize: '12px', fontWeight: 600 }}>
-                                        ₱{formatPrice(parseFloat(branchItem.quantity) * parseFloat(branchItem.unit_cost))}
-                                      </td>
-                                    </>
                                   )}
-                                  {user.role === 'admin' && (
-                                    <td>
-                                      <div style={{ display: 'flex', gap: '4px' }}>
-                                        {isEditing ? (
-                                          <>
-                                            <button 
-                                              className="btn btn-success" 
-                                              style={{ padding: '4px 8px', fontSize: '10px' }}
-                                              onClick={() => handleSaveBranchEdit(branchItem.id, item)}
-                                              title="Save Changes"
-                                            >
-                                              <FiCheck size={10} />
-                                            </button>
-                                            <button 
-                                              className="btn btn-danger" 
-                                              style={{ padding: '4px 8px', fontSize: '10px' }}
-                                              onClick={handleCancelBranchEdit}
-                                              title="Cancel Edit"
-                                            >
-                                              <FiX size={10} />
-                                            </button>
-                                          </>
-                                        ) : (
+                                </td>
+                                <td style={{ fontSize: '12px' }}>
+                                  {isEditing ? (
+                                    <input 
+                                      type="text"
+                                      value={batchEditData.unit}
+                                      onChange={(e) => setBatchEditData({...batchEditData, unit: e.target.value})}
+                                      style={{ 
+                                        width: '80px', 
+                                        padding: '4px 8px', 
+                                        fontSize: '11px',
+                                        border: '2px solid var(--primary)',
+                                        borderRadius: 'var(--radius)',
+                                        background: 'var(--bg-primary)',
+                                        color: 'var(--text-primary)'
+                                      }}
+                                    />
+                                  ) : (
+                                    item.unit
+                                  )}
+                                </td>
+                                <td>
+                                  {isEditing ? (
+                                    <input 
+                                      type="number"
+                                      step="1"
+                                      min="0"
+                                      value={batchEditData.quantity}
+                                      onChange={(e) => setBatchEditData({...batchEditData, quantity: e.target.value})}
+                                      style={{ 
+                                        width: '80px', 
+                                        padding: '4px 8px', 
+                                        fontSize: '11px',
+                                        border: '2px solid var(--primary)',
+                                        borderRadius: 'var(--radius)',
+                                        background: 'var(--bg-primary)',
+                                        color: 'var(--text-primary)'
+                                      }}
+                                    />
+                                  ) : (
+                                    <span className={`badge ${getStockBadgeClass(getStockStatus(batch.quantity, item.max_quantity))}`} style={{ fontSize: '10px' }}>
+                                      {formatQuantity(batch.quantity)}
+                                    </span>
+                                  )}
+                                </td>
+                                <td style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+                                  {batch.batch_number || '-'}
+                                </td>
+                                <td style={{ fontSize: '11px' }}>
+                                  {isEditing ? (
+                                    <input 
+                                      type="date"
+                                      value={batchEditData.expiry_date ? new Date(batchEditData.expiry_date).toISOString().split('T')[0] : ''}
+                                      onChange={(e) => setBatchEditData({...batchEditData, expiry_date: e.target.value})}
+                                      style={{ 
+                                        width: '130px', 
+                                        padding: '4px 8px', 
+                                        fontSize: '11px',
+                                        border: '2px solid var(--primary)',
+                                        borderRadius: 'var(--radius)',
+                                        background: 'var(--bg-primary)',
+                                        color: 'var(--text-primary)'
+                                      }}
+                                    />
+                                  ) : (
+                                    expiryDate ? (
+                                      <span style={{ 
+                                        color: isExpired ? '#ef4444' : isExpiringSoon ? '#f59e0b' : 'var(--text-secondary)',
+                                        fontWeight: (isExpired || isExpiringSoon) ? 600 : 400
+                                      }}>
+                                        {expiryDate.toLocaleDateString()}
+                                        {isExpired && ' (Expired)'}
+                                        {isExpiringSoon && ` (${daysUntilExpiry}d)`}
+                                      </span>
+                                    ) : '-'
+                                  )}
+                                </td>
+                                {user.role === 'admin' && (
+                                  <>
+                                    <td style={{ fontSize: '12px' }}>
+                                      {isEditing ? (
+                                        <input 
+                                          type="number"
+                                          step="0.01"
+                                          min="0"
+                                          value={batchEditData.unit_cost}
+                                          onChange={(e) => setBatchEditData({...batchEditData, unit_cost: e.target.value})}
+                                          style={{ 
+                                            width: '90px', 
+                                            padding: '4px 8px', 
+                                            fontSize: '11px',
+                                            border: '2px solid var(--primary)',
+                                            borderRadius: 'var(--radius)',
+                                            background: 'var(--bg-primary)',
+                                            color: 'var(--text-primary)'
+                                          }}
+                                        />
+                                      ) : (
+                                        `₱${formatPrice(batch.unit_cost)}`
+                                      )}
+                                    </td>
+                                    <td style={{ fontSize: '12px' }}>
+                                      {isEditing ? (
+                                        <input 
+                                          type="number"
+                                          step="0.01"
+                                          min="0"
+                                          value={batchEditData.suggested_selling_price}
+                                          onChange={(e) => setBatchEditData({...batchEditData, suggested_selling_price: e.target.value})}
+                                          style={{ 
+                                            width: '90px', 
+                                            padding: '4px 8px', 
+                                            fontSize: '11px',
+                                            border: '2px solid var(--primary)',
+                                            borderRadius: 'var(--radius)',
+                                            background: 'var(--bg-primary)',
+                                            color: 'var(--text-primary)'
+                                          }}
+                                        />
+                                      ) : (
+                                        `₱${formatPrice(batch.suggested_selling_price || 0)}`
+                                      )}
+                                    </td>
+                                    <td style={{ fontSize: '12px', fontWeight: 600 }}>
+                                      ₱{formatPrice(parseFloat(batch.quantity) * parseFloat(batch.unit_cost))}
+                                    </td>
+                                  </>
+                                )}
+                                {user.role === 'admin' && (
+                                  <td>
+                                    <div style={{ display: 'flex', gap: '4px' }}>
+                                      {isEditing ? (
+                                        <>
+                                          <button 
+                                            className="btn btn-success" 
+                                            style={{ padding: '4px 8px', fontSize: '10px' }}
+                                            onClick={() => handleSaveBatchEdit(batch.id)}
+                                            title="Save Changes"
+                                          >
+                                            <FiCheck size={10} />
+                                          </button>
+                                          <button 
+                                            className="btn btn-danger" 
+                                            style={{ padding: '4px 8px', fontSize: '10px' }}
+                                            onClick={handleCancelBatchEdit}
+                                            title="Cancel Edit"
+                                          >
+                                            <FiX size={10} />
+                                          </button>
+                                        </>
+                                      ) : (
+                                        <>
                                           <button 
                                             className="btn btn-primary" 
                                             style={{ padding: '4px 8px', fontSize: '10px' }}
-                                            onClick={() => handleEditBranch(branchItem)}
-                                            title="Edit Prices"
+                                            onClick={() => handleEditBatch(batch)}
+                                            title="Edit Batch"
                                           >
                                             <FiEdit2 size={10} />
                                           </button>
-                                        )}
-                                      </div>
-                                    </td>
-                                  )}
-                                </tr>
-                              );
-                            })
+                                          <button
+                                            className="btn btn-danger"
+                                            style={{ padding: '4px 8px', fontSize: '10px' }}
+                                            onClick={() => handleDeleteInventory(batch.id)}
+                                            title="Delete Batch"
+                                          >
+                                            <FiTrash2 size={10} />
+                                          </button>
+                                        </>
+                                      )}
+                                    </div>
+                                  </td>
+                                )}
+                              </tr>
+                            );
+                          })
                         )}
+                        
                       </React.Fragment>
                     );
                   });
