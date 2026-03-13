@@ -39,6 +39,26 @@ router.get('/location/:locationId', auth, async (req, res) => {
   }
 });
 
+// Get all branches for a specific product (admin only)
+router.get('/product-branches/:description/:unit', auth, authorize('admin'), async (req, res) => {
+  try {
+    const { description, unit } = req.params;
+    
+    const result = await pool.query(
+      `SELECT i.*, l.name as location_name, l.type as location_type
+       FROM inventory i
+       JOIN locations l ON i.location_id = l.id
+       WHERE i.description = $1 AND i.unit = $2
+       ORDER BY l.type DESC, l.name, i.cost_batch_id`,
+      [decodeURIComponent(description), decodeURIComponent(unit)]
+    );
+    
+    res.json(result.rows);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Add inventory item (admin and warehouse only)
 router.post('/', auth, authorize('admin', 'warehouse'), async (req, res) => {
   try {
@@ -178,6 +198,49 @@ router.put('/:id', auth, authorize('admin'), async (req, res) => {
       ipAddress: req.ip,
       userAgent: req.get('user-agent'),
       description: `Updated inventory: ${description} (Qty: ${oldData.rows[0]?.quantity} → ${quantity})`
+    });
+    
+    res.json(result.rows[0]);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Update inventory prices per branch (admin only)
+router.put('/branch-price/:id', auth, authorize('admin'), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { unit_cost, suggested_selling_price } = req.body;
+    
+    // Get old values for audit
+    const oldData = await pool.query('SELECT * FROM inventory WHERE id = $1', [id]);
+    
+    if (oldData.rows.length === 0) {
+      return res.status(404).json({ error: 'Inventory item not found' });
+    }
+    
+    const result = await pool.query(
+      `UPDATE inventory 
+       SET unit_cost = $1, suggested_selling_price = $2, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $3 RETURNING *`,
+      [unit_cost, suggested_selling_price, id]
+    );
+    
+    // Log audit
+    await logAudit({
+      userId: req.user.id,
+      username: req.user.username,
+      action: 'INVENTORY_PRICE_UPDATE',
+      tableName: 'inventory',
+      recordId: id,
+      oldValues: { 
+        unit_cost: oldData.rows[0].unit_cost, 
+        suggested_selling_price: oldData.rows[0].suggested_selling_price 
+      },
+      newValues: { unit_cost, suggested_selling_price },
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+      description: `Updated prices for ${oldData.rows[0].description} at ${oldData.rows[0].location_name || 'location'}: Cost ₱${oldData.rows[0].unit_cost} → ₱${unit_cost}, Price ₱${oldData.rows[0].suggested_selling_price} → ₱${suggested_selling_price}`
     });
     
     res.json(result.rows[0]);

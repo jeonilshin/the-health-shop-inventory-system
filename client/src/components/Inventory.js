@@ -2,7 +2,7 @@ import React, { useState, useEffect, useContext } from 'react';
 import api from '../utils/api';
 import { AuthContext } from '../context/AuthContext';
 import { formatQuantity, formatPrice } from '../utils/formatNumber';
-import { FiPackage, FiPlus, FiDownload, FiSearch, FiAlertCircle, FiTrash2, FiUpload, FiEdit2, FiClock, FiStar, FiDollarSign, FiGitBranch, FiX } from 'react-icons/fi';
+import { FiPackage, FiPlus, FiDownload, FiSearch, FiAlertCircle, FiTrash2, FiUpload, FiEdit2, FiClock, FiStar, FiDollarSign, FiGitBranch, FiX, FiCheck } from 'react-icons/fi';
 import SimpleAutocomplete from './SimpleAutocomplete';
 import ImportModal from './ImportModal';
 
@@ -31,6 +31,10 @@ function Inventory() {
   const [productHistory, setProductHistory] = useState([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [viewBatches, setViewBatches] = useState(null);
+  const [viewBranches, setViewBranches] = useState(null);
+  const [branchInventory, setBranchInventory] = useState([]);
+  const [editingBranchId, setEditingBranchId] = useState(null);
+  const [branchEditData, setBranchEditData] = useState({});
   const [showConversionModal, setShowConversionModal] = useState(false);
   const [conversionData, setConversionData] = useState({
     fromItemId: '',
@@ -435,6 +439,49 @@ function Inventory() {
     } finally {
       setLoadingHistory(false);
     }
+  };
+
+  const handleViewBranches = async (item) => {
+    setViewBranches(item);
+    try {
+      const response = await api.get(`/inventory/product-branches/${encodeURIComponent(item.description)}/${encodeURIComponent(item.unit)}`);
+      setBranchInventory(response.data);
+    } catch (error) {
+      console.error('Error fetching branch inventory:', error);
+      setBranchInventory([]);
+    }
+  };
+
+  const handleEditBranch = (branchItem) => {
+    setEditingBranchId(branchItem.id);
+    setBranchEditData({
+      unit_cost: branchItem.unit_cost,
+      suggested_selling_price: branchItem.suggested_selling_price
+    });
+  };
+
+  const handleSaveBranchEdit = async (id) => {
+    try {
+      await api.put(`/inventory/branch-price/${id}`, branchEditData);
+      alert('Prices updated successfully!');
+      setEditingBranchId(null);
+      setBranchEditData({});
+      
+      // Refresh branch inventory
+      if (viewBranches) {
+        handleViewBranches(viewBranches);
+      }
+      
+      // Refresh main inventory if we're viewing the same location
+      fetchInventory();
+    } catch (error) {
+      alert(error.response?.data?.error || 'Error updating prices');
+    }
+  };
+
+  const handleCancelBranchEdit = () => {
+    setEditingBranchId(null);
+    setBranchEditData({});
   };
 
   const handleConvertUnits = async () => {
@@ -1382,6 +1429,14 @@ function Inventory() {
                                   <FiClock size={12} />
                                 </button>
                                 <button 
+                                  className="btn btn-success" 
+                                  style={{ padding: '6px 10px', fontSize: '12px' }}
+                                  onClick={() => handleViewBranches(item)}
+                                  title="View All Branches"
+                                >
+                                  🏪
+                                </button>
+                                <button 
                                   className="btn btn-primary" 
                                   style={{ padding: '6px 10px', fontSize: '12px' }}
                                   onClick={() => handleEdit(item)}
@@ -1694,6 +1749,194 @@ function Inventory() {
                   ))}
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Branch Inventory Modal */}
+      {viewBranches && (
+        <div className="modal-overlay" onClick={() => setViewBranches(null)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '1000px', width: '95%', maxHeight: '90vh' }}>
+            <div style={{ 
+              padding: '20px 24px', 
+              borderBottom: '1px solid var(--border)',
+              background: 'linear-gradient(135deg, var(--success) 0%, #059669 100%)',
+              color: 'white',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center'
+            }}>
+              <div>
+                <h2 style={{ fontSize: '1.25rem', fontWeight: 'bold', margin: '0 0 4px 0' }}>
+                  🏪 All Branches - {viewBranches.description}
+                </h2>
+                <div style={{ fontSize: '0.875rem', opacity: 0.9 }}>
+                  Unit: {viewBranches.unit}
+                </div>
+              </div>
+              <button
+                onClick={() => setViewBranches(null)}
+                style={{ 
+                  background: 'rgba(255, 255, 255, 0.2)', 
+                  border: 'none', 
+                  color: 'white', 
+                  width: '32px', 
+                  height: '32px', 
+                  borderRadius: 'var(--radius)', 
+                  cursor: 'pointer'
+                }}
+              >
+                ✕
+              </button>
+            </div>
+
+            <div style={{ padding: '20px', overflowY: 'auto', maxHeight: 'calc(90vh - 120px)' }}>
+              {branchInventory.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
+                  This product is not available in any other branches
+                </div>
+              ) : (
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%' }}>
+                    <thead>
+                      <tr>
+                        <th>Branch</th>
+                        <th>Quantity</th>
+                        <th>Unit Cost</th>
+                        <th>Selling Price</th>
+                        <th>Batch</th>
+                        <th>Expiry</th>
+                        <th>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {branchInventory.map((branchItem) => {
+                        const isEditing = editingBranchId === branchItem.id;
+                        return (
+                          <tr key={branchItem.id}>
+                            <td>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <span className={`badge ${branchItem.location_type === 'warehouse' ? 'badge-primary' : 'badge-info'}`}>
+                                  {branchItem.location_name}
+                                </span>
+                                {branchItem.is_new_item && (
+                                  <span style={{ 
+                                    fontSize: '9px', 
+                                    background: 'var(--success)', 
+                                    color: 'white', 
+                                    padding: '1px 4px', 
+                                    borderRadius: '8px',
+                                    fontWeight: '700'
+                                  }}>
+                                    🆕 NEW
+                                  </span>
+                                )}
+                                {branchItem.is_new_cost && (
+                                  <span style={{ 
+                                    fontSize: '9px', 
+                                    background: 'var(--warning)', 
+                                    color: 'white', 
+                                    padding: '1px 4px', 
+                                    borderRadius: '8px',
+                                    fontWeight: '700'
+                                  }}>
+                                    💰 NEW COST
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+                            <td>
+                              <span className={`badge ${getStockBadgeClass(getStockStatus(branchItem.quantity, branchItem.max_quantity))}`}>
+                                {formatQuantity(branchItem.quantity)}
+                              </span>
+                            </td>
+                            <td>
+                              {isEditing ? (
+                                <input 
+                                  type="number" 
+                                  step="0.01"
+                                  min="0"
+                                  value={branchEditData.unit_cost}
+                                  onChange={(e) => setBranchEditData({...branchEditData, unit_cost: e.target.value})}
+                                  style={{ width: '100px', padding: '4px' }}
+                                />
+                              ) : (
+                                `₱${formatPrice(branchItem.unit_cost)}`
+                              )}
+                            </td>
+                            <td>
+                              {isEditing ? (
+                                <input 
+                                  type="number" 
+                                  step="0.01"
+                                  min="0"
+                                  value={branchEditData.suggested_selling_price}
+                                  onChange={(e) => setBranchEditData({...branchEditData, suggested_selling_price: e.target.value})}
+                                  style={{ width: '100px', padding: '4px' }}
+                                />
+                              ) : (
+                                `₱${formatPrice(branchItem.suggested_selling_price || 0)}`
+                              )}
+                            </td>
+                            <td style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                              {branchItem.batch_number || '-'}
+                            </td>
+                            <td style={{ fontSize: '12px' }}>
+                              {branchItem.expiry_date ? (
+                                <span style={{ 
+                                  color: new Date(branchItem.expiry_date) < new Date() ? '#ef4444' : 
+                                        Math.ceil((new Date(branchItem.expiry_date) - new Date()) / (1000 * 60 * 60 * 24)) <= 30 ? '#f59e0b' : 
+                                        'var(--text-secondary)'
+                                }}>
+                                  {new Date(branchItem.expiry_date).toLocaleDateString()}
+                                </span>
+                              ) : (
+                                <span style={{ color: 'var(--text-muted)' }}>-</span>
+                              )}
+                            </td>
+                            <td>
+                              <div style={{ display: 'flex', gap: '4px' }}>
+                                {isEditing ? (
+                                  <>
+                                    <button 
+                                      className="btn btn-success" 
+                                      style={{ padding: '4px 8px', fontSize: '11px' }}
+                                      onClick={() => handleSaveBranchEdit(branchItem.id)}
+                                    >
+                                      <FiCheck size={10} />
+                                    </button>
+                                    <button 
+                                      className="btn btn-secondary" 
+                                      style={{ padding: '4px 8px', fontSize: '11px' }}
+                                      onClick={handleCancelBranchEdit}
+                                    >
+                                      <FiX size={10} />
+                                    </button>
+                                  </>
+                                ) : (
+                                  <button 
+                                    className="btn btn-primary" 
+                                    style={{ padding: '4px 8px', fontSize: '11px' }}
+                                    onClick={() => handleEditBranch(branchItem)}
+                                    title="Edit Prices"
+                                  >
+                                    <FiEdit2 size={10} />
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              
+              <div className="alert alert-info" style={{ marginTop: '20px', fontSize: '14px' }}>
+                <strong>💡 Tip:</strong> You can edit unit cost and selling price for each branch independently. Changes will be logged in the audit trail.
+              </div>
             </div>
           </div>
         </div>

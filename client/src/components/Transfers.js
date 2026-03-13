@@ -658,10 +658,10 @@ function Transfers() {
                     {formData.items.map((item, index) => (
                       <div key={index} style={{ 
                         padding: '16px', 
-                        backgroundColor: 'var(--bg-secondary)', 
+                        backgroundColor: item.selectedItem?.is_new_item ? 'rgba(245, 158, 11, 0.1)' : 'var(--bg-secondary)', 
                         borderRadius: 'var(--radius)', 
                         marginBottom: '12px',
-                        border: '1px solid var(--border)'
+                        border: item.selectedItem?.is_new_item ? '2px solid #f59e0b' : '1px solid var(--border)'
                       }}>
                         <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr auto', gap: '12px', alignItems: 'end' }}>
                           <div className="form-group" style={{ marginBottom: 0 }}>
@@ -675,19 +675,20 @@ function Transfers() {
                               <div style={{ 
                                 marginTop: '8px', 
                                 padding: '8px', 
-                                backgroundColor: 'rgba(59, 130, 246, 0.1)', 
+                                backgroundColor: item.selectedItem.is_new_item ? 'rgba(245, 158, 11, 0.2)' : 'rgba(59, 130, 246, 0.1)', 
                                 borderRadius: 'var(--radius)',
                                 fontSize: '13px',
-                                color: 'var(--primary)',
+                                color: item.selectedItem.is_new_item ? '#d97706' : 'var(--primary)',
                                 display: 'flex',
                                 alignItems: 'center',
-                                gap: '6px'
+                                gap: '6px',
+                                border: item.selectedItem.is_new_item ? '2px solid #f59e0b' : '1px solid rgba(59, 130, 246, 0.2)'
                               }}>
                                 <span>Selected: {item.selectedItem.description}</span>
                                 {item.selectedItem.is_new_item && (
                                   <span style={{ 
                                     fontSize: '9px', 
-                                    background: 'var(--success)', 
+                                    background: 'var(--warning)', 
                                     color: 'white', 
                                     padding: '1px 4px', 
                                     borderRadius: '8px',
