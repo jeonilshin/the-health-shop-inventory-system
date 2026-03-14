@@ -407,7 +407,14 @@ router.post('/import', auth, authorize('admin', 'warehouse'), async (req, res) =
             const existingCost = parseFloat(existingItem.rows[0].unit_cost);
             const newCost = parseFloat(item.unit_cost);
             const existingPrice = parseFloat(existingItem.rows[0].suggested_selling_price || 0);
-            const newPrice = parseFloat(item.suggested_selling_price || 0);
+            let newPrice = parseFloat(item.suggested_selling_price || 0);
+            
+            // Auto-fill selling price from existing item if not provided in import
+            if (!item.suggested_selling_price || newPrice === 0) {
+              item.suggested_selling_price = existingItem.rows[0].suggested_selling_price;
+              newPrice = existingPrice; // Update newPrice after auto-fill
+              console.log(`📝 Auto-filled selling price for ${item.description}: ₱${existingPrice}`);
+            }
             
             const isDifferentCost = Math.abs(existingCost - newCost) > 0.01 || 
                                    Math.abs(existingPrice - newPrice) > 0.01;
