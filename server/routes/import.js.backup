@@ -379,8 +379,7 @@ router.post('/import', auth, authorize('admin', 'warehouse'), async (req, res) =
         // Check if item already exists in warehouse
         const existingItem = await client.query(
           `SELECT id, quantity, unit_cost, suggested_selling_price FROM inventory 
-           WHERE location_id = $1 AND description = $2 AND unit = $3
-           LIMIT 1`,
+           WHERE location_id = $1 AND description = $2 AND unit = $3`,
           [locationId, item.description, item.unit]
         );
 
@@ -403,106 +402,60 @@ router.post('/import', auth, authorize('admin', 'warehouse'), async (req, res) =
             skipped++;
             continue;
           } else if (handleDuplicates === 'update') {
-            // ===== NEW LOGIC: Check if cost is different =====
-            const existingCost = parseFloat(existingItem.rows[0].unit_cost);
-            const newCost = parseFloat(item.unit_cost);
-            const existingPrice = parseFloat(existingItem.rows[0].suggested_selling_price || 0);
-            const newPrice = parseFloat(item.suggested_selling_price || 0);
+            // Build update query based on what user wants to update
+            const updates = [];
+            const values = [];
+            let paramCount = 1;
             
-            const isDifferentCost = Math.abs(existingCost - newCost) > 0.01 || 
-                                   Math.abs(existingPrice - newPrice) > 0.01;
-            
-            // If user wants to update price AND the cost is different, create a NEW BATCH
-            if (updateOptions.updatePrice && isDifferentCost) {
-              // Create a new cost batch instead of updating existing
-              const timestamp = Date.now();
-              const costBatchId = `BATCH-${timestamp}-${Math.random().toString(36).substr(2, 9)}`;
-              
-              // Check if this exact cost already exists for this item
-              const allExistingCosts = await client.query(
-                `SELECT DISTINCT unit_cost FROM inventory 
-                 WHERE location_id = $1 AND description = $2 AND unit = $3`,
-                [locationId, item.description, item.unit]
-              );
-              
-              const isNewCost = !allExistingCosts.rows.some(row => 
-                Math.abs(parseFloat(row.unit_cost) - newCost) < 0.01
-              );
-              
-              const result = await client.query(
-                `INSERT INTO inventory 
-                 (location_id, batch_number, description, unit, quantity, unit_cost, suggested_selling_price, 
-                  expiry_date, main_category, sub_category, max_quantity, is_new_item, is_new_cost, cost_batch_id)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $5, false, $11, $12)
-                 RETURNING id`,
-                [locationId, batchNumber, item.description, item.unit, item.quantity, item.unit_cost, 
-                 item.suggested_selling_price, item.expiry_date, item.main_category, item.sub_category,
-                 isNewCost, costBatchId]
-              );
-              inventoryId = result.rows[0].id;
-              imported++;
-              console.log(`✨ Created new cost batch for ${item.description}: ₱${newCost} (was ₱${existingCost})`);
-            } else {
-              // Same cost or user doesn't want to update price - just update quantity
-              const updates = [];
-              const values = [];
-              let paramCount = 1;
-              
-              if (updateOptions.updateQty) {
-                updates.push(`quantity = quantity + $${paramCount}`);
-                values.push(item.quantity);
-                paramCount++;
-                
-                updates.push(`max_quantity = GREATEST(COALESCE(max_quantity, 0), quantity + $${paramCount})`);
-                values.push(item.quantity);
-                paramCount++;
-              }
-              
-              // Only update price if user selected it AND cost is the same
-              if (updateOptions.updatePrice && !isDifferentCost) {
-                updates.push(`unit_cost = $${paramCount}`);
-                values.push(item.unit_cost);
-                paramCount++;
-                
-                updates.push(`suggested_selling_price = $${paramCount}`);
-                values.push(item.suggested_selling_price);
-                paramCount++;
-              }
-              
-              // Always update these if provided
-              if (item.expiry_date) {
-                updates.push(`expiry_date = $${paramCount}`);
-                values.push(item.expiry_date);
-                paramCount++;
-              }
-              
-              if (item.main_category) {
-                updates.push(`main_category = $${paramCount}`);
-                values.push(item.main_category);
-                paramCount++;
-              }
-              
-              if (item.sub_category) {
-                updates.push(`sub_category = $${paramCount}`);
-                values.push(item.sub_category);
-                paramCount++;
-              }
-              
-              updates.push('updated_at = CURRENT_TIMESTAMP');
-              
-              // Add WHERE clause parameter
-              values.push(existingItem.rows[0].id);
-              
-              if (updates.length > 1) { // More than just updated_at
-                await client.query(
-                  `UPDATE inventory SET ${updates.join(', ')} WHERE id = $${paramCount}`,
-                  values
-                );
-              }
-              
-              inventoryId = existingItem.rows[0].id;
-              updated++;
+            if (updateOptions.updateQty) {
+              updates.push(`quantity = quantity + $${paramCount}`);
+              values.push(item.quantity);
+              paramCount++;
             }
+            
+            if (updateOptions.updatePrice) {
+              updates.push(`unit_cost = $${paramCount}`);
+              values.push(item.unit_cost);
+              paramCount++;
+              
+              updates.push(`suggested_selling_price = $${paramCount}`);
+              values.push(item.suggested_selling_price);
+              paramCount++;
+            }
+            
+            // Always update these if provided
+            if (item.expiry_date) {
+              updates.push(`expiry_date = $${paramCount}`);
+              values.push(item.expiry_date);
+              paramCount++;
+            }
+            
+            if (item.main_category) {
+              updates.push(`main_category = $${paramCount}`);
+              values.push(item.main_category);
+              paramCount++;
+            }
+            
+            if (item.sub_category) {
+              updates.push(`sub_category = $${paramCount}`);
+              values.push(item.sub_category);
+              paramCount++;
+            }
+            
+            updates.push('updated_at = CURRENT_TIMESTAMP');
+            
+            // Add WHERE clause parameter
+            values.push(existingItem.rows[0].id);
+            
+            if (updates.length > 1) { // More than just updated_at
+              await client.query(
+                `UPDATE inventory SET ${updates.join(', ')} WHERE id = $${paramCount}`,
+                values
+              );
+            }
+            
+            inventoryId = existingItem.rows[0].id;
+            updated++;
           }
         } else {
           // Insert new item with batch tracking
