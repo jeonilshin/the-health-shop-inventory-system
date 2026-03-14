@@ -1435,7 +1435,7 @@ function Inventory() {
                           <td style={{ fontWeight: 600 }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                 <span>{item.description}</span>
-                                {item.costBatches.some(b => b.is_new_item) && (
+                                {item.costBatches?.some(b => b.is_new_item) && (
                                   <span style={{ 
                                     fontSize: '10px', 
                                     background: 'var(--success)', 
@@ -1472,7 +1472,7 @@ function Inventory() {
                             </span>
                             {item.hasMultipleCosts && (
                               <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                                {item.costBatches.length} batches
+                                {item.costBatches?.length || 0} batches
                               </div>
                             )}
                           </td>
@@ -1493,9 +1493,9 @@ function Inventory() {
                               <td>
                                 {item.hasMultipleCosts ? (
                                   <div style={{ fontSize: '11px' }}>
-                                    <div>₱{formatPrice(Math.min(...item.costBatches.map(b => b.unit_cost)))}</div>
+                                    <div>₱{formatPrice(Math.min(...(item.costBatches?.map(b => b.unit_cost) || [0])))}</div>
                                     <div style={{ color: 'var(--text-muted)' }}>
-                                      to ₱{formatPrice(Math.max(...item.costBatches.map(b => b.unit_cost)))}
+                                      to ₱{formatPrice(Math.max(...(item.costBatches?.map(b => b.unit_cost) || [0])))}
                                     </div>
                                   </div>
                                 ) : (
@@ -1505,9 +1505,9 @@ function Inventory() {
                               <td>
                                 {item.hasMultipleCosts ? (
                                   <div style={{ fontSize: '11px' }}>
-                                    <div>₱{formatPrice(Math.min(...item.costBatches.map(b => b.suggested_selling_price || 0)))}</div>
+                                    <div>₱{formatPrice(Math.min(...(item.costBatches?.map(b => b.suggested_selling_price || 0) || [0])))}</div>
                                     <div style={{ color: 'var(--text-muted)' }}>
-                                      to ₱{formatPrice(Math.max(...item.costBatches.map(b => b.suggested_selling_price || 0)))}
+                                      to ₱{formatPrice(Math.max(...(item.costBatches?.map(b => b.suggested_selling_price || 0) || [0])))}
                                     </div>
                                   </div>
                                 ) : (
@@ -1515,7 +1515,7 @@ function Inventory() {
                                 )}
                               </td>
                               <td style={{ fontWeight: 600 }}>
-                                ₱{formatPrice(item.costBatches.reduce((sum, batch) => 
+                                ₱{formatPrice((item.costBatches || []).reduce((sum, batch) => 
                                   sum + (parseFloat(batch.quantity) * parseFloat(batch.unit_cost)), 0
                                 ))}
                               </td>
@@ -1545,7 +1545,7 @@ function Inventory() {
                                   <button 
                                     className="btn btn-primary" 
                                     style={{ padding: '6px 10px', fontSize: '12px' }}
-                                    onClick={() => handleEditBatch(item.costBatches[0])}
+                                    onClick={() => handleEditBatch(item.costBatches?.[0])}
                                     title="Edit Item"
                                   >
                                     <FiEdit2 size={12} />
@@ -1558,7 +1558,7 @@ function Inventory() {
                         
                         {/* Cost Batch Details (if expanded) */}
                         {viewBatches && viewBatches.id === item.id && item.hasMultipleCosts && (
-                          item.costBatches.map((batch, idx) => {
+                          (item.costBatches || []).map((batch, idx) => {
                             const isEditing = editingBatchId === batch.id;
                             const expiryDate = batch.expiry_date ? new Date(batch.expiry_date) : null;
                             const today = new Date();
