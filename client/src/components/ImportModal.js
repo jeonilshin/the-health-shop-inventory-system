@@ -651,7 +651,6 @@ function ImportModal({ isOpen, onClose, onImportComplete }) {
                 >
                   <h3 style={{ fontSize: '1rem', fontWeight: '600', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <span style={{ 
-                      fontSize: '1.25rem',
                       background: 'var(--success)', 
                       color: 'white', 
                       width: '24px',
