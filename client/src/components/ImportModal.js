@@ -634,11 +634,13 @@ function ImportModal({ isOpen, onClose, onImportComplete }) {
                 </table>
               </div>
             </div>
+          )}
 
-            {/* New Items Section */}
-            {previewData && previewData.preview && (
-              <div className="card" style={{ border: '1px solid var(--border)', marginTop: '16px' }}>
-                <div style={{ 
+          {/* New Items Section */}
+          {previewData && previewData.preview && (
+            <div className="card" style={{ border: '1px solid var(--border)', marginTop: '16px' }}>
+              <div 
+                style={{ 
                   padding: '12px 20px', 
                   borderBottom: showNewItems ? '1px solid var(--border)' : 'none', 
                   background: 'var(--bg-secondary)',
@@ -648,7 +650,7 @@ function ImportModal({ isOpen, onClose, onImportComplete }) {
                   cursor: 'pointer'
                 }}
                 onClick={() => setShowNewItems(!showNewItems)}
-                >
+              >
                   <h3 style={{ fontSize: '1rem', fontWeight: '600', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <span style={{ 
                       background: 'var(--success)', 
@@ -719,7 +721,6 @@ function ImportModal({ isOpen, onClose, onImportComplete }) {
                 )}
               </div>
             )}
-          )}
         </div>
       </div>
 
