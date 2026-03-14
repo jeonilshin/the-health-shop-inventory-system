@@ -21,6 +21,8 @@ function ImportModal({ isOpen, onClose, onImportComplete }) {
   const [showDuplicateModal, setShowDuplicateModal] = useState(false);
   const [selectedDuplicates, setSelectedDuplicates] = useState([]);
   const [updateOptions, setUpdateOptions] = useState({}); // { itemIndex: { updateQty: true, updatePrice: true } }
+  const [showErrors, setShowErrors] = useState(false);
+  const [showNewItems, setShowNewItems] = useState(false);
 
   const fetchLocations = useCallback(async () => {
     try {
@@ -524,17 +526,36 @@ function ImportModal({ isOpen, onClose, onImportComplete }) {
               {previewData.errors && previewData.errors.length > 0 && (
                 <div className="alert alert-error" style={{ margin: '16px 20px', borderRadius: 'var(--radius)' }}>
                   <div style={{ flex: 1 }}>
-                    <h4 style={{ fontWeight: '600', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <svg style={{ width: '20px', height: '20px' }} fill="currentColor" viewBox="0 0 20 20">
-                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-                      </svg>
-                      Validation Errors ({previewData.errors.length})
-                    </h4>
-                    <ul style={{ listStyle: 'disc', paddingLeft: '20px', margin: 0, maxHeight: '120px', overflowY: 'auto', fontSize: '0.875rem' }}>
-                      {previewData.errors.map((error, idx) => (
-                        <li key={idx}>{error}</li>
-                      ))}
-                    </ul>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: showErrors ? '8px' : '0' }}>
+                      <h4 style={{ fontWeight: '600', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <svg style={{ width: '20px', height: '20px' }} fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                        </svg>
+                        Validation Errors ({previewData.errors.length})
+                      </h4>
+                      <button
+                        onClick={() => setShowErrors(!showErrors)}
+                        style={{
+                          background: 'rgba(255, 255, 255, 0.2)',
+                          border: 'none',
+                          color: 'currentColor',
+                          padding: '4px 12px',
+                          borderRadius: 'var(--radius)',
+                          cursor: 'pointer',
+                          fontSize: '0.75rem',
+                          fontWeight: '600'
+                        }}
+                      >
+                        {showErrors ? '✕ Close' : '👁 View More'}
+                      </button>
+                    </div>
+                    {showErrors && (
+                      <ul style={{ listStyle: 'disc', paddingLeft: '20px', margin: '8px 0 0 0', maxHeight: '200px', overflowY: 'auto', fontSize: '0.875rem' }}>
+                        {previewData.errors.map((error, idx) => (
+                          <li key={idx}>{error}</li>
+                        ))}
+                      </ul>
+                    )}
                   </div>
                 </div>
               )}
@@ -613,6 +634,92 @@ function ImportModal({ isOpen, onClose, onImportComplete }) {
                 </table>
               </div>
             </div>
+
+            {/* New Items Section */}
+            {previewData && previewData.preview && (
+              <div className="card" style={{ border: '1px solid var(--border)', marginTop: '16px' }}>
+                <div style={{ 
+                  padding: '12px 20px', 
+                  borderBottom: showNewItems ? '1px solid var(--border)' : 'none', 
+                  background: 'var(--bg-secondary)',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  cursor: 'pointer'
+                }}
+                onClick={() => setShowNewItems(!showNewItems)}
+                >
+                  <h3 style={{ fontSize: '1rem', fontWeight: '600', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={{ 
+                      fontSize: '1.25rem',
+                      background: 'var(--success)', 
+                      color: 'white', 
+                      width: '24px',
+                      height: '24px',
+                      borderRadius: '50%',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: '14px',
+                      fontWeight: '700'
+                    }}>
+                      🆕
+                    </span>
+                    New Items ({previewData.preview.filter(item => !item.is_category && item.brand && item.description && item.unit && !duplicateDetails.some(d => d.description === item.description && d.unit === item.unit)).length})
+                  </h3>
+                  <button
+                    style={{
+                      background: 'rgba(16, 185, 129, 0.1)',
+                      border: 'none',
+                      color: 'var(--success)',
+                      padding: '4px 12px',
+                      borderRadius: 'var(--radius)',
+                      cursor: 'pointer',
+                      fontSize: '0.75rem',
+                      fontWeight: '600'
+                    }}
+                  >
+                    {showNewItems ? '▲ Hide' : '▼ Show'}
+                  </button>
+                </div>
+                {showNewItems && (
+                  <div style={{ padding: '16px 20px', maxHeight: '300px', overflowY: 'auto' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      {previewData.preview
+                        .filter(item => !item.is_category && item.brand && item.description && item.unit && !duplicateDetails.some(d => d.description === item.description && d.unit === item.unit))
+                        .map((item, idx) => (
+                          <div
+                            key={idx}
+                            style={{
+                              padding: '12px',
+                              background: 'rgba(16, 185, 129, 0.05)',
+                              border: '1px solid rgba(16, 185, 129, 0.2)',
+                              borderRadius: 'var(--radius)',
+                              display: 'grid',
+                              gridTemplateColumns: '120px 1fr 80px 100px 120px',
+                              gap: '12px',
+                              alignItems: 'center',
+                              fontSize: '0.875rem'
+                            }}
+                          >
+                            <div style={{ fontWeight: '600', fontFamily: 'monospace', color: 'var(--success)' }}>
+                              {item.batch_number && item.batch_number.endsWith('-AUTO') ? (
+                                <span>{item.brand}-###</span>
+                              ) : (
+                                item.batch_number
+                              )}
+                            </div>
+                            <div style={{ fontWeight: '600' }}>{item.description}</div>
+                            <div style={{ color: 'var(--text-muted)' }}>{item.unit}</div>
+                            <div>Qty: <span style={{ fontWeight: '600' }}>{item.quantity}</span></div>
+                            <div>₱{item.unit_cost.toFixed(2)}</div>
+                          </div>
+                        ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           )}
         </div>
       </div>
