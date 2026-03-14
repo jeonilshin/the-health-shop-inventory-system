@@ -1411,14 +1411,23 @@ function Inventory() {
                           )}
                           {user.role === 'admin' && (
                             <td>
-                              <button
-                                className="btn btn-danger"
-                                style={{ padding: '6px 12px', fontSize: '12px' }}
-                                onClick={() => handleDeleteInventory(item.id)}
-                              >
-                                <FiTrash2 size={12} />
-                                Delete
-                              </button>
+                              <div style={{ display: 'flex', gap: '4px' }}>
+                                <button 
+                                  className="btn btn-primary" 
+                                  style={{ padding: '6px 10px', fontSize: '12px' }}
+                                  onClick={() => handleEditBatch(item)}
+                                  title="Edit Item"
+                                >
+                                  <FiEdit2 size={12} />
+                                </button>
+                                <button
+                                  className="btn btn-danger"
+                                  style={{ padding: '6px 12px', fontSize: '12px' }}
+                                  onClick={() => handleDeleteInventory(item.id)}
+                                >
+                                  <FiTrash2 size={12} />
+                                </button>
+                              </div>
                             </td>
                           )}
                         </tr>
