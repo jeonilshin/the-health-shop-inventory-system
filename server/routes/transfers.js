@@ -942,19 +942,41 @@ router.post('/:id/unreceive', auth, authorize('admin'), async (req, res) => {
     
     await client.query('BEGIN');
     
-    // Get transfer details
-    const transferResult = await client.query(
-      `SELECT t.*, 
-              fl.name as from_location_name, 
-              tl.name as to_location_name,
-              ti.description, ti.unit, ti.quantity, ti.unit_cost, ti.batch_number, ti.expiry_date
-       FROM transfers t
-       LEFT JOIN locations fl ON t.from_location_id = fl.id
-       LEFT JOIN locations tl ON t.to_location_id = tl.id
-       LEFT JOIN transfer_items ti ON t.id = ti.transfer_id
-       WHERE t.id = $1 AND t.status = 'delivered'`,
-      [id]
-    );
+    // Get transfer details - try with batch columns first, fallback if they don't exist
+    let transferResult;
+    try {
+      transferResult = await client.query(
+        `SELECT t.*, 
+                fl.name as from_location_name, 
+                tl.name as to_location_name,
+                ti.description, ti.unit, ti.quantity, ti.unit_cost, ti.batch_number, ti.expiry_date
+         FROM transfers t
+         LEFT JOIN locations fl ON t.from_location_id = fl.id
+         LEFT JOIN locations tl ON t.to_location_id = tl.id
+         LEFT JOIN transfer_items ti ON t.id = ti.transfer_id
+         WHERE t.id = $1 AND t.status = 'delivered'`,
+        [id]
+      );
+    } catch (error) {
+      // If batch columns don't exist, try without them
+      if (error.message.includes('batch_number') || error.message.includes('expiry_date')) {
+        transferResult = await client.query(
+          `SELECT t.*, 
+                  fl.name as from_location_name, 
+                  tl.name as to_location_name,
+                  ti.description, ti.unit, ti.quantity, ti.unit_cost,
+                  NULL as batch_number, NULL as expiry_date
+           FROM transfers t
+           LEFT JOIN locations fl ON t.from_location_id = fl.id
+           LEFT JOIN locations tl ON t.to_location_id = tl.id
+           LEFT JOIN transfer_items ti ON t.id = ti.transfer_id
+           WHERE t.id = $1 AND t.status = 'delivered'`,
+          [id]
+        );
+      } else {
+        throw error;
+      }
+    }
     
     if (transferResult.rows.length === 0) {
       await client.query('ROLLBACK');
