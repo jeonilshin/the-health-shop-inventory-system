@@ -4,11 +4,13 @@ import { FiX, FiCheck, FiAlertCircle, FiEdit2, FiTruck, FiSearch, FiTrash2 } fro
 import SimpleAutocomplete from './SimpleAutocomplete';
 
 function CdrImportModal({ isOpen, onClose, onImportComplete, locations }) {
-  const [step, setStep] = useState(1); // 1: Upload, 2: Select Warehouse, 3: Review & Fix
+  const [step, setStep] = useState(1); // 1: Upload, 2: Select Warehouse, 3: Map Branches, 4: Review & Fix
   const [file, setFile] = useState(null);
   const [fromWarehouse, setFromWarehouse] = useState('');
   const [cdrData, setCdrData] = useState([]);
   const [lgdData, setLgdData] = useState([]); // Separate LGD items
+  const [branchMappings, setBranchMappings] = useState({}); // CDR outlet -> branch mapping
+  const [unmappedOutlets, setUnmappedOutlets] = useState([]); // Outlets that need manual mapping
   const [errors, setErrors] = useState([]);
   const [loading, setLoading] = useState(false);
   const [editingIndex, setEditingIndex] = useState(null);
@@ -16,10 +18,49 @@ function CdrImportModal({ isOpen, onClose, onImportComplete, locations }) {
   const [warehouseInventory, setWarehouseInventory] = useState([]);
   const [showErrorsOnly, setShowErrorsOnly] = useState(false); // Filter toggle
 
-  // Branch mapping - maps CDR outlet names to actual branch names
-  const branchMapping = {
-    'KCC GENSAN': 'THS - Gensan KCC'
-    // LGD will be handled separately
+  // Smart branch mapping function
+  const findBestBranchMatch = (cdrOutlet) => {
+    if (!cdrOutlet) return null;
+    
+    const cdrLower = cdrOutlet.toLowerCase();
+    const branches = locations.filter(loc => loc.type === 'branch');
+    
+    // First, try exact match
+    let match = branches.find(branch => 
+      branch.name.toLowerCase() === cdrLower
+    );
+    if (match) return match;
+    
+    // Extract key words from CDR outlet (remove common words)
+    const cdrWords = cdrLower
+      .replace(/\b(the|and|or|branch|store|shop|mall|center|centre)\b/g, '')
+      .split(/[\s\-_]+/)
+      .filter(word => word.length > 2);
+    
+    // Try to find branch that contains all key words
+    match = branches.find(branch => {
+      const branchLower = branch.name.toLowerCase();
+      return cdrWords.every(word => branchLower.includes(word));
+    });
+    if (match) return match;
+    
+    // Try to find branch that contains most key words
+    let bestMatch = null;
+    let bestScore = 0;
+    
+    branches.forEach(branch => {
+      const branchLower = branch.name.toLowerCase();
+      const score = cdrWords.reduce((count, word) => {
+        return branchLower.includes(word) ? count + 1 : count;
+      }, 0);
+      
+      if (score > bestScore && score > 0) {
+        bestScore = score;
+        bestMatch = branch;
+      }
+    });
+    
+    return bestMatch;
   };
 
   useEffect(() => {
@@ -30,6 +71,8 @@ function CdrImportModal({ isOpen, onClose, onImportComplete, locations }) {
       setFromWarehouse('');
       setCdrData([]);
       setLgdData([]);
+      setBranchMappings({});
+      setUnmappedOutlets([]);
       setErrors([]);
       setEditingIndex(null);
       setEditData({});
@@ -73,6 +116,7 @@ function CdrImportModal({ isOpen, onClose, onImportComplete, locations }) {
 
       const parsedData = [];
       const lgdItems = []; // Separate array for LGD items
+      const outletSet = new Set(); // Track unique outlets
 
       for (let i = 0; i < dataLines.length; i++) {
         const values = dataLines[i].split(',').map(v => v.trim());
@@ -106,22 +150,53 @@ function CdrImportModal({ isOpen, onClose, onImportComplete, locations }) {
           continue;
         }
 
-        // Map outlet to branch for non-LGD items
-        const mappedBranch = branchMapping[row['OUTLET']];
-        if (mappedBranch === null) continue; // Skip ignored outlets
-
-        item.mappedBranch = mappedBranch || row['OUTLET']; // Use mapped name or original
+        // Track unique outlets for mapping
+        outletSet.add(row['OUTLET']);
         parsedData.push(item);
       }
 
       setCdrData(parsedData);
       setLgdData(lgdItems);
+      
+      // Auto-map branches and identify unmapped outlets
+      const mappings = {};
+      const unmapped = [];
+      
+      Array.from(outletSet).forEach(outlet => {
+        const bestMatch = findBestBranchMatch(outlet);
+        if (bestMatch) {
+          mappings[outlet] = bestMatch.id;
+        } else {
+          unmapped.push(outlet);
+        }
+      });
+      
+      setBranchMappings(mappings);
+      setUnmappedOutlets(unmapped);
       setStep(2);
     } catch (error) {
       alert('Error parsing CDR file: ' + error.message);
     } finally {
       setLoading(false);
     }
+  };
+
+  const proceedToValidation = () => {
+    // Check if all outlets are mapped
+    if (unmappedOutlets.length > 0) {
+      alert('Please map all outlets to branches before proceeding');
+      return;
+    }
+    
+    // Update CDR data with mapped branches
+    const updatedData = cdrData.map(item => ({
+      ...item,
+      mappedBranchId: branchMappings[item.outlet],
+      mappedBranchName: locations.find(loc => loc.id === branchMappings[item.outlet])?.name || item.outlet
+    }));
+    
+    setCdrData(updatedData);
+    setStep(3);
   };
 
   const validateAndSuggestProducts = async () => {
@@ -175,7 +250,7 @@ function CdrImportModal({ isOpen, onClose, onImportComplete, locations }) {
 
       setCdrData(updatedData);
       setErrors(updatedData.filter(item => item.error));
-      setStep(3);
+      setStep(4);
     } catch (error) {
       alert('Error validating products: ' + error.message);
     } finally {
@@ -290,31 +365,29 @@ function CdrImportModal({ isOpen, onClose, onImportComplete, locations }) {
 
       // Process regular CDR items
       if (validItems.length > 0) {
-        // Group items by branch
+        // Group items by branch ID
         const itemsByBranch = {};
         validItems.forEach(item => {
-          if (!itemsByBranch[item.mappedBranch]) {
-            itemsByBranch[item.mappedBranch] = [];
+          const branchId = item.mappedBranchId;
+          if (!itemsByBranch[branchId]) {
+            itemsByBranch[branchId] = [];
           }
-          itemsByBranch[item.mappedBranch].push(item);
+          itemsByBranch[branchId].push(item);
         });
 
-        for (const [branchName, items] of Object.entries(itemsByBranch)) {
+        for (const [branchId, items] of Object.entries(itemsByBranch)) {
           // Find branch location
-          const branch = locations.find(loc => 
-            loc.name.toLowerCase().includes(branchName.toLowerCase()) ||
-            branchName.toLowerCase().includes(loc.name.toLowerCase())
-          );
+          const branch = locations.find(loc => loc.id === branchId);
 
           if (!branch) {
-            alert(`Branch not found: ${branchName}`);
+            alert(`Branch not found with ID: ${branchId}`);
             continue;
           }
 
           transfers.push({
             from_location_id: fromWarehouse,
             to_location_id: branch.id,
-            notes: `CDR Import - ${new Date().toLocaleDateString()} - ${branchName}`,
+            notes: `CDR Import - ${new Date().toLocaleDateString()} - ${branch.name}`,
             items: items.map(item => ({
               inventory_item_id: item.suggested.id,
               quantity: item.quantity,
@@ -426,7 +499,7 @@ function CdrImportModal({ isOpen, onClose, onImportComplete, locations }) {
               Import CDR (Consignment Delivery Receipt)
             </h2>
             <div style={{ fontSize: '0.875rem', opacity: 0.9 }}>
-              Step {step} of 3: {step === 1 ? 'Upload File' : step === 2 ? 'Select Warehouse' : 'Review & Import'}
+              Step {step} of 4: {step === 1 ? 'Upload File' : step === 2 ? 'Select Warehouse' : step === 3 ? 'Map Branches' : 'Review & Import'}
             </div>
           </div>
           <button
@@ -525,7 +598,12 @@ function CdrImportModal({ isOpen, onClose, onImportComplete, locations }) {
                       {cdrData.slice(0, 8).map((item, index) => (
                         <tr key={index}>
                           <td style={{ padding: '8px' }}>{item.outlet}</td>
-                          <td style={{ padding: '8px' }}>{item.mappedBranch}</td>
+                          <td style={{ padding: '8px' }}>
+                            {branchMappings[item.outlet] ? 
+                              locations.find(loc => loc.id === branchMappings[item.outlet])?.name || 'Unknown' :
+                              <span style={{ color: 'var(--warning)' }}>Needs mapping</span>
+                            }
+                          </td>
                           <td style={{ padding: '8px' }}>{item.description}</td>
                           <td style={{ padding: '8px' }}>{item.unit}</td>
                           <td style={{ padding: '8px' }}>{item.quantity}</td>
@@ -563,16 +641,150 @@ function CdrImportModal({ isOpen, onClose, onImportComplete, locations }) {
 
               <button 
                 className="btn btn-primary" 
-                onClick={validateAndSuggestProducts}
+                onClick={proceedToValidation}
                 disabled={!fromWarehouse || loading}
                 style={{ width: '100%', marginTop: '20px' }}
               >
-                {loading ? 'Validating Products...' : 'Continue to Review'}
+                {loading ? 'Processing...' : 'Continue to Branch Mapping'}
               </button>
             </div>
           )}
 
           {step === 3 && (
+            <div>
+              <div className="alert alert-info" style={{ marginBottom: '20px' }}>
+                <FiCheck size={16} />
+                Map CDR outlets to your existing branches. Auto-suggestions are provided based on name similarity.
+              </div>
+
+              <div style={{ marginBottom: '20px' }}>
+                <h4>Branch Mapping</h4>
+                <p style={{ fontSize: '14px', color: 'var(--text-secondary)', marginBottom: '16px' }}>
+                  Review and confirm the branch mappings below. Items will be transferred to the selected branches.
+                </p>
+                
+                {/* Auto-mapped branches */}
+                {Object.keys(branchMappings).length > 0 && (
+                  <div style={{ marginBottom: '20px' }}>
+                    <h5 style={{ color: 'var(--success)', marginBottom: '12px' }}>
+                      ✓ Auto-Mapped Outlets ({Object.keys(branchMappings).length})
+                    </h5>
+                    <div style={{ display: 'grid', gap: '12px' }}>
+                      {Object.entries(branchMappings).map(([outlet, branchId]) => {
+                        const branch = locations.find(loc => loc.id === branchId);
+                        return (
+                          <div key={outlet} style={{ 
+                            padding: '12px', 
+                            border: '1px solid var(--success)', 
+                            borderRadius: 'var(--radius)',
+                            backgroundColor: 'rgba(16, 185, 129, 0.05)'
+                          }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <div>
+                                <strong>{outlet}</strong> → {branch?.name}
+                              </div>
+                              <select
+                                value={branchId}
+                                onChange={(e) => setBranchMappings({
+                                  ...branchMappings,
+                                  [outlet]: e.target.value
+                                })}
+                                style={{ padding: '4px 8px', fontSize: '12px' }}
+                              >
+                                {locations
+                                  .filter(loc => loc.type === 'branch')
+                                  .map(branch => (
+                                    <option key={branch.id} value={branch.id}>
+                                      {branch.name}
+                                    </option>
+                                  ))}
+                              </select>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Unmapped outlets */}
+                {unmappedOutlets.length > 0 && (
+                  <div style={{ marginBottom: '20px' }}>
+                    <h5 style={{ color: 'var(--warning)', marginBottom: '12px' }}>
+                      ⚠ Unmapped Outlets ({unmappedOutlets.length}) - Requires Manual Mapping
+                    </h5>
+                    <div style={{ display: 'grid', gap: '12px' }}>
+                      {unmappedOutlets.map(outlet => (
+                        <div key={outlet} style={{ 
+                          padding: '12px', 
+                          border: '1px solid var(--warning)', 
+                          borderRadius: 'var(--radius)',
+                          backgroundColor: 'rgba(245, 158, 11, 0.05)'
+                        }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <div>
+                              <strong>{outlet}</strong> → 
+                              <span style={{ color: 'var(--text-muted)', marginLeft: '8px' }}>
+                                Select branch
+                              </span>
+                            </div>
+                            <select
+                              value=""
+                              onChange={(e) => {
+                                if (e.target.value) {
+                                  setBranchMappings({
+                                    ...branchMappings,
+                                    [outlet]: e.target.value
+                                  });
+                                  setUnmappedOutlets(unmappedOutlets.filter(o => o !== outlet));
+                                }
+                              }}
+                              style={{ padding: '4px 8px', fontSize: '12px' }}
+                            >
+                              <option value="">Select branch...</option>
+                              {locations
+                                .filter(loc => loc.type === 'branch')
+                                .map(branch => (
+                                  <option key={branch.id} value={branch.id}>
+                                    {branch.name}
+                                  </option>
+                                ))}
+                            </select>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Summary */}
+                <div className="alert alert-info">
+                  <FiAlertCircle size={16} />
+                  <strong>Summary:</strong> {Object.keys(branchMappings).length} outlets mapped, {unmappedOutlets.length} pending
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', gap: '12px' }}>
+                <button 
+                  className="btn btn-secondary" 
+                  onClick={() => setStep(2)}
+                  style={{ flex: 1 }}
+                >
+                  Back to Warehouse Selection
+                </button>
+                <button 
+                  className="btn btn-primary" 
+                  onClick={validateAndSuggestProducts}
+                  disabled={unmappedOutlets.length > 0 || loading}
+                  style={{ flex: 2 }}
+                >
+                  {loading ? 'Validating Products...' : 'Continue to Review'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {step === 4 && (
             <div>
               {errors.length > 0 && (
                 <div className="alert alert-warning" style={{ marginBottom: '20px' }}>
@@ -845,10 +1057,10 @@ function CdrImportModal({ isOpen, onClose, onImportComplete, locations }) {
               <div style={{ display: 'flex', gap: '12px' }}>
                 <button 
                   className="btn btn-secondary" 
-                  onClick={() => setStep(2)}
+                  onClick={() => setStep(3)}
                   style={{ flex: 1 }}
                 >
-                  Back to Warehouse Selection
+                  Back to Branch Mapping
                 </button>
                 <button 
                   className="btn btn-primary" 
