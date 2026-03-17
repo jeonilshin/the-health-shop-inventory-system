@@ -34,6 +34,8 @@ function Inventory() {
   const [batchEditData, setBatchEditData] = useState({});
   const [locationViewMode, setLocationViewMode] = useState('list'); // 'list' or 'cards'
   const [showConversionModal, setShowConversionModal] = useState(false);
+  const [showActionModal, setShowActionModal] = useState(false);
+  const [conversionHistory, setConversionHistory] = useState([]);
   const [conversionData, setConversionData] = useState({
     fromItemId: '',
     toItemId: '',
@@ -671,6 +673,24 @@ function Inventory() {
     }
   };
 
+  const fetchConversionHistory = async () => {
+    if (!selectedLocation || selectedLocation === 'all') {
+      alert('Please select a specific location to view conversion history');
+      return;
+    }
+
+    setLoadingHistory(true);
+    try {
+      const response = await api.get(`/inventory/conversion-history/${selectedLocation}`);
+      setConversionHistory(response.data);
+      setShowActionModal(true);
+    } catch (error) {
+      alert(error.response?.data?.error || 'Error fetching conversion history');
+    } finally {
+      setLoadingHistory(false);
+    }
+  };
+
   // Helper function to determine stock status based on percentage
   const getStockStatus = (quantity, maxQuantity) => {
     const qty = parseFloat(quantity);
@@ -1115,9 +1135,14 @@ function Inventory() {
                   </button>
                 )}
                 {(user.role === 'admin' || user.role === 'branch_manager' || user.role === 'branch_staff') && selectedLocation !== 'all' && (
-                  <button className="btn btn-info" onClick={() => setShowConversionModal(true)}>
-                    🔄 Convert Units
-                  </button>
+                  <>
+                    <button className="btn btn-info" onClick={() => setShowConversionModal(true)}>
+                      🔄 Convert Units
+                    </button>
+                    <button className="btn btn-secondary" onClick={fetchConversionHistory} disabled={loadingHistory}>
+                      📋 {loadingHistory ? 'Loading...' : 'Action History'}
+                    </button>
+                  </>
                 )}
               </div>
             </div>
@@ -2759,6 +2784,127 @@ function Inventory() {
           fetchInventoryHistory();
         }}
       />
+
+      {/* Action History Modal */}
+      {showActionModal && (
+        <div className="modal-overlay" onClick={() => setShowActionModal(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '1000px', width: '95%', maxHeight: '90vh' }}>
+            <div style={{ 
+              padding: '20px 24px', 
+              borderBottom: '1px solid var(--border)',
+              background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
+              color: 'white',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center'
+            }}>
+              <h2 style={{ fontSize: '1.25rem', fontWeight: 'bold', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                📋 Unit Conversion History
+              </h2>
+              <button
+                onClick={() => setShowActionModal(false)}
+                style={{ 
+                  background: 'rgba(255, 255, 255, 0.2)', 
+                  border: 'none', 
+                  color: 'white', 
+                  width: '32px', 
+                  height: '32px', 
+                  borderRadius: 'var(--radius)', 
+                  cursor: 'pointer'
+                }}
+              >
+                <FiX size={16} />
+              </button>
+            </div>
+
+            <div style={{ padding: '24px', overflowY: 'auto', maxHeight: 'calc(90vh - 120px)' }}>
+              {conversionHistory.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
+                  <FiClock size={48} style={{ marginBottom: '16px', opacity: 0.5 }} />
+                  <h3>No Conversion History</h3>
+                  <p>No unit conversions have been performed at this location yet.</p>
+                </div>
+              ) : (
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', fontSize: '14px' }}>
+                    <thead>
+                      <tr style={{ background: 'var(--bg-secondary)' }}>
+                        <th style={{ padding: '12px 8px', textAlign: 'left' }}>Date & Time</th>
+                        <th style={{ padding: '12px 8px', textAlign: 'left' }}>User</th>
+                        <th style={{ padding: '12px 8px', textAlign: 'left' }}>Conversion</th>
+                        <th style={{ padding: '12px 8px', textAlign: 'left' }}>Description</th>
+                        <th style={{ padding: '12px 8px', textAlign: 'left' }}>IP Address</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {conversionHistory.map((entry, index) => (
+                        <tr key={entry.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                          <td style={{ padding: '12px 8px' }}>
+                            <div style={{ fontWeight: '600' }}>
+                              {new Date(entry.created_at).toLocaleDateString()}
+                            </div>
+                            <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                              {new Date(entry.created_at).toLocaleTimeString()}
+                            </div>
+                          </td>
+                          <td style={{ padding: '12px 8px', fontWeight: '600' }}>
+                            {entry.username}
+                          </td>
+                          <td style={{ padding: '12px 8px' }}>
+                            <div style={{ 
+                              padding: '4px 8px', 
+                              background: 'rgba(16, 185, 129, 0.1)', 
+                              borderRadius: 'var(--radius)',
+                              fontSize: '12px',
+                              fontWeight: '600',
+                              color: 'var(--success)',
+                              display: 'inline-block'
+                            }}>
+                              {entry.new_values?.converted || 'N/A'}
+                            </div>
+                          </td>
+                          <td style={{ padding: '12px 8px', fontSize: '13px' }}>
+                            {entry.description}
+                          </td>
+                          <td style={{ padding: '12px 8px', fontSize: '12px', color: 'var(--text-muted)' }}>
+                            {entry.ip_address}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              <div style={{ 
+                marginTop: '20px', 
+                padding: '12px', 
+                background: 'var(--bg-secondary)', 
+                borderRadius: 'var(--radius)',
+                fontSize: '12px',
+                color: 'var(--text-muted)'
+              }}>
+                <strong>Note:</strong> This shows the last 100 unit conversions performed at this location. 
+                Each conversion is logged with the user, timestamp, and IP address for audit purposes.
+              </div>
+            </div>
+
+            <div style={{ 
+              padding: '16px 24px', 
+              borderTop: '1px solid var(--border)',
+              display: 'flex',
+              justifyContent: 'flex-end'
+            }}>
+              <button 
+                className="btn btn-secondary" 
+                onClick={() => setShowActionModal(false)}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

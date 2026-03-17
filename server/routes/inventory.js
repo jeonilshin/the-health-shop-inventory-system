@@ -401,6 +401,46 @@ router.post('/convert-units', auth, authorize('admin', 'branch_manager', 'branch
   }
 });
 
+// Get conversion history for a location
+router.get('/conversion-history/:locationId', auth, authorize('admin', 'branch_manager', 'branch_staff'), async (req, res) => {
+  try {
+    const { locationId } = req.params;
+    
+    // Check if user has access to this location
+    if (req.user.role !== 'admin' && req.user.location_id != locationId) {
+      return res.status(403).json({ error: 'Access denied to this location' });
+    }
+    
+    // Get conversion history from audit log
+    const result = await pool.query(
+      `SELECT 
+        al.id,
+        al.user_id,
+        al.username,
+        al.action,
+        al.record_id,
+        al.old_values,
+        al.new_values,
+        al.description,
+        al.created_at,
+        al.ip_address
+      FROM audit_log al
+      WHERE al.action = 'UNIT_CONVERSION'
+        AND al.table_name = 'inventory'
+        AND al.record_id IN (
+          SELECT id FROM inventory WHERE location_id = $1
+        )
+      ORDER BY al.created_at DESC
+      LIMIT 100`,
+      [locationId]
+    );
+    
+    res.json(result.rows);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Get cost batches for a specific item (for transfers and sales)
 router.get('/cost-batches/:locationId/:description/:unit', auth, async (req, res) => {
   try {
