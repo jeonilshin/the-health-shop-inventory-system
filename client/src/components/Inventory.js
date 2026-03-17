@@ -1799,6 +1799,8 @@ function Inventory() {
                                       color: 'var(--text-primary)'
                                     }}
                                   />
+                                ) : inventoryLoading ? (
+                                  <PriceSkeleton />
                                 ) : (
                                   `₱${formatPrice(item.unit_cost)}`
                                 )}
@@ -1821,11 +1823,19 @@ function Inventory() {
                                       color: 'var(--text-primary)'
                                     }}
                                   />
+                                ) : inventoryLoading ? (
+                                  <PriceSkeleton />
                                 ) : (
                                   `₱${formatPrice(item.suggested_selling_price || 0)}`
                                 )}
                               </td>
-                              <td style={{ fontWeight: 600 }}>₱{formatPrice(parseFloat(item.quantity) * parseFloat(item.unit_cost))}</td>
+                              <td style={{ fontWeight: 600 }}>
+                                {inventoryLoading ? (
+                                  <PriceSkeleton width="80px" />
+                                ) : (
+                                  `₱${formatPrice(parseFloat(item.quantity) * parseFloat(item.unit_cost))}`
+                                )}
+                              </td>
                             </>
                           )}
                           {user.role === 'admin' && (
