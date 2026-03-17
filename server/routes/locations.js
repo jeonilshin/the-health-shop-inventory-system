@@ -47,15 +47,56 @@ router.put('/:id', auth, authorize('admin'), async (req, res) => {
 
 // Delete location (admin only)
 router.delete('/:id', auth, authorize('admin'), async (req, res) => {
+  const client = await pool.connect();
+  
   try {
     const { id } = req.params;
-    const result = await pool.query('DELETE FROM locations WHERE id = $1 RETURNING *', [id]);
+    
+    await client.query('BEGIN');
+    
+    // Check if location has any dependencies
+    const dependencies = await Promise.all([
+      client.query('SELECT COUNT(*) as count FROM users WHERE location_id = $1', [id]),
+      client.query('SELECT COUNT(*) as count FROM inventory WHERE location_id = $1', [id]),
+      client.query('SELECT COUNT(*) as count FROM transfers WHERE from_location_id = $1 OR to_location_id = $1', [id]),
+      client.query('SELECT COUNT(*) as count FROM sales_transactions WHERE location_id = $1', [id])
+    ]);
+    
+    const [userCount, inventoryCount, transferCount, salesCount] = dependencies.map(result => parseInt(result.rows[0].count));
+    
+    if (userCount > 0 || inventoryCount > 0 || transferCount > 0 || salesCount > 0) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ 
+        error: 'Cannot delete location with existing data',
+        details: {
+          users: userCount,
+          inventory: inventoryCount,
+          transfers: transferCount,
+          sales: salesCount
+        },
+        message: `This location has ${userCount} users, ${inventoryCount} inventory items, ${transferCount} transfers, and ${salesCount} sales records. Please move or delete this data first.`
+      });
+    }
+    
+    // If no dependencies, proceed with deletion
+    const result = await client.query('DELETE FROM locations WHERE id = $1 RETURNING *', [id]);
+    
     if (result.rows.length === 0) {
+      await client.query('ROLLBACK');
       return res.status(404).json({ error: 'Location not found' });
     }
-    res.json({ message: 'Location deleted successfully' });
+    
+    await client.query('COMMIT');
+    res.json({ 
+      message: 'Location deleted successfully',
+      deleted_location: result.rows[0]
+    });
+    
   } catch (error) {
+    await client.query('ROLLBACK');
     res.status(500).json({ error: error.message });
+  } finally {
+    client.release();
   }
 });
 

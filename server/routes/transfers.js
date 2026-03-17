@@ -538,15 +538,27 @@ router.post('/:id/deliver', auth, authorize('admin', 'branch_manager'), async (r
 
     // ADD to destination inventory with batch_number and expiry_date
     await client.query(
-      `INSERT INTO inventory (location_id, description, unit, quantity, unit_cost, suggested_selling_price, batch_number, expiry_date) 
-       VALUES ($1, $2, $3, $4, $5, $5, $6, $7) 
+      `INSERT INTO inventory 
+       (location_id, description, unit, quantity, unit_cost, suggested_selling_price, 
+        batch_number, expiry_date, max_quantity, cost_batch_id, is_new_item, is_new_cost) 
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $4, $9, false, false) 
        ON CONFLICT (location_id, description, unit) 
        DO UPDATE SET 
          quantity = inventory.quantity + $4, 
-         batch_number = COALESCE($6, inventory.batch_number),
-         expiry_date = COALESCE($7, inventory.expiry_date),
+         batch_number = COALESCE($7, inventory.batch_number),
+         expiry_date = COALESCE($8, inventory.expiry_date),
          updated_at = CURRENT_TIMESTAMP`,
-      [transferData.to_location_id, transferData.description, transferData.unit, transferData.quantity, transferData.unit_cost, batchNumber, expiryDate]
+      [
+        transferData.to_location_id, 
+        transferData.description, 
+        transferData.unit, 
+        transferData.quantity, 
+        transferData.unit_cost, 
+        transferData.unit_cost, // suggested_selling_price same as unit_cost for transfers
+        batchNumber, 
+        expiryDate,
+        `BATCH-${Date.now()}-${Math.random().toString(36).substr(2, 9)}` // cost_batch_id
+      ]
     );
 
     // Update transfer status to delivered (completed)
