@@ -604,7 +604,7 @@ router.post('/import', auth, authorize('admin', 'warehouse'), async (req, res) =
                (location_id, batch_number, description, unit, quantity, unit_cost, suggested_selling_price, 
                 expiry_date, main_category, sub_category, max_quantity, is_new_item, is_new_cost, cost_batch_id)
                VALUES ($1, $2, $3, $4, 0, $5, $6, $7, $8, $9, 0, false, false, $10)
-               ON CONFLICT (location_id, description, unit) DO NOTHING`,
+               ON CONFLICT (location_id, description, unit, cost_batch_id) DO NOTHING`,
               [branchId, batchNumber, item.description, item.unit, item.unit_cost, item.suggested_selling_price, 
                item.expiry_date, item.main_category, item.sub_category, branchCostBatchId]
             );

@@ -289,11 +289,12 @@ router.put('/:id', auth, authorize('admin', 'warehouse'), async (req, res) => {
 
           // Add to destination location (or update if exists)
           await client.query(
-            `INSERT INTO inventory (location_id, description, unit, quantity, unit_cost, suggested_selling_price) 
-             VALUES ($1, $2, $3, $4, $5, $5) 
-             ON CONFLICT (location_id, description, unit) 
+            `INSERT INTO inventory (location_id, description, unit, quantity, unit_cost, suggested_selling_price, cost_batch_id) 
+             VALUES ($1, $2, $3, $4, $5, $5, $6) 
+             ON CONFLICT (location_id, description, unit, cost_batch_id) 
              DO UPDATE SET quantity = inventory.quantity + $4, updated_at = CURRENT_TIMESTAMP`,
-            [deliveryData.to_location_id, item.description, item.unit, item.quantity, item.unit_cost]
+            [deliveryData.to_location_id, item.description, item.unit, item.quantity, item.unit_cost, 
+             `DELIVERY-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`]
           );
         }
       }
@@ -481,11 +482,12 @@ router.post('/:id/accept', auth, authorize('admin', 'branch_manager'), async (re
     for (const item of delivery.rows) {
       if (item.description) {
         await client.query(
-          `INSERT INTO inventory (location_id, description, unit, quantity, unit_cost, suggested_selling_price) 
-           VALUES ($1, $2, $3, $4, $5, $5) 
-           ON CONFLICT (location_id, description, unit) 
+          `INSERT INTO inventory (location_id, description, unit, quantity, unit_cost, suggested_selling_price, cost_batch_id) 
+           VALUES ($1, $2, $3, $4, $5, $5, $6) 
+           ON CONFLICT (location_id, description, unit, cost_batch_id) 
            DO UPDATE SET quantity = inventory.quantity + $4, updated_at = CURRENT_TIMESTAMP`,
-          [deliveryData.to_location_id, item.description, item.unit, item.quantity, item.unit_cost]
+          [deliveryData.to_location_id, item.description, item.unit, item.quantity, item.unit_cost,
+           `DELIVERY-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`]
         );
       }
     }

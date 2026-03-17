@@ -542,7 +542,7 @@ router.post('/:id/deliver', auth, authorize('admin', 'branch_manager'), async (r
        (location_id, description, unit, quantity, unit_cost, suggested_selling_price, 
         batch_number, expiry_date, max_quantity, cost_batch_id, is_new_item, is_new_cost) 
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $4, $9, false, false) 
-       ON CONFLICT (location_id, description, unit) 
+       ON CONFLICT (location_id, description, unit, cost_batch_id) 
        DO UPDATE SET 
          quantity = inventory.quantity + $4, 
          batch_number = COALESCE($7, inventory.batch_number),
