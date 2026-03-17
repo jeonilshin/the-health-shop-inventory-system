@@ -59,12 +59,13 @@ router.delete('/:id', auth, authorize('admin'), async (req, res) => {
       client.query('SELECT COUNT(*) as count FROM users WHERE location_id = $1', [id]),
       client.query('SELECT COUNT(*) as count FROM inventory WHERE location_id = $1', [id]),
       client.query('SELECT COUNT(*) as count FROM transfers WHERE from_location_id = $1 OR to_location_id = $1', [id]),
-      client.query('SELECT COUNT(*) as count FROM sales_transactions WHERE location_id = $1', [id])
+      client.query('SELECT COUNT(*) as count FROM sales_transactions WHERE location_id = $1', [id]),
+      client.query('SELECT COUNT(*) as count FROM deliveries WHERE from_location_id = $1 OR to_location_id = $1', [id])
     ]);
     
-    const [userCount, inventoryCount, transferCount, salesCount] = dependencies.map(result => parseInt(result.rows[0].count));
+    const [userCount, inventoryCount, transferCount, salesCount, deliveryCount] = dependencies.map(result => parseInt(result.rows[0].count));
     
-    if (userCount > 0 || inventoryCount > 0 || transferCount > 0 || salesCount > 0) {
+    if (userCount > 0 || inventoryCount > 0 || transferCount > 0 || salesCount > 0 || deliveryCount > 0) {
       await client.query('ROLLBACK');
       return res.status(400).json({ 
         error: 'Cannot delete location with existing data',
@@ -72,9 +73,10 @@ router.delete('/:id', auth, authorize('admin'), async (req, res) => {
           users: userCount,
           inventory: inventoryCount,
           transfers: transferCount,
-          sales: salesCount
+          sales: salesCount,
+          deliveries: deliveryCount
         },
-        message: `This location has ${userCount} users, ${inventoryCount} inventory items, ${transferCount} transfers, and ${salesCount} sales records. Please move or delete this data first.`
+        message: `This location has ${userCount} users, ${inventoryCount} inventory items, ${transferCount} transfers, ${salesCount} sales records, and ${deliveryCount} deliveries. Please move or delete this data first.`
       });
     }
     
