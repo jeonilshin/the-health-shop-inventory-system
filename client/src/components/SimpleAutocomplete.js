@@ -169,7 +169,7 @@ function SimpleAutocomplete({
                 }}>
                   Unit: {item.unit}
                   {item.unit_cost && ` • Cost: ₱${item.unit_cost}`}
-                  {(item.quantity || item.totalQuantity) && ` • Qty: ${item.totalQuantity || item.quantity}`}
+                  {item.quantity && ` • Qty: ${item.quantity}`}
                 </div>
               )}
             </div>

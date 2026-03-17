@@ -56,6 +56,9 @@ function Inventory() {
     }]
   });
 
+  // Debounce timer ref for auto-detect new cost
+  const autoDetectTimerRef = React.useRef({});
+
   useEffect(() => {
     // Capture the current ref value at the start of the effect
     const timersRef = autoDetectTimerRef.current;
@@ -480,9 +483,6 @@ function Inventory() {
     }
   };
 
-  // Debounce timer ref for auto-detect new cost
-  const autoDetectTimerRef = React.useRef({});
-
   const updateItem = (index, field, value) => {
     const newItems = [...formData.items];
     newItems[index][field] = value;
@@ -640,11 +640,17 @@ function Inventory() {
 
     // Find the from item to check available quantity
     const fromItem = filteredInventory.find(item => item.id === parseInt(conversionData.fromItemId));
-    const availableQty = fromItem ? (fromItem.totalQuantity || fromItem.quantity) : 0;
+    if (!fromItem) {
+      alert('From item not found');
+      return;
+    }
+
+    // Use the actual quantity from the item, not totalQuantity
+    const availableQty = parseFloat(fromItem.quantity || 0);
     const requestedQty = parseFloat(conversionData.boxesToConvert);
 
     if (requestedQty > availableQty) {
-      alert(`Insufficient quantity. Available: ${formatQuantity(availableQty)} ${fromItem?.unit || ''}, Requested: ${requestedQty}`);
+      alert(`Insufficient quantity. Available: ${formatQuantity(availableQty)} ${fromItem.unit}, Requested: ${requestedQty}`);
       return;
     }
 
@@ -2642,7 +2648,7 @@ function Inventory() {
                     setConversionData({
                       ...conversionData, 
                       fromItemId: selectedItem.id,
-                      fromSearchText: `${selectedItem.description} - ${selectedItem.unit} (Qty: ${formatQuantity(selectedItem.totalQuantity || selectedItem.quantity)})`
+                      fromSearchText: `${selectedItem.description} - ${selectedItem.unit} (Qty: ${formatQuantity(selectedItem.quantity)})`
                     });
                   }}
                   displayField="description"
@@ -2651,7 +2657,7 @@ function Inventory() {
                 />
                 {conversionData.fromItemId && (
                   <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
-                    Selected: {filteredInventory.find(item => item.id === parseInt(conversionData.fromItemId))?.description} - {filteredInventory.find(item => item.id === parseInt(conversionData.fromItemId))?.unit} (Qty: {formatQuantity(filteredInventory.find(item => item.id === parseInt(conversionData.fromItemId))?.totalQuantity || filteredInventory.find(item => item.id === parseInt(conversionData.fromItemId))?.quantity || 0)})
+                    Selected: {filteredInventory.find(item => item.id === parseInt(conversionData.fromItemId))?.description} - {filteredInventory.find(item => item.id === parseInt(conversionData.fromItemId))?.unit} (Qty: {formatQuantity(filteredInventory.find(item => item.id === parseInt(conversionData.fromItemId))?.quantity || 0)})
                   </div>
                 )}
               </div>
@@ -2668,7 +2674,7 @@ function Inventory() {
                     setConversionData({
                       ...conversionData, 
                       toItemId: selectedItem.id,
-                      toSearchText: `${selectedItem.description} - ${selectedItem.unit} (Qty: ${formatQuantity(selectedItem.totalQuantity || selectedItem.quantity)})`
+                      toSearchText: `${selectedItem.description} - ${selectedItem.unit} (Qty: ${formatQuantity(selectedItem.quantity)})`
                     });
                   }}
                   displayField="description"
@@ -2677,7 +2683,7 @@ function Inventory() {
                 />
                 {conversionData.toItemId && (
                   <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
-                    Selected: {filteredInventory.find(item => item.id === parseInt(conversionData.toItemId))?.description} - {filteredInventory.find(item => item.id === parseInt(conversionData.toItemId))?.unit} (Qty: {formatQuantity(filteredInventory.find(item => item.id === parseInt(conversionData.toItemId))?.totalQuantity || filteredInventory.find(item => item.id === parseInt(conversionData.toItemId))?.quantity || 0)})
+                    Selected: {filteredInventory.find(item => item.id === parseInt(conversionData.toItemId))?.description} - {filteredInventory.find(item => item.id === parseInt(conversionData.toItemId))?.unit} (Qty: {formatQuantity(filteredInventory.find(item => item.id === parseInt(conversionData.toItemId))?.quantity || 0)})
                   </div>
                 )}
               </div>
