@@ -217,9 +217,7 @@ router.post('/preview', auth, authorize('admin', 'warehouse'), upload.single('fi
         if (!item.unit) {
           errors.push(`Row ${item.rowNumber}: Missing UoM`);
         }
-        if (!item.suggested_selling_price || item.suggested_selling_price <= 0) {
-          errors.push(`Row ${item.rowNumber}: Missing or Invalid Selling Price`);
-        }
+        // Note: unit_cost, selling_price, and quantity are all optional now
       }
     });
 
@@ -325,13 +323,12 @@ router.post('/import', auth, authorize('admin', 'warehouse'), async (req, res) =
         continue;
       }
 
-      // Skip rows without required data (but allow 0 quantity and 0 unit_cost)
-      // Selling price is required
-      if (!item.description || !item.unit || !item.suggested_selling_price || item.suggested_selling_price <= 0) {
+      // Skip rows without required data (only brand, description, and unit are required)
+      // Quantity, unit_cost, and selling_price can all be 0 or empty
+      if (!item.description || !item.unit) {
         const missing = [];
         if (!item.description) missing.push('description');
         if (!item.unit) missing.push('unit');
-        if (!item.suggested_selling_price || item.suggested_selling_price <= 0) missing.push('selling price');
         errors.push(`Row ${data.indexOf(item) + 1}: Missing required fields (${missing.join(', ')})`);
         skipped++;
         continue;
@@ -344,9 +341,15 @@ router.post('/import', auth, authorize('admin', 'warehouse'), async (req, res) =
       }
 
       // Ensure unit_cost defaults to 0 if not provided
-      if (!item.unit_cost || item.unit_cost === '' || isNaN(item.unit_cost) || item.unit_cost <= 0) {
+      if (!item.unit_cost || item.unit_cost === '' || isNaN(item.unit_cost) || item.unit_cost < 0) {
         item.unit_cost = 0;
         console.log(`📝 Set unit cost to 0 for ${item.description} (was empty or invalid)`);
+      }
+
+      // Ensure selling_price defaults to 0 if not provided
+      if (!item.suggested_selling_price || item.suggested_selling_price === '' || isNaN(item.suggested_selling_price) || item.suggested_selling_price < 0) {
+        item.suggested_selling_price = 0;
+        console.log(`📝 Set selling price to 0 for ${item.description} (was empty or invalid)`);
       }
 
       // Process each item in its own transaction
