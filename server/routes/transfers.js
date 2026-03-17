@@ -1024,11 +1024,14 @@ router.post('/:id/unreceive', auth, authorize('admin'), async (req, res) => {
     }
     
     // REMOVE from destination inventory
+    // Note: We don't match on batch_number because transfer_items doesn't store it
+    // We match on description, unit, and unit_cost to find the right inventory item
     const destInventoryResult = await client.query(
       `SELECT * FROM inventory 
-       WHERE location_id = $1 AND description = $2 AND unit = $3 
-       AND COALESCE(batch_number, '') = COALESCE($4, '')`,
-      [transferData.to_location_id, transferData.description, transferData.unit, transferData.batch_number]
+       WHERE location_id = $1 AND description = $2 AND unit = $3 AND unit_cost = $4
+       ORDER BY created_at DESC
+       LIMIT 1`,
+      [transferData.to_location_id, transferData.description, transferData.unit, transferData.unit_cost]
     );
     
     if (destInventoryResult.rows.length === 0) {
@@ -1066,9 +1069,10 @@ router.post('/:id/unreceive', auth, authorize('admin'), async (req, res) => {
     // ADD back to source inventory
     const sourceInventoryResult = await client.query(
       `SELECT * FROM inventory 
-       WHERE location_id = $1 AND description = $2 AND unit = $3 
-       AND unit_cost = $4 AND COALESCE(batch_number, '') = COALESCE($5, '')`,
-      [transferData.from_location_id, transferData.description, transferData.unit, transferData.unit_cost, transferData.batch_number]
+       WHERE location_id = $1 AND description = $2 AND unit = $3 AND unit_cost = $4
+       ORDER BY created_at DESC
+       LIMIT 1`,
+      [transferData.from_location_id, transferData.description, transferData.unit, transferData.unit_cost]
     );
     
     if (sourceInventoryResult.rows.length > 0) {
@@ -1079,11 +1083,14 @@ router.post('/:id/unreceive', auth, authorize('admin'), async (req, res) => {
       );
     } else {
       // Create new inventory record at source
+      // Generate a new cost_batch_id for tracking
+      const costBatchId = `BATCH-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+      
       await client.query(
         `INSERT INTO inventory 
          (location_id, description, unit, quantity, unit_cost, suggested_selling_price, 
-          batch_number, expiry_date, max_quantity, cost_batch_id, is_new_item, is_new_cost) 
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $4, $9, false, false)`,
+          max_quantity, cost_batch_id, is_new_item, is_new_cost) 
+         VALUES ($1, $2, $3, $4, $5, $6, $4, $7, false, false)`,
         [
           transferData.from_location_id, 
           transferData.description, 
@@ -1091,9 +1098,7 @@ router.post('/:id/unreceive', auth, authorize('admin'), async (req, res) => {
           transferData.quantity, 
           transferData.unit_cost, 
           transferData.unit_cost, // Use unit_cost as suggested_selling_price
-          transferData.batch_number, 
-          transferData.expiry_date,
-          `BATCH-${Date.now()}-${Math.random().toString(36).substr(2, 9)}` // cost_batch_id
+          costBatchId
         ]
       );
     }
