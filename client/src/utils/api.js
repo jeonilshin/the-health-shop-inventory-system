@@ -16,7 +16,8 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401 || error.response?.status === 400) {
+    // Only sign out on authentication errors (401), not on validation errors (400)
+    if (error.response?.status === 401) {
       // Token expired or invalid
       const currentPath = window.location.pathname;
       if (currentPath !== '/login') {

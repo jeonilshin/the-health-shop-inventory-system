@@ -942,9 +942,10 @@ router.post('/:id/unreceive', auth, authorize('admin'), async (req, res) => {
     
     await client.query('BEGIN');
     
-    // Get transfer details - try with batch columns first, fallback if they don't exist
+    // Get transfer details - check both transfer_items and main transfers table
     let transferResult;
     try {
+      // First try to get from transfer_items (for multi-item transfers)
       transferResult = await client.query(
         `SELECT t.*, 
                 fl.name as from_location_name, 
@@ -954,17 +955,36 @@ router.post('/:id/unreceive', auth, authorize('admin'), async (req, res) => {
          LEFT JOIN locations fl ON t.from_location_id = fl.id
          LEFT JOIN locations tl ON t.to_location_id = tl.id
          LEFT JOIN transfer_items ti ON t.id = ti.transfer_id
-         WHERE t.id = $1 AND t.status = 'delivered'`,
+         WHERE t.id = $1 AND t.status = 'delivered' AND ti.description IS NOT NULL`,
         [id]
       );
+      
+      // If no items found in transfer_items, check main transfers table (for single-item transfers)
+      if (transferResult.rows.length === 0) {
+        transferResult = await client.query(
+          `SELECT t.*, 
+                  fl.name as from_location_name, 
+                  tl.name as to_location_name,
+                  t.description, t.unit, t.quantity, t.unit_cost,
+                  NULL as batch_number, NULL as expiry_date
+           FROM transfers t
+           LEFT JOIN locations fl ON t.from_location_id = fl.id
+           LEFT JOIN locations tl ON t.to_location_id = tl.id
+           WHERE t.id = $1 AND t.status = 'delivered' AND t.description IS NOT NULL`,
+          [id]
+        );
+      }
     } catch (error) {
-      // If batch columns don't exist, try without them
+      // If batch columns don't exist in transfer_items, try without them
       if (error.message.includes('batch_number') || error.message.includes('expiry_date')) {
         transferResult = await client.query(
           `SELECT t.*, 
                   fl.name as from_location_name, 
                   tl.name as to_location_name,
-                  ti.description, ti.unit, ti.quantity, ti.unit_cost,
+                  COALESCE(ti.description, t.description) as description, 
+                  COALESCE(ti.unit, t.unit) as unit, 
+                  COALESCE(ti.quantity, t.quantity) as quantity, 
+                  COALESCE(ti.unit_cost, t.unit_cost) as unit_cost,
                   NULL as batch_number, NULL as expiry_date
            FROM transfers t
            LEFT JOIN locations fl ON t.from_location_id = fl.id
@@ -988,7 +1008,8 @@ router.post('/:id/unreceive', auth, authorize('admin'), async (req, res) => {
     // Check if transfer items exist
     if (!transferData.description) {
       await client.query('ROLLBACK');
-      return res.status(400).json({ error: 'Transfer items not found. Cannot unreceive.' });
+      console.log('Transfer data:', transferData); // Debug log
+      return res.status(400).json({ error: 'Transfer items not found. Cannot unreceive. This transfer may not have item details stored.' });
     }
     
     // REMOVE from destination inventory
