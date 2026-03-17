@@ -224,9 +224,9 @@ function Sales() {
                 gap: '6px'
               }}>
                 <span className="badge badge-info" style={{ fontSize: '11px' }}>
-                  {locations.find(loc => loc.id == user.location_id)?.type || 'branch'}
+                  {locations.find(loc => loc.id === parseInt(user.location_id))?.type || 'branch'}
                 </span>
-                {locations.find(loc => loc.id == user.location_id)?.name || user.location_name}
+                {locations.find(loc => loc.id === parseInt(user.location_id))?.name || user.location_name}
               </div>
             )}
           </div>
