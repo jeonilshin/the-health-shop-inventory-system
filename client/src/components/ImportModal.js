@@ -166,14 +166,14 @@ function ImportModal({ isOpen, onClose, onImportComplete }) {
       return;
     }
 
-    // Filter out rows with critical errors (missing brand, description, unit, or unit_cost)
-    // Note: quantity can be 0 or empty - that's valid (no stock)
+    // Filter out rows with critical errors (missing brand, description, unit, or selling price)
+    // Note: quantity and unit_cost can be 0 or empty - that's valid
     const validData = previewData.preview.filter(item => 
-      !item.is_category && item.brand && item.description && item.unit && item.unit_cost > 0
+      !item.is_category && item.brand && item.description && item.unit && item.suggested_selling_price > 0
     );
 
     const invalidData = previewData.preview.filter(item => 
-      !item.is_category && (!item.brand || !item.description || !item.unit || item.unit_cost <= 0)
+      !item.is_category && (!item.brand || !item.description || !item.unit || !item.suggested_selling_price || item.suggested_selling_price <= 0)
     );
     
     console.log(`📊 Import validation: ${validData.length} valid, ${invalidData.length} invalid`);
@@ -188,7 +188,7 @@ function ImportModal({ isOpen, onClose, onImportComplete }) {
         if (!item.brand) issues.push('Missing Brand');
         if (!item.description) issues.push('Missing Description');
         if (!item.unit) issues.push('Missing Unit');
-        if (item.unit_cost <= 0) issues.push('Invalid/Missing Unit Cost');
+        if (!item.suggested_selling_price || item.suggested_selling_price <= 0) issues.push('Missing/Invalid Selling Price');
         return `Row ${item.rowNumber}: ${item.description || '(no description)'} - ${issues.join(', ')}`;
       }).slice(0, 10); // Show first 10 errors
 
@@ -459,11 +459,12 @@ function ImportModal({ isOpen, onClose, onImportComplete }) {
                   Expected columns (case-insensitive):
                 </p>
                 <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', margin: '0 0 4px 0' }}>
-                  BRAND, Number (optional), THE HEALTHSHOP PRODUCTS or PRODUCT DESCRIPTION, UoM, Ave Unit Cost, Selling Price, QTY, Expiry Date (optional)
+                  BRAND, Number (optional), THE HEALTHSHOP PRODUCTS or PRODUCT DESCRIPTION, UoM, Ave Unit Cost (optional), Selling Price, QTY (optional), Expiry Date (optional)
                 </p>
                 <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', margin: 0, fontStyle: 'italic' }}>
-                  • Batch numbers: If Number column exists → BRAND-Number (CH-001). If not → auto-generated (CH-001, CH-002, etc.)<br/>
-                  • QTY: 0 or blank = 0 quantity<br/>
+                  • Required: Brand, Description, Unit, Selling Price<br/>
+                  • Optional: Number, Unit Cost (defaults to 0), QTY (defaults to 0), Expiry Date<br/>
+                  • Batch numbers: If Number exists → BRAND-Number (CH-001). If not → auto-generated (CH-001, CH-002, etc.)<br/>
                   • Category rows (description only, no brand/unit) will be detected<br/>
                   • Title rows automatically skipped
                 </p>

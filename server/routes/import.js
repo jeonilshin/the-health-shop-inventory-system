@@ -217,8 +217,8 @@ router.post('/preview', auth, authorize('admin', 'warehouse'), upload.single('fi
         if (!item.unit) {
           errors.push(`Row ${item.rowNumber}: Missing UoM`);
         }
-        if (item.unit_cost <= 0) {
-          errors.push(`Row ${item.rowNumber}: Invalid Cost`);
+        if (!item.suggested_selling_price || item.suggested_selling_price <= 0) {
+          errors.push(`Row ${item.rowNumber}: Missing or Invalid Selling Price`);
         }
       }
     });
@@ -325,9 +325,14 @@ router.post('/import', auth, authorize('admin', 'warehouse'), async (req, res) =
         continue;
       }
 
-      // Skip rows without required data (but allow 0 quantity)
-      if (!item.description || !item.unit || !item.unit_cost) {
-        errors.push(`Row ${data.indexOf(item) + 1}: Missing required fields (description, unit, or unit_cost)`);
+      // Skip rows without required data (but allow 0 quantity and 0 unit_cost)
+      // Selling price is required
+      if (!item.description || !item.unit || !item.suggested_selling_price || item.suggested_selling_price <= 0) {
+        const missing = [];
+        if (!item.description) missing.push('description');
+        if (!item.unit) missing.push('unit');
+        if (!item.suggested_selling_price || item.suggested_selling_price <= 0) missing.push('selling price');
+        errors.push(`Row ${data.indexOf(item) + 1}: Missing required fields (${missing.join(', ')})`);
         skipped++;
         continue;
       }
@@ -336,6 +341,12 @@ router.post('/import', auth, authorize('admin', 'warehouse'), async (req, res) =
       if (!item.quantity || item.quantity === '' || isNaN(item.quantity)) {
         item.quantity = 0;
         console.log(`📝 Set quantity to 0 for ${item.description} (was empty or invalid)`);
+      }
+
+      // Ensure unit_cost defaults to 0 if not provided
+      if (!item.unit_cost || item.unit_cost === '' || isNaN(item.unit_cost) || item.unit_cost <= 0) {
+        item.unit_cost = 0;
+        console.log(`📝 Set unit cost to 0 for ${item.description} (was empty or invalid)`);
       }
 
       // Process each item in its own transaction
