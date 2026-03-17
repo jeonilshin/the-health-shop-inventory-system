@@ -17,6 +17,8 @@ function Transfers() {
   const [showRequestForm, setShowRequestForm] = useState(false);
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [showCdrImport, setShowCdrImport] = useState(false);
+  const [showItemsModal, setShowItemsModal] = useState(false);
+  const [selectedTransferGroup, setSelectedTransferGroup] = useState([]);
   const [rejectTransferId, setRejectTransferId] = useState(null);
   const [rejectionReason, setRejectionReason] = useState('');
   const [loading, setLoading] = useState(false);
@@ -412,6 +414,62 @@ function Transfers() {
 
   const canUnreceive = (transfer) => {
     return user.role === 'admin' && transfer.status === 'delivered';
+  };
+
+  // Group transfers by notes and date for multi-item transfers
+  const groupTransfers = (transfers) => {
+    const groups = {};
+    const ungrouped = [];
+
+    transfers.forEach(transfer => {
+      // Group by notes and date if notes exist and contain "CDR Import" or multiple items with same notes/date
+      const groupKey = transfer.notes && transfer.notes.includes('CDR Import') 
+        ? `${transfer.notes}-${new Date(transfer.transfer_date).toDateString()}`
+        : null;
+
+      if (groupKey) {
+        if (!groups[groupKey]) {
+          groups[groupKey] = [];
+        }
+        groups[groupKey].push(transfer);
+      } else {
+        ungrouped.push(transfer);
+      }
+    });
+
+    // Convert groups to array format and filter out single-item groups
+    const groupedTransfers = Object.entries(groups)
+      .filter(([key, items]) => items.length > 1) // Only show groups with multiple items
+      .map(([key, items]) => ({
+        isGroup: true,
+        groupKey: key,
+        items: items,
+        // Use first item's data for display
+        id: `group-${key}`,
+        transfer_date: items[0].transfer_date,
+        status: items[0].status,
+        from_location_name: items[0].from_location_name,
+        to_location_name: items[0].to_location_name,
+        transferred_by_name: items[0].transferred_by_name,
+        notes: items[0].notes,
+        // Calculate totals
+        totalItems: items.length,
+        totalValue: items.reduce((sum, item) => sum + (parseFloat(item.quantity) * parseFloat(item.unit_cost)), 0)
+      }));
+
+    // Add single items from groups that were filtered out
+    Object.entries(groups)
+      .filter(([key, items]) => items.length === 1)
+      .forEach(([key, items]) => {
+        ungrouped.push(items[0]);
+      });
+
+    return [...groupedTransfers, ...ungrouped];
+  };
+
+  const handleViewItems = (transferGroup) => {
+    setSelectedTransferGroup(transferGroup.items);
+    setShowItemsModal(true);
   };
 
   const canCancel = (transfer) => {
@@ -920,23 +978,46 @@ function Transfers() {
                 </tr>
               </thead>
               <tbody>
-                {transfers
+                {groupTransfers(transfers
                   .filter(transfer => {
                     // For admin, exclude pending transfers from history (they're shown in Pending Approvals section)
                     if (user.role === 'admin' && transfer.status === 'pending') {
                       return false;
                     }
                     return true;
-                  })
+                  }))
                   .map((transfer) => (
                   <tr key={transfer.id}>
                     <td>{new Date(transfer.transfer_date).toLocaleDateString()}</td>
                     <td>{getStatusBadge(transfer.status)}</td>
                     <td>{transfer.from_location_name}</td>
                     <td>{transfer.to_location_name}</td>
-                    <td style={{ fontWeight: 600 }}>{transfer.description}</td>
-                    <td>{formatQuantity(transfer.quantity)} {transfer.unit}</td>
-                    <td style={{ fontWeight: 600 }}>₱{formatPrice(parseFloat(transfer.quantity) * parseFloat(transfer.unit_cost))}</td>
+                    <td style={{ fontWeight: 600 }}>
+                      {transfer.isGroup ? (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span>Multiple Items ({transfer.totalItems})</span>
+                          <button
+                            className="btn btn-info"
+                            style={{ padding: '2px 8px', fontSize: '11px' }}
+                            onClick={() => handleViewItems(transfer)}
+                          >
+                            View Items
+                          </button>
+                        </div>
+                      ) : (
+                        transfer.description
+                      )}
+                    </td>
+                    <td>
+                      {transfer.isGroup ? (
+                        `${transfer.totalItems} items`
+                      ) : (
+                        `${formatQuantity(transfer.quantity)} ${transfer.unit}`
+                      )}
+                    </td>
+                    <td style={{ fontWeight: 600 }}>
+                      ₱{formatPrice(transfer.isGroup ? transfer.totalValue : (parseFloat(transfer.quantity) * parseFloat(transfer.unit_cost)))}
+                    </td>
                     <td>{transfer.transferred_by_name}</td>
                     <td>
                       <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap' }}>
@@ -1089,6 +1170,114 @@ function Transfers() {
           }}
           locations={locations}
         />
+      )}
+
+      {/* View Items Modal */}
+      {showItemsModal && (
+        <div className="modal-overlay" onClick={() => setShowItemsModal(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '800px', width: '95%' }}>
+            <div style={{ 
+              padding: '20px 24px', 
+              borderBottom: '1px solid var(--border)',
+              background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+              color: 'white',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center'
+            }}>
+              <h2 style={{ fontSize: '1.25rem', fontWeight: 'bold', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <FiPackage size={20} />
+                Transfer Items ({selectedTransferGroup.length} items)
+              </h2>
+              <button
+                onClick={() => setShowItemsModal(false)}
+                style={{ 
+                  background: 'rgba(255, 255, 255, 0.2)', 
+                  border: 'none', 
+                  color: 'white', 
+                  width: '32px', 
+                  height: '32px', 
+                  borderRadius: 'var(--radius)', 
+                  cursor: 'pointer'
+                }}
+              >
+                <FiX size={16} />
+              </button>
+            </div>
+
+            <div style={{ padding: '24px', maxHeight: '60vh', overflowY: 'auto' }}>
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', fontSize: '14px' }}>
+                  <thead>
+                    <tr style={{ background: 'var(--bg-secondary)' }}>
+                      <th style={{ padding: '12px 8px', textAlign: 'left' }}>Item</th>
+                      <th style={{ padding: '12px 8px', textAlign: 'left' }}>Unit</th>
+                      <th style={{ padding: '12px 8px', textAlign: 'right' }}>Quantity</th>
+                      <th style={{ padding: '12px 8px', textAlign: 'right' }}>Unit Cost</th>
+                      <th style={{ padding: '12px 8px', textAlign: 'right' }}>Total Value</th>
+                      <th style={{ padding: '12px 8px', textAlign: 'center' }}>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {selectedTransferGroup.map((item, index) => (
+                      <tr key={item.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                        <td style={{ padding: '12px 8px', fontWeight: '600' }}>{item.description}</td>
+                        <td style={{ padding: '12px 8px' }}>{item.unit}</td>
+                        <td style={{ padding: '12px 8px', textAlign: 'right' }}>{formatQuantity(item.quantity)}</td>
+                        <td style={{ padding: '12px 8px', textAlign: 'right' }}>₱{formatPrice(item.unit_cost)}</td>
+                        <td style={{ padding: '12px 8px', textAlign: 'right', fontWeight: '600' }}>
+                          ₱{formatPrice(parseFloat(item.quantity) * parseFloat(item.unit_cost))}
+                        </td>
+                        <td style={{ padding: '12px 8px', textAlign: 'center' }}>
+                          {getStatusBadge(item.status)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr style={{ background: 'var(--bg-secondary)', fontWeight: '600' }}>
+                      <td colSpan={4} style={{ padding: '12px 8px', textAlign: 'right' }}>Total:</td>
+                      <td style={{ padding: '12px 8px', textAlign: 'right', fontSize: '16px' }}>
+                        ₱{formatPrice(selectedTransferGroup.reduce((sum, item) => 
+                          sum + (parseFloat(item.quantity) * parseFloat(item.unit_cost)), 0
+                        ))}
+                      </td>
+                      <td style={{ padding: '12px 8px', textAlign: 'center' }}>
+                        {selectedTransferGroup.length} items
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+
+              {selectedTransferGroup.length > 0 && selectedTransferGroup[0].notes && (
+                <div style={{ 
+                  marginTop: '16px', 
+                  padding: '12px', 
+                  background: 'var(--bg-secondary)', 
+                  borderRadius: 'var(--radius)',
+                  fontSize: '14px'
+                }}>
+                  <strong>Notes:</strong> {selectedTransferGroup[0].notes}
+                </div>
+              )}
+            </div>
+
+            <div style={{ 
+              padding: '16px 24px', 
+              borderTop: '1px solid var(--border)',
+              display: 'flex',
+              justifyContent: 'flex-end'
+            }}>
+              <button 
+                className="btn btn-secondary" 
+                onClick={() => setShowItemsModal(false)}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

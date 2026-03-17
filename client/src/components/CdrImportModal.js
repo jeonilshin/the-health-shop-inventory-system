@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import api from '../utils/api';
-import { FiX, FiCheck, FiAlertCircle, FiEdit2, FiTruck } from 'react-icons/fi';
+import { FiX, FiCheck, FiAlertCircle, FiEdit2, FiTruck, FiSearch } from 'react-icons/fi';
+import SimpleAutocomplete from './SimpleAutocomplete';
 
 function CdrImportModal({ isOpen, onClose, onImportComplete, locations }) {
   const [step, setStep] = useState(1); // 1: Upload, 2: Select Warehouse, 3: Review & Fix
@@ -11,6 +12,8 @@ function CdrImportModal({ isOpen, onClose, onImportComplete, locations }) {
   const [loading, setLoading] = useState(false);
   const [editingIndex, setEditingIndex] = useState(null);
   const [editData, setEditData] = useState({});
+  const [warehouseInventory, setWarehouseInventory] = useState([]);
+  const [searchResults, setSearchResults] = useState([]);
 
   // Branch mapping - maps CDR outlet names to actual branch names
   const branchMapping = {
@@ -28,6 +31,8 @@ function CdrImportModal({ isOpen, onClose, onImportComplete, locations }) {
       setErrors([]);
       setEditingIndex(null);
       setEditData({});
+      setWarehouseInventory([]);
+      setSearchResults([]);
     }
   }, [isOpen]);
 
@@ -123,6 +128,7 @@ function CdrImportModal({ isOpen, onClose, onImportComplete, locations }) {
       // Get inventory from selected warehouse
       const response = await api.get(`/inventory/location/${fromWarehouse}`);
       const warehouseInventory = response.data;
+      setWarehouseInventory(warehouseInventory); // Store for search functionality
 
       const updatedData = cdrData.map(item => {
         // Try to find exact match first
@@ -175,8 +181,10 @@ function CdrImportModal({ isOpen, onClose, onImportComplete, locations }) {
     setEditData({
       description: cdrData[index].description,
       unit: cdrData[index].unit,
-      quantity: cdrData[index].quantity
+      quantity: cdrData[index].quantity,
+      searchText: cdrData[index].description
     });
+    setSearchResults([]);
   };
 
   const saveEdit = () => {
@@ -192,6 +200,27 @@ function CdrImportModal({ isOpen, onClose, onImportComplete, locations }) {
     setCdrData(updatedData);
     setEditingIndex(null);
     setEditData({});
+  };
+
+  const handleProductSelect = (selectedProduct) => {
+    setEditData({
+      ...editData,
+      description: selectedProduct.description,
+      unit: selectedProduct.unit,
+      searchText: selectedProduct.description
+    });
+    
+    // Auto-apply the selection
+    const updatedData = [...cdrData];
+    updatedData[editingIndex] = {
+      ...updatedData[editingIndex],
+      description: selectedProduct.description,
+      unit: selectedProduct.unit,
+      suggested: selectedProduct,
+      error: null
+    };
+    setCdrData(updatedData);
+    setErrors(updatedData.filter(item => item.error));
   };
 
   const selectSuggestion = (index, suggestion) => {
@@ -466,12 +495,21 @@ function CdrImportModal({ isOpen, onClose, onImportComplete, locations }) {
                           <td style={{ padding: '8px' }}>{item.mappedBranch}</td>
                           <td style={{ padding: '8px' }}>
                             {editingIndex === index ? (
-                              <input
-                                type="text"
-                                value={editData.description}
-                                onChange={(e) => setEditData({...editData, description: e.target.value})}
-                                style={{ width: '100%', padding: '2px 4px', fontSize: '11px' }}
-                              />
+                              <div style={{ position: 'relative' }}>
+                                <SimpleAutocomplete
+                                  items={warehouseInventory}
+                                  value={editData.searchText || ''}
+                                  onChange={(value) => setEditData({...editData, searchText: value, description: value})}
+                                  onSelect={handleProductSelect}
+                                  displayField="description"
+                                  placeholder="Search warehouse products..."
+                                  style={{ width: '100%', fontSize: '11px' }}
+                                />
+                                <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                                  <FiSearch size={10} style={{ marginRight: '4px' }} />
+                                  Type to search warehouse inventory
+                                </div>
+                              </div>
                             ) : (
                               item.description
                             )}
