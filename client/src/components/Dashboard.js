@@ -1,7 +1,7 @@
 import { useState, useEffect, useContext } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../utils/api';
-import { formatQuantity, formatPrice } from '../utils/formatNumber';
+import { formatQuantity, formatPrice, formatCompactNumber, formatCompactPrice } from '../utils/formatNumber';
 import { AuthContext } from '../context/AuthContext';
 import { 
   FiPackage, 
@@ -114,8 +114,13 @@ function Dashboard() {
         {user?.role === 'admin' && (
           <div className="stat-card">
             <div className="stat-card-header">
-              <div>
-                <div className="stat-card-value">₱{formatPrice(stats.totalValue)}</div>
+              <div className="stat-card-content">
+                <div 
+                  className={`stat-card-value ${formatCompactPrice(stats.totalValue).length > 8 ? 'long-number' : ''}`}
+                  title={`₱${formatPrice(stats.totalValue)}`}
+                >
+                  ₱{formatCompactPrice(stats.totalValue)}
+                </div>
                 <div className="stat-card-label">Total Inventory Value</div>
               </div>
               <div className="stat-card-icon" style={{ backgroundColor: 'rgba(37, 99, 235, 0.1)', color: '#2563eb' }}>
@@ -127,8 +132,13 @@ function Dashboard() {
 
         <div className="stat-card">
           <div className="stat-card-header">
-            <div>
-              <div className="stat-card-value">{stats.totalItems}</div>
+            <div className="stat-card-content">
+              <div 
+                className={`stat-card-value ${formatCompactNumber(stats.totalItems).length > 6 ? 'long-number' : ''}`}
+                title={stats.totalItems.toLocaleString()}
+              >
+                {formatCompactNumber(stats.totalItems)}
+              </div>
               <div className="stat-card-label">Total Products</div>
             </div>
             <div className="stat-card-icon" style={{ backgroundColor: 'rgba(16, 185, 129, 0.1)', color: '#10b981' }}>
@@ -139,9 +149,13 @@ function Dashboard() {
 
         <div className="stat-card">
           <div className="stat-card-header">
-            <div>
-              <div className="stat-card-value" style={{ color: stats.lowStockCount > 0 ? '#f59e0b' : 'inherit' }}>
-                {stats.lowStockCount}
+            <div className="stat-card-content">
+              <div 
+                className={`stat-card-value ${formatCompactNumber(stats.lowStockCount).length > 4 ? 'long-number' : ''}`} 
+                style={{ color: stats.lowStockCount > 0 ? '#f59e0b' : 'inherit' }}
+                title={stats.lowStockCount.toLocaleString()}
+              >
+                {formatCompactNumber(stats.lowStockCount)}
               </div>
               <div className="stat-card-label">Low Stock Items</div>
             </div>
@@ -153,9 +167,13 @@ function Dashboard() {
 
         <div className="stat-card">
           <div className="stat-card-header">
-            <div>
-              <div className="stat-card-value" style={{ color: stats.outOfStockCount > 0 ? '#ef4444' : 'inherit' }}>
-                {stats.outOfStockCount}
+            <div className="stat-card-content">
+              <div 
+                className={`stat-card-value ${formatCompactNumber(stats.outOfStockCount).length > 4 ? 'long-number' : ''}`} 
+                style={{ color: stats.outOfStockCount > 0 ? '#ef4444' : 'inherit' }}
+                title={stats.outOfStockCount.toLocaleString()}
+              >
+                {formatCompactNumber(stats.outOfStockCount)}
               </div>
               <div className="stat-card-label">Out of Stock</div>
             </div>
@@ -167,9 +185,13 @@ function Dashboard() {
 
         <div className="stat-card">
           <div className="stat-card-header">
-            <div>
-              <div className="stat-card-value" style={{ color: stats.expiringCount > 0 ? '#f59e0b' : 'inherit' }}>
-                {stats.expiringCount}
+            <div className="stat-card-content">
+              <div 
+                className={`stat-card-value ${formatCompactNumber(stats.expiringCount).length > 4 ? 'long-number' : ''}`} 
+                style={{ color: stats.expiringCount > 0 ? '#f59e0b' : 'inherit' }}
+                title={stats.expiringCount.toLocaleString()}
+              >
+                {formatCompactNumber(stats.expiringCount)}
               </div>
               <div className="stat-card-label">Expiring Soon</div>
             </div>

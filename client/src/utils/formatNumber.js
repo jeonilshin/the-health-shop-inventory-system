@@ -20,3 +20,33 @@ export const formatPrice = (value) => {
     maximumFractionDigits: 2
   });
 };
+
+// Format large numbers compactly for dashboard (e.g., 1.2M, 5.6K)
+export const formatCompactNumber = (value) => {
+  const num = parseFloat(value);
+  if (isNaN(num)) return '0';
+  
+  if (num >= 1000000) {
+    return (num / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
+  }
+  if (num >= 1000) {
+    return (num / 1000).toFixed(1).replace(/\.0$/, '') + 'K';
+  }
+  
+  return num.toLocaleString();
+};
+
+// Format price compactly for dashboard
+export const formatCompactPrice = (value) => {
+  const num = parseFloat(value);
+  if (isNaN(num)) return '0.00';
+  
+  if (num >= 1000000) {
+    return (num / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
+  }
+  if (num >= 1000) {
+    return (num / 1000).toFixed(1).replace(/\.0$/, '') + 'K';
+  }
+  
+  return formatPrice(num);
+};
