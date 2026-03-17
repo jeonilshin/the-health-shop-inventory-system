@@ -329,7 +329,7 @@ router.post('/convert-units', auth, authorize('admin', 'branch_manager', 'branch
     if (parseFloat(fromItem.quantity) < parseFloat(boxesToConvert)) {
       await client.query('ROLLBACK');
       return res.status(400).json({ 
-        error: `Insufficient quantity. Available: ${fromItem.quantity} ${fromItem.unit}, Requested: ${boxesToConvert} ${fromItem.unit}` 
+        error: `Insufficient quantity. Available: ${parseFloat(fromItem.quantity).toFixed(2)} ${fromItem.unit}, Requested: ${boxesToConvert}` 
       });
     }
     

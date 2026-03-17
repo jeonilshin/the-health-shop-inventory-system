@@ -636,6 +636,16 @@ function Inventory() {
       return;
     }
 
+    // Find the from item to check available quantity
+    const fromItem = filteredInventory.find(item => item.id === parseInt(conversionData.fromItemId));
+    const availableQty = fromItem ? (fromItem.totalQuantity || fromItem.quantity) : 0;
+    const requestedQty = parseFloat(conversionData.boxesToConvert);
+
+    if (requestedQty > availableQty) {
+      alert(`Insufficient quantity. Available: ${formatQuantity(availableQty)} ${fromItem?.unit || ''}, Requested: ${requestedQty}`);
+      return;
+    }
+
     try {
       await api.post('/inventory/convert-units', {
         fromItemId: conversionData.fromItemId,
