@@ -852,10 +852,9 @@ router.post('/batch', auth, authorize('admin'), async (req, res) => {
           // Create transfer item record
           await client.query(
             `INSERT INTO transfer_items 
-             (transfer_id, inventory_item_id, description, unit, quantity, unit_cost, batch_number, expiry_date) 
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-            [transfer.id, inventory_item_id, description, unit, quantity, unit_cost, 
-             inventoryItem.batch_number, inventoryItem.expiry_date]
+             (transfer_id, description, unit, quantity, unit_cost) 
+             VALUES ($1, $2, $3, $4, $5)`,
+            [transfer.id, description, unit, quantity, unit_cost]
           );
 
           // Reduce quantity from source location
