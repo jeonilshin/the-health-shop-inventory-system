@@ -102,12 +102,35 @@ function Sales() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
+      // Debug: Log the form data being sent
+      console.log('Submitting sale with data:', formData);
+      
+      // Calculate the expected total for debugging
+      const grossAmount = (parseFloat(formData.quantity_sold) || 0) * (parseFloat(formData.unit_price) || 0);
+      let expectedTotal = grossAmount;
+      
+      if (formData.discount_type === 'pwd' || formData.discount_type === 'senior') {
+        const netOfVat = grossAmount / 1.12;
+        const discountAmount = netOfVat * 0.20;
+        expectedTotal = Math.round(grossAmount - discountAmount);
+      } else if (formData.discount_type === 'custom' && formData.custom_discount_percent) {
+        const discountAmount = grossAmount * (parseFloat(formData.custom_discount_percent) / 100);
+        expectedTotal = Math.round(grossAmount - discountAmount);
+      }
+      
+      console.log('Expected total calculation:', {
+        grossAmount,
+        discountType: formData.discount_type,
+        expectedTotal
+      });
+      
       await api.post('/sales-transactions', formData);
       alert('Sale recorded successfully!');
       setShowForm(false);
       resetForm();
       fetchSales();
     } catch (error) {
+      console.error('Sale submission error:', error.response?.data || error);
       alert(error.response?.data?.error || 'Error recording sale');
     }
   };
@@ -178,9 +201,47 @@ function Sales() {
 
   return (
     <div className="container">
-      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '24px' }}>
-        <FiShoppingCart size={32} color="#2563eb" />
-        <h2 style={{ margin: 0 }}>Sales Recording</h2>
+      {/* Header */}
+      <div style={{ 
+        display: 'flex', 
+        alignItems: 'center', 
+        justifyContent: 'space-between',
+        marginBottom: '24px',
+        flexWrap: 'wrap',
+        gap: '16px'
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <FiShoppingCart size={32} color="#2563eb" />
+          <div>
+            <h2 style={{ margin: 0 }}>Sales Recording</h2>
+            {(user?.role === 'branch_manager' || user?.role === 'branch_staff') && user?.location_name && (
+              <div style={{ 
+                fontSize: '14px', 
+                color: 'var(--text-secondary)',
+                marginTop: '4px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px'
+              }}>
+                <span className="badge badge-info" style={{ fontSize: '11px' }}>
+                  {locations.find(loc => loc.id == user.location_id)?.type || 'branch'}
+                </span>
+                {locations.find(loc => loc.id == user.location_id)?.name || user.location_name}
+              </div>
+            )}
+          </div>
+        </div>
+        
+        {canRecordSales && (
+          <button 
+            className="btn btn-primary" 
+            onClick={() => setShowForm(!showForm)}
+            style={{ whiteSpace: 'nowrap' }}
+          >
+            <FiPlus size={16} />
+            {showForm ? 'Cancel' : 'Record Sale'}
+          </button>
+        )}
       </div>
 
       {/* Summary Cards */}
@@ -201,87 +262,135 @@ function Sales() {
         </div>
       </div>
 
-      {/* Filters and Actions */}
+      {/* Filters */}
       <div className="card" style={{ marginBottom: '20px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
-          <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+        <div style={{ 
+          display: 'flex', 
+          justifyContent: 'space-between', 
+          alignItems: 'flex-start', 
+          flexWrap: 'wrap', 
+          gap: '16px' 
+        }}>
+          <div style={{ 
+            display: 'flex', 
+            flexWrap: 'wrap',
+            gap: '12px', 
+            alignItems: 'center',
+            flex: 1,
+            minWidth: '300px'
+          }}>
             <FiCalendar size={18} color="var(--text-secondary)" />
-            <div className="form-group" style={{ marginBottom: 0 }}>
-              <input 
-                type="date" 
-                value={filters.startDate} 
-                onChange={(e) => setFilters({...filters, startDate: e.target.value})} 
-              />
-            </div>
-            <span>to</span>
-            <div className="form-group" style={{ marginBottom: 0 }}>
-              <input 
-                type="date" 
-                value={filters.endDate} 
-                onChange={(e) => setFilters({...filters, endDate: e.target.value})} 
-              />
-            </div>
-            {user.role === 'admin' && (
-              <div className="form-group" style={{ marginBottom: 0, minWidth: '180px' }}>
-                <select 
-                  value={filters.locationId} 
-                  onChange={(e) => setFilters({...filters, locationId: e.target.value})}
-                >
-                  <option value="all">All Branches</option>
-                  {locations.map(loc => (
-                    <option key={loc.id} value={loc.id}>{loc.name}</option>
-                  ))}
-                </select>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+              <div className="form-group" style={{ marginBottom: 0, minWidth: '140px' }}>
+                <label style={{ fontSize: '12px', marginBottom: '4px' }}>From Date</label>
+                <input 
+                  type="date" 
+                  value={filters.startDate} 
+                  onChange={(e) => setFilters({...filters, startDate: e.target.value})} 
+                  style={{ fontSize: '14px' }}
+                />
               </div>
-            )}
+              <div className="form-group" style={{ marginBottom: 0, minWidth: '140px' }}>
+                <label style={{ fontSize: '12px', marginBottom: '4px' }}>To Date</label>
+                <input 
+                  type="date" 
+                  value={filters.endDate} 
+                  onChange={(e) => setFilters({...filters, endDate: e.target.value})} 
+                  style={{ fontSize: '14px' }}
+                />
+              </div>
+              {user.role === 'admin' && (
+                <div className="form-group" style={{ marginBottom: 0, minWidth: '180px' }}>
+                  <label style={{ fontSize: '12px', marginBottom: '4px' }}>Location</label>
+                  <select 
+                    value={filters.locationId} 
+                    onChange={(e) => setFilters({...filters, locationId: e.target.value})}
+                    style={{ fontSize: '14px' }}
+                  >
+                    <option value="all">All Branches</option>
+                    {locations.map(loc => (
+                      <option key={loc.id} value={loc.id}>{loc.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
           </div>
-          {canRecordSales && (
-            <button className="btn btn-primary" onClick={() => setShowForm(!showForm)}>
-              <FiPlus size={16} />
-              {showForm ? 'Cancel' : 'Record Sale'}
-            </button>
-          )}
         </div>
       </div>
 
       {/* Sale Form */}
       {showForm && (
         <div className="card" style={{ marginBottom: '20px' }}>
-          <h3>Record New Sale</h3>
+          <div style={{ 
+            display: 'flex', 
+            justifyContent: 'space-between', 
+            alignItems: 'center', 
+            marginBottom: '20px',
+            paddingBottom: '12px',
+            borderBottom: '1px solid var(--border)'
+          }}>
+            <h3 style={{ margin: 0 }}>Record New Sale</h3>
+            <button 
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => setShowForm(false)}
+              style={{ padding: '6px 12px', fontSize: '14px' }}
+            >
+              <FiX size={16} />
+            </button>
+          </div>
+          
           <form onSubmit={handleSubmit}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginBottom: '16px' }}>
-              <div className="form-group" style={{ marginBottom: 0 }}>
-                <label>Date *</label>
-                <input 
-                  type="date" 
-                  value={formData.transaction_date} 
-                  onChange={(e) => setFormData({...formData, transaction_date: e.target.value})} 
-                  required 
-                />
-              </div>
-              <div className="form-group" style={{ marginBottom: 0 }}>
-                <label>Location *</label>
-                <select 
-                  value={formData.location_id} 
-                  onChange={(e) => setFormData({...formData, location_id: e.target.value})} 
-                  required
-                  disabled={user.role !== 'admin' && user.location_id}
-                >
-                  <option value="">Select location</option>
-                  {locations.map(loc => (
-                    <option key={loc.id} value={loc.id}>{loc.name}</option>
-                  ))}
-                </select>
+            {/* Basic Information */}
+            <div style={{ marginBottom: '24px' }}>
+              <h4 style={{ fontSize: '16px', marginBottom: '16px', color: 'var(--primary)' }}>
+                Sale Information
+              </h4>
+              <div style={{ 
+                display: 'grid', 
+                gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', 
+                gap: '16px' 
+              }}>
+                <div className="form-group">
+                  <label>Date *</label>
+                  <input 
+                    type="date" 
+                    value={formData.transaction_date} 
+                    onChange={(e) => setFormData({...formData, transaction_date: e.target.value})} 
+                    required 
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Location *</label>
+                  <select 
+                    value={formData.location_id} 
+                    onChange={(e) => setFormData({...formData, location_id: e.target.value})} 
+                    required
+                    disabled={user.role !== 'admin' && user.location_id}
+                  >
+                    <option value="">Select location</option>
+                    {locations.map(loc => (
+                      <option key={loc.id} value={loc.id}>{loc.name}</option>
+                    ))}
+                  </select>
+                </div>
               </div>
             </div>
 
-            <div className="form-group">
-              <label>Search Item *</label>
-              <AutocompleteSearch
-                locationId={formData.location_id}
-                onSelect={handleItemSelect}
-                placeholder="Search for item to sell..."
-              />
+            {/* Item Selection */}
+            <div style={{ marginBottom: '24px' }}>
+              <h4 style={{ fontSize: '16px', marginBottom: '16px', color: 'var(--primary)' }}>
+                Item Selection
+              </h4>
+              <div className="form-group">
+                <label>Search Item *</label>
+                <AutocompleteSearch
+                  locationId={formData.location_id}
+                  onSelect={handleItemSelect}
+                  placeholder="Search for item to sell..."
+                />
+              </div>
             </div>
 
             {/* Cost Batch Selection */}
@@ -415,91 +524,108 @@ function Sales() {
             </div>
 
             {/* Discount Section */}
-            <div style={{ 
-              padding: '16px', 
-              backgroundColor: 'rgba(59, 130, 246, 0.05)', 
-              borderRadius: 'var(--radius)', 
-              marginBottom: '16px',
-              border: '1px solid rgba(59, 130, 246, 0.2)'
-            }}>
-              <h4 style={{ marginTop: 0, marginBottom: '12px', fontSize: '14px', color: 'var(--primary)' }}>
-                Discount Options
-              </h4>
-              
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
-                <div className="form-group" style={{ marginBottom: 0 }}>
-                  <label>Discount Type</label>
-                  <select 
-                    value={formData.discount_type} 
-                    onChange={(e) => {
-                      setFormData({
-                        ...formData, 
-                        discount_type: e.target.value,
-                        custom_discount_percent: e.target.value === 'custom' ? formData.custom_discount_percent : '',
-                        discount_reason: e.target.value === 'custom' ? formData.discount_reason : 
-                                       e.target.value === 'pwd' ? 'PWD Discount' :
-                                       e.target.value === 'senior' ? 'Senior Citizen Discount' : ''
-                      });
-                    }}
-                  >
-                    <option value="none">No Discount</option>
-                    <option value="pwd">PWD (20%)</option>
-                    <option value="senior">Senior Citizen (20%)</option>
-                    <option value="custom">Custom Discount</option>
-                  </select>
-                </div>
-
-                {formData.discount_type === 'custom' && (
-                  <>
-                    <div className="form-group" style={{ marginBottom: 0 }}>
-                      <label>Discount Percentage *</label>
-                      <input 
-                        type="number" 
-                        step="0.01"
-                        min="0"
-                        max="100"
-                        value={formData.custom_discount_percent} 
-                        onChange={(e) => setFormData({...formData, custom_discount_percent: e.target.value})} 
-                        placeholder="e.g., 10"
-                        required={formData.discount_type === 'custom'}
-                      />
-                    </div>
-                    <div className="form-group" style={{ marginBottom: 0 }}>
-                      <label>Discount Reason *</label>
-                      <input 
-                        type="text" 
-                        value={formData.discount_reason} 
-                        onChange={(e) => setFormData({...formData, discount_reason: e.target.value})} 
-                        placeholder="e.g., Holiday Promo, Loyalty Discount"
-                        required={formData.discount_type === 'custom'}
-                      />
-                    </div>
-                  </>
-                )}
-              </div>
-
-              {formData.discount_type !== 'none' && (
-                <div style={{ 
-                  marginTop: '12px', 
-                  padding: '12px', 
-                  backgroundColor: 'rgba(16, 185, 129, 0.1)', 
-                  borderRadius: 'var(--radius)',
-                  border: '1px solid rgba(16, 185, 129, 0.3)'
+            <div style={{ marginBottom: '24px' }}>
+              <div style={{ 
+                padding: '20px', 
+                backgroundColor: 'rgba(59, 130, 246, 0.05)', 
+                borderRadius: 'var(--radius)', 
+                border: '1px solid rgba(59, 130, 246, 0.2)'
+              }}>
+                <h4 style={{ 
+                  marginTop: 0, 
+                  marginBottom: '16px', 
+                  fontSize: '16px', 
+                  color: 'var(--primary)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px'
                 }}>
-                  <div style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
-                    {formData.discount_type === 'pwd' && 'PWD Discount (20% on net of VAT + VAT Exempt)'}
-                    {formData.discount_type === 'senior' && 'Senior Citizen Discount (20% on net of VAT + VAT Exempt)'}
-                    {formData.discount_type === 'custom' && formData.custom_discount_percent && 
-                      `Custom Discount (${formData.custom_discount_percent}%)`}
-                    {formData.discount_reason && ` - ${formData.discount_reason}`}
+                  <FiDollarSign size={16} />
+                  Discount Options
+                </h4>
+                
+                <div style={{ 
+                  display: 'grid', 
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', 
+                  gap: '16px',
+                  marginBottom: '16px'
+                }}>
+                  <div className="form-group">
+                    <label>Discount Type</label>
+                    <select 
+                      value={formData.discount_type} 
+                      onChange={(e) => {
+                        setFormData({
+                          ...formData, 
+                          discount_type: e.target.value,
+                          custom_discount_percent: e.target.value === 'custom' ? formData.custom_discount_percent : '',
+                          discount_reason: e.target.value === 'custom' ? formData.discount_reason : 
+                                         e.target.value === 'pwd' ? 'PWD Discount' :
+                                         e.target.value === 'senior' ? 'Senior Citizen Discount' : ''
+                        });
+                      }}
+                    >
+                      <option value="none">No Discount</option>
+                      <option value="pwd">PWD (20%)</option>
+                      <option value="senior">Senior Citizen (20%)</option>
+                      <option value="custom">Custom Discount</option>
+                    </select>
                   </div>
-                  {(formData.discount_type === 'pwd' || formData.discount_type === 'senior') && (
-                    <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
-                      Formula: Price ÷ 1.12 × 0.20 = Discount, then Price - Discount = Final
-                    </div>
+
+                  {formData.discount_type === 'custom' && (
+                    <>
+                      <div className="form-group">
+                        <label>Discount Percentage *</label>
+                        <input 
+                          type="number" 
+                          step="0.01"
+                          min="0"
+                          max="100"
+                          value={formData.custom_discount_percent} 
+                          onChange={(e) => setFormData({...formData, custom_discount_percent: e.target.value})} 
+                          placeholder="e.g., 10"
+                          required={formData.discount_type === 'custom'}
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label>Discount Reason *</label>
+                        <input 
+                          type="text" 
+                          value={formData.discount_reason} 
+                          onChange={(e) => setFormData({...formData, discount_reason: e.target.value})} 
+                          placeholder="e.g., Holiday Promo, Loyalty Discount"
+                          required={formData.discount_type === 'custom'}
+                        />
+                      </div>
+                    </>
                   )}
                 </div>
-              )}
+
+                {formData.discount_type !== 'none' && (
+                  <div style={{ 
+                    padding: '16px', 
+                    backgroundColor: 'rgba(16, 185, 129, 0.1)', 
+                    borderRadius: 'var(--radius)',
+                    border: '1px solid rgba(16, 185, 129, 0.3)'
+                  }}>
+                    <div style={{ fontSize: '14px', color: 'var(--text-secondary)', marginBottom: '8px' }}>
+                      <strong>Discount Information:</strong>
+                    </div>
+                    <div style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+                      {formData.discount_type === 'pwd' && 'PWD Discount (20% on net of VAT + VAT Exempt)'}
+                      {formData.discount_type === 'senior' && 'Senior Citizen Discount (20% on net of VAT + VAT Exempt)'}
+                      {formData.discount_type === 'custom' && formData.custom_discount_percent && 
+                        `Custom Discount (${formData.custom_discount_percent}%)`}
+                      {formData.discount_reason && ` - ${formData.discount_reason}`}
+                    </div>
+                    {(formData.discount_type === 'pwd' || formData.discount_type === 'senior') && (
+                      <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '8px' }}>
+                        <strong>Formula:</strong> Price ÷ 1.12 × 0.20 = Discount, then Price - Discount = Final Amount
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* Price Summary */}

@@ -376,8 +376,8 @@ function CdrImportModal({ isOpen, onClose, onImportComplete, locations }) {
         });
 
         for (const [branchId, items] of Object.entries(itemsByBranch)) {
-          // Find branch location - ensure ID comparison works with both string and number
-          const branch = locations.find(loc => loc.id == branchId); // Use == for flexible comparison
+          // Find branch location
+          const branch = locations.find(loc => loc.id === parseInt(branchId));
 
           if (!branch) {
             console.error(`Branch not found with ID: ${branchId}. Available branches:`, 
