@@ -344,6 +344,17 @@ function Transfers() {
     }
   };
 
+  const handleUnreceive = async (id) => {
+    if (!window.confirm('Are you sure you want to unreceive this transfer? This will remove the inventory from the destination and return it to the source location.')) return;
+    try {
+      await api.post(`/transfers/${id}/unreceive`);
+      await fetchTransfers();
+      alert('Transfer unreceived! Inventory has been returned to the source location.');
+    } catch (error) {
+      alert(error.response?.data?.error || 'Error unreceiving transfer');
+    }
+  };
+
   const handleCancel = async (id) => {
     if (!window.confirm('Cancel this transfer?')) return;
     try {
@@ -397,6 +408,10 @@ function Transfers() {
     return (user.role === 'admin' || user.role === 'branch_manager') && 
            transfer.status === 'in_transit' &&
            (user.role === 'admin' || transfer.to_location_id === user.location_id);
+  };
+
+  const canUnreceive = (transfer) => {
+    return user.role === 'admin' && transfer.status === 'delivered';
   };
 
   const canCancel = (transfer) => {
@@ -963,6 +978,16 @@ function Transfers() {
                           >
                             <FiCheckCircle size={12} />
                             Received
+                          </button>
+                        )}
+                        {canUnreceive(transfer) && (
+                          <button
+                            className="btn btn-warning"
+                            style={{ padding: '4px 8px', fontSize: '12px' }}
+                            onClick={() => handleUnreceive(transfer.id)}
+                          >
+                            <FiX size={12} />
+                            Unreceive
                           </button>
                         )}
                         {canCancel(transfer) && (

@@ -933,4 +933,156 @@ router.post('/batch', auth, authorize('admin'), async (req, res) => {
   }
 });
 
+// Unreceive transfer (admin only) - reverse a completed transfer
+router.post('/:id/unreceive', auth, authorize('admin'), async (req, res) => {
+  const client = await pool.connect();
+  
+  try {
+    const { id } = req.params;
+    
+    await client.query('BEGIN');
+    
+    // Get transfer details
+    const transferResult = await client.query(
+      `SELECT t.*, 
+              fl.name as from_location_name, 
+              tl.name as to_location_name,
+              ti.description, ti.unit, ti.quantity, ti.unit_cost, ti.batch_number, ti.expiry_date
+       FROM transfers t
+       LEFT JOIN locations fl ON t.from_location_id = fl.id
+       LEFT JOIN locations tl ON t.to_location_id = tl.id
+       LEFT JOIN transfer_items ti ON t.id = ti.transfer_id
+       WHERE t.id = $1 AND t.status = 'delivered'`,
+      [id]
+    );
+    
+    if (transferResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Transfer not found or not in delivered status' });
+    }
+    
+    const transferData = transferResult.rows[0];
+    
+    // Check if transfer items exist
+    if (!transferData.description) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Transfer items not found. Cannot unreceive.' });
+    }
+    
+    // REMOVE from destination inventory
+    const destInventoryResult = await client.query(
+      `SELECT * FROM inventory 
+       WHERE location_id = $1 AND description = $2 AND unit = $3 
+       AND COALESCE(batch_number, '') = COALESCE($4, '')`,
+      [transferData.to_location_id, transferData.description, transferData.unit, transferData.batch_number]
+    );
+    
+    if (destInventoryResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ 
+        error: 'Inventory not found at destination. Cannot unreceive - items may have been sold or transferred.' 
+      });
+    }
+    
+    const destInventory = destInventoryResult.rows[0];
+    
+    // Check if sufficient quantity exists at destination
+    if (parseFloat(destInventory.quantity) < parseFloat(transferData.quantity)) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ 
+        error: `Insufficient quantity at destination. Available: ${destInventory.quantity}, Required: ${transferData.quantity}` 
+      });
+    }
+    
+    // Remove quantity from destination
+    if (parseFloat(destInventory.quantity) === parseFloat(transferData.quantity)) {
+      // Delete the inventory record if quantity becomes zero
+      await client.query(
+        'DELETE FROM inventory WHERE id = $1',
+        [destInventory.id]
+      );
+    } else {
+      // Reduce quantity
+      await client.query(
+        'UPDATE inventory SET quantity = quantity - $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+        [transferData.quantity, destInventory.id]
+      );
+    }
+    
+    // ADD back to source inventory
+    const sourceInventoryResult = await client.query(
+      `SELECT * FROM inventory 
+       WHERE location_id = $1 AND description = $2 AND unit = $3 
+       AND unit_cost = $4 AND COALESCE(batch_number, '') = COALESCE($5, '')`,
+      [transferData.from_location_id, transferData.description, transferData.unit, transferData.unit_cost, transferData.batch_number]
+    );
+    
+    if (sourceInventoryResult.rows.length > 0) {
+      // Update existing inventory
+      await client.query(
+        'UPDATE inventory SET quantity = quantity + $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+        [transferData.quantity, sourceInventoryResult.rows[0].id]
+      );
+    } else {
+      // Create new inventory record at source
+      await client.query(
+        `INSERT INTO inventory 
+         (location_id, description, unit, quantity, unit_cost, suggested_selling_price, 
+          batch_number, expiry_date, max_quantity, cost_batch_id, is_new_item, is_new_cost) 
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $4, $9, false, false)`,
+        [
+          transferData.from_location_id, 
+          transferData.description, 
+          transferData.unit, 
+          transferData.quantity, 
+          transferData.unit_cost, 
+          transferData.unit_cost, // Use unit_cost as suggested_selling_price
+          transferData.batch_number, 
+          transferData.expiry_date,
+          `BATCH-${Date.now()}-${Math.random().toString(36).substr(2, 9)}` // cost_batch_id
+        ]
+      );
+    }
+    
+    // Update transfer status back to in_transit
+    const result = await client.query(
+      `UPDATE transfers 
+       SET status = 'in_transit', 
+           delivered_by = NULL, 
+           delivered_at = NULL, 
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = $1 
+       RETURNING *`,
+      [id]
+    );
+    
+    await client.query('COMMIT');
+    
+    // Log audit
+    await logAudit({
+      userId: req.user.id,
+      username: req.user.username,
+      action: 'TRANSFER_UNRECEIVE',
+      tableName: 'transfers',
+      recordId: id,
+      oldValues: { status: 'delivered' },
+      newValues: { status: 'in_transit' },
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+      description: `Unreceived transfer: ${transferData.quantity} ${transferData.unit} of ${transferData.description} from ${transferData.to_location_name} back to ${transferData.from_location_name}`
+    });
+    
+    res.json({ 
+      ...result.rows[0], 
+      message: 'Transfer unreceived! Inventory returned to source location and status changed to In Transit.' 
+    });
+    
+  } catch (error) {
+    await client.query('ROLLBACK');
+    res.status(500).json({ error: error.message });
+  } finally {
+    client.release();
+  }
+});
+
 module.exports = router;
