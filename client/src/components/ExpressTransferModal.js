@@ -8,29 +8,15 @@ function ExpressTransferModal({ isOpen, onClose, onTransferComplete, locations }
   const [fromWarehouse, setFromWarehouse] = useState('');
   const [toWarehouse, setToWarehouse] = useState('');
   const [selectedItems, setSelectedItems] = useState([]);
-  const [warehouseInventory, setWarehouseInventory] = useState([]);
   const [loading, setLoading] = useState(false);
 
   const warehouses = locations.filter(loc => loc.type === 'warehouse');
 
   useEffect(() => {
-    if (fromWarehouse) {
-      fetchWarehouseInventory();
-    }
+    // Inventory is loaded on-demand via AutocompleteSearch component
+    // No need to pre-load all inventory
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fromWarehouse]);
-
-  const fetchWarehouseInventory = async () => {
-    try {
-      setLoading(true);
-      const response = await api.get(`/inventory/location/${fromWarehouse}`);
-      setWarehouseInventory(response.data);
-    } catch (error) {
-      alert('Error loading inventory: ' + (error.response?.data?.error || error.message));
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const handleAddItem = () => {
     setSelectedItems([...selectedItems, { 
@@ -146,7 +132,6 @@ function ExpressTransferModal({ isOpen, onClose, onTransferComplete, locations }
     setFromWarehouse('');
     setToWarehouse('');
     setSelectedItems([]);
-    setWarehouseInventory([]);
     onClose();
   };
 
@@ -244,7 +229,7 @@ function ExpressTransferModal({ isOpen, onClose, onTransferComplete, locations }
               {loading ? (
                 <div style={{ textAlign: 'center', padding: '40px' }}>
                   <div className="spinner" style={{ width: '40px', height: '40px', margin: '0 auto' }}></div>
-                  <p>Loading inventory...</p>
+                  <p>Processing...</p>
                 </div>
               ) : (
                 <>

@@ -494,9 +494,10 @@ function Transfers() {
   };
 
   const canCancel = (transfer) => {
-    // Admin can cancel: pending, approved, or in_transit (after unreceive)
+    // Admin can cancel any status except already cancelled or rejected
     return user.role === 'admin' && 
-           (transfer.status === 'pending' || transfer.status === 'approved' || transfer.status === 'in_transit');
+           transfer.status !== 'cancelled' && 
+           transfer.status !== 'rejected';
   };
 
   const canDelete = (transfer) => {

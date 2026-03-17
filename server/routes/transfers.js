@@ -627,15 +627,16 @@ router.post('/:id/cancel', auth, async (req, res) => {
 
     const transferData = transfer.rows[0];
 
-    // Only creator or admin can cancel
-    if (req.user.role !== 'admin' && req.user.id !== transferData.transferred_by) {
+    // Only admin can cancel
+    if (req.user.role !== 'admin') {
       await client.query('ROLLBACK');
-      return res.status(403).json({ error: 'Only the creator or admin can cancel this transfer' });
+      return res.status(403).json({ error: 'Only admin can cancel transfers' });
     }
 
-    if (transferData.status === 'in_transit' || transferData.status === 'delivered') {
+    // Admin can cancel any status except already cancelled or rejected
+    if (transferData.status === 'cancelled' || transferData.status === 'rejected') {
       await client.query('ROLLBACK');
-      return res.status(400).json({ error: 'Cannot cancel transfer that is already shipped or delivered' });
+      return res.status(400).json({ error: 'Transfer is already cancelled or rejected' });
     }
 
     const result = await client.query(
