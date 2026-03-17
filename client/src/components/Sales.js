@@ -523,6 +523,15 @@ function Sales() {
                   discountAmount = netOfVat * 0.20;
                   // 3. Subtract discount from original price and round off
                   finalTotal = Math.round(grossAmount - discountAmount);
+                  
+                  // Debug logging
+                  console.log('Discount Calculation:', {
+                    grossAmount,
+                    netOfVat,
+                    discountAmount,
+                    finalTotal,
+                    discountType: formData.discount_type
+                  });
                 } else if (formData.discount_type === 'custom') {
                   // Custom discount: simple percentage off
                   const discountPercent = parseFloat(formData.custom_discount_percent) || 0;
@@ -693,7 +702,13 @@ function Sales() {
                     </td>
                     <td style={{ fontWeight: 600 }}>
                       {isEditing ? (
-                        `₱${formatPrice((parseFloat(editData.quantity_sold) || 0) * (parseFloat(editData.unit_price) || 0))}`
+                        (() => {
+                          // Calculate total with any existing discount
+                          const grossAmount = (parseFloat(editData.quantity_sold) || 0) * (parseFloat(editData.unit_price) || 0);
+                          // For editing, we don't have discount info, so just show gross amount
+                          // The backend will recalculate properly when saved
+                          return `₱${formatPrice(grossAmount)}`;
+                        })()
                       ) : (
                         `₱${formatPrice(sale.total_amount)}`
                       )}

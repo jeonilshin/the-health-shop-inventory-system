@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import api from '../utils/api';
-import { FiX, FiCheck, FiAlertCircle, FiEdit2, FiTruck, FiSearch } from 'react-icons/fi';
+import { FiX, FiCheck, FiAlertCircle, FiEdit2, FiTruck, FiSearch, FiTrash2 } from 'react-icons/fi';
 import SimpleAutocomplete from './SimpleAutocomplete';
 
 function CdrImportModal({ isOpen, onClose, onImportComplete, locations }) {
@@ -234,6 +234,18 @@ function CdrImportModal({ isOpen, onClose, onImportComplete, locations }) {
     
     // Update errors list
     setErrors(updatedData.filter(item => item.error));
+  };
+
+  const removeItem = (originalIndex) => {
+    const updatedData = cdrData.filter((_, i) => i !== originalIndex);
+    setCdrData(updatedData);
+    setErrors(updatedData.filter(item => item.error));
+    
+    // Clear editing state if we're editing the removed item
+    if (editingIndex === originalIndex) {
+      setEditingIndex(null);
+      setEditData({});
+    }
   };
 
   // Filter warehouse inventory for better suggestions
@@ -580,6 +592,26 @@ function CdrImportModal({ isOpen, onClose, onImportComplete, locations }) {
                 <h4>Review Items ({cdrData.length} regular, {lgdData.length} LGD, {errors.length} errors)</h4>
                 
                 <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                  {errors.length > 0 && (
+                    <button 
+                      className="btn btn-danger" 
+                      onClick={() => {
+                        if (window.confirm(`Remove all ${errors.length} items with errors from import?`)) {
+                          const updatedData = cdrData.filter(item => !item.error);
+                          setCdrData(updatedData);
+                          setErrors([]);
+                          setEditingIndex(null);
+                          setEditData({});
+                        }
+                      }}
+                      style={{ padding: '6px 12px', fontSize: '12px' }}
+                      title="Remove all items with errors"
+                    >
+                      <FiTrash2 size={12} style={{ marginRight: '4px' }} />
+                      Remove All Errors
+                    </button>
+                  )}
+                  
                   <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '14px' }}>
                     <input
                       type="checkbox"
@@ -730,14 +762,28 @@ function CdrImportModal({ isOpen, onClose, onImportComplete, locations }) {
                                   )}
                                 </>
                               ) : (
-                                <button 
-                                  className="btn btn-primary" 
-                                  onClick={() => handleEditItem(item.originalIndex)}
-                                  style={{ padding: '2px 6px', fontSize: '10px' }}
-                                  title="Edit item"
-                                >
-                                  <FiEdit2 size={10} />
-                                </button>
+                                <>
+                                  <button 
+                                    className="btn btn-primary" 
+                                    onClick={() => handleEditItem(item.originalIndex)}
+                                    style={{ padding: '2px 6px', fontSize: '10px' }}
+                                    title="Edit item"
+                                  >
+                                    <FiEdit2 size={10} />
+                                  </button>
+                                  <button 
+                                    className="btn btn-danger" 
+                                    onClick={() => {
+                                      if (window.confirm(`Remove "${item.description}" from import?`)) {
+                                        removeItem(item.originalIndex);
+                                      }
+                                    }}
+                                    style={{ padding: '2px 6px', fontSize: '10px' }}
+                                    title="Remove item from import"
+                                  >
+                                    <FiTrash2 size={10} />
+                                  </button>
+                                </>
                               )}
                               {item.suggested && editingIndex !== item.originalIndex && (
                                 <button 
@@ -807,10 +853,15 @@ function CdrImportModal({ isOpen, onClose, onImportComplete, locations }) {
                 <button 
                   className="btn btn-primary" 
                   onClick={processCdrImport}
-                  disabled={errors.length > 0 || loading}
+                  disabled={loading || (cdrData.filter(item => !item.error).length === 0 && lgdData.length === 0)}
                   style={{ flex: 2 }}
                 >
                   {loading ? 'Creating Transfers...' : `Import ${cdrData.filter(item => !item.error).length + lgdData.length} Items`}
+                  {errors.length > 0 && (
+                    <span style={{ fontSize: '10px', display: 'block', opacity: 0.8 }}>
+                      ({errors.length} items will be skipped)
+                    </span>
+                  )}
                 </button>
               </div>
             </div>
