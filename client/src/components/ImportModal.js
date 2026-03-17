@@ -187,12 +187,12 @@ function ImportModal({ isOpen, onClose, onImportComplete }) {
         if (!item.brand) issues.push('Missing Brand');
         if (!item.description) issues.push('Missing Description');
         if (!item.unit) issues.push('Missing Unit');
-        return `Row ${item.rowNumber}: ${issues.join(', ')}`;
-      }).slice(0, 20); // Show first 20 errors
+        return `Row ${item.rowNumber}: ${item.description || '(no description)'} - ${issues.join(', ')}`;
+      }).slice(0, 10); // Show first 10 errors
 
-      const moreErrors = invalidData.length > 20 ? `\n... and ${invalidData.length - 20} more rows` : '';
+      const moreErrors = invalidData.length > 10 ? `\n... and ${invalidData.length - 10} more rows with errors` : '';
       
-      const confirmMessage = `${invalidData.length} row(s) will NOT be imported due to missing required fields:\n\n${invalidRowsList.join('\n')}${moreErrors}\n\n${validData.length} valid row(s) will be imported.\n\nDo you want to proceed?`;
+      const confirmMessage = `⚠️ IMPORT VALIDATION WARNING\n\n${invalidData.length} row(s) will NOT be imported due to missing required fields:\n\n${invalidRowsList.join('\n')}${moreErrors}\n\n✓ ${validData.length} valid row(s) will be imported.\n\nDo you want to continue with importing only the valid rows?`;
       
       if (!window.confirm(confirmMessage)) {
         return;
@@ -507,54 +507,104 @@ function ImportModal({ isOpen, onClose, onImportComplete }) {
                 justifyContent: 'space-between',
                 alignItems: 'center'
               }}>
-                <h3 style={{ fontSize: '1.125rem', fontWeight: '600', margin: 0 }}>
-                  Preview ({previewData.totalRows} rows)
-                </h3>
+                <div>
+                  <h3 style={{ fontSize: '1.125rem', fontWeight: '600', margin: 0 }}>
+                    Preview ({previewData.totalRows} rows)
+                  </h3>
+                  {previewData.errors && previewData.errors.length > 0 && (
+                    <p style={{ fontSize: '0.75rem', color: 'var(--danger)', margin: '4px 0 0 0', fontWeight: '600' }}>
+                      ⚠️ {previewData.errors.length} rows will be skipped due to errors
+                    </p>
+                  )}
+                </div>
                 <button
                   onClick={handleImport}
                   disabled={importing || !selectedLocation}
-                  className="btn btn-success"
+                  className={previewData.errors && previewData.errors.length > 0 ? "btn btn-warning" : "btn btn-success"}
+                  style={{ minWidth: '180px' }}
                 >
                   {importing ? (
                     <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                       Importing... {importProgress > 0 && `${importProgress}%`}
                     </span>
-                  ) : '✓ Import to Inventory'}
+                  ) : (
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      {previewData.errors && previewData.errors.length > 0 ? '⚠️ Import Valid Rows' : '✓ Import to Inventory'}
+                    </span>
+                  )}
                 </button>
               </div>
 
               {previewData.errors && previewData.errors.length > 0 && (
                 <div className="alert alert-error" style={{ margin: '16px 20px', borderRadius: 'var(--radius)' }}>
                   <div style={{ flex: 1 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: showErrors ? '8px' : '0' }}>
-                      <h4 style={{ fontWeight: '600', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                      <h4 style={{ fontWeight: '600', margin: 0, display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--danger)' }}>
                         <svg style={{ width: '20px', height: '20px' }} fill="currentColor" viewBox="0 0 20 20">
                           <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
                         </svg>
-                        Validation Errors ({previewData.errors.length})
+                        ⚠️ Validation Errors ({previewData.errors.length})
                       </h4>
                       <button
                         onClick={() => setShowErrors(!showErrors)}
                         style={{
-                          background: 'rgba(255, 255, 255, 0.2)',
-                          border: 'none',
-                          color: 'currentColor',
-                          padding: '4px 12px',
+                          background: 'rgba(239, 68, 68, 0.2)',
+                          border: '1px solid rgba(239, 68, 68, 0.3)',
+                          color: 'var(--danger)',
+                          padding: '6px 12px',
                           borderRadius: 'var(--radius)',
                           cursor: 'pointer',
                           fontSize: '0.75rem',
-                          fontWeight: '600'
+                          fontWeight: '600',
+                          transition: 'var(--transition)'
                         }}
                       >
-                        {showErrors ? '✕ Close' : '👁 View More'}
+                        {showErrors ? '✕ Hide Errors' : '👁 View All Errors'}
                       </button>
                     </div>
+                    <p style={{ margin: '0 0 8px 0', fontSize: '0.875rem', color: 'var(--danger)' }}>
+                      These rows have missing required fields and will NOT be imported. Please fix them in your Excel file or continue without them.
+                    </p>
                     {showErrors && (
-                      <ul style={{ listStyle: 'disc', paddingLeft: '20px', margin: '8px 0 0 0', maxHeight: '200px', overflowY: 'auto', fontSize: '0.875rem' }}>
-                        {previewData.errors.map((error, idx) => (
-                          <li key={idx}>{error}</li>
-                        ))}
-                      </ul>
+                      <div style={{ 
+                        marginTop: '12px',
+                        padding: '12px',
+                        background: 'rgba(239, 68, 68, 0.05)',
+                        borderRadius: 'var(--radius)',
+                        border: '1px solid rgba(239, 68, 68, 0.2)'
+                      }}>
+                        <ul style={{ listStyle: 'none', paddingLeft: '0', margin: '0', maxHeight: '250px', overflowY: 'auto', fontSize: '0.875rem' }}>
+                          {previewData.errors.map((error, idx) => (
+                            <li key={idx} style={{ 
+                              padding: '8px 12px',
+                              marginBottom: '4px',
+                              background: 'white',
+                              borderRadius: 'var(--radius)',
+                              border: '1px solid rgba(239, 68, 68, 0.2)',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '8px'
+                            }}>
+                              <span style={{ 
+                                background: 'var(--danger)',
+                                color: 'white',
+                                width: '24px',
+                                height: '24px',
+                                borderRadius: '50%',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                fontSize: '12px',
+                                fontWeight: '700',
+                                flexShrink: 0
+                              }}>
+                                {idx + 1}
+                              </span>
+                              <span>{error}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
                     )}
                   </div>
                 </div>
