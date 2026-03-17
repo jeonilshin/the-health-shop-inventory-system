@@ -632,3 +632,392 @@ router.post('/import', auth, authorize('admin', 'warehouse'), async (req, res) =
 });
 
 module.exports = router;
+router.post('/import', auth, authorize('admin', 'warehouse'), async (req, res) => {
+  try {
+    const { data, locationId, branchId, duplicateAction, selectedDuplicates } = req.body;
+
+    if (!data || !Array.isArray(data)) {
+      return res.status(400).json({ error: 'Invalid data format' });
+    }
+
+    if (!locationId) {
+      return res.status(400).json({ error: 'Location ID is required' });
+    }
+
+    let imported = 0;
+    let updated = 0;
+    let skipped = 0;
+    let transferred = 0;
+    const errors = [];
+    
+    // Default to 'update' if not specified
+    const handleDuplicates = duplicateAction || 'update';
+    
+    // Create a Map of selected duplicates with their update options for quick lookup
+    const selectedDuplicatesMap = new Map(
+      (selectedDuplicates || []).map(item => [
+        `${item.description}|||${item.unit}`,
+        { updateQty: item.updateQty, updatePrice: item.updatePrice }
+      ])
+    );
+    
+    // Track batch numbers by brand for auto-increment
+    const brandCounters = {};
+    
+    console.log(`📦 Starting import of ${data.length} items...`);
+
+    // Process each item individually to avoid transaction rollback issues
+    for (const item of data) {
+      // Skip category rows
+      if (item.is_category) {
+        continue;
+      }
+
+      // Skip rows without required data
+      if (!item.description || !item.unit || !item.quantity || !item.unit_cost) {
+        errors.push(`Row ${data.indexOf(item) + 1}: Missing required fields (description, unit, quantity, or unit_cost)`);
+        skipped++;
+        continue;
+      }
+
+      // Process each item in its own transaction
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        
+        console.log(`Processing: ${item.description} (Brand: ${item.brand})`);
+        
+        // Generate batch number
+        let batchNumber = item.batch_number;
+        
+        // If batch number is AUTO or missing, generate it
+        if (!batchNumber || batchNumber.endsWith('-AUTO')) {
+          if (!item.brand) {
+            errors.push(`${item.description}: Missing brand for batch number generation`);
+            skipped++;
+            await client.query('ROLLBACK');
+            continue;
+          }
+          
+          // Get existing max number for this brand
+          if (!brandCounters[item.brand]) {
+            try {
+              const result = await client.query(
+                `SELECT batch_number FROM inventory 
+                 WHERE batch_number LIKE $1 
+                 ORDER BY batch_number DESC LIMIT 1`,
+                [`${item.brand}-%`]
+              );
+              
+              if (result.rows.length > 0) {
+                const lastBatch = result.rows[0].batch_number;
+                const match = lastBatch.match(/-(\d+)$/);
+                brandCounters[item.brand] = match ? parseInt(match[1]) : 0;
+              } else {
+                brandCounters[item.brand] = 0;
+              }
+            } catch (queryError) {
+              console.error(`Error querying batch numbers for brand ${item.brand}:`, queryError);
+              // Fallback: start from 0
+              brandCounters[item.brand] = 0;
+            }
+          }
+          
+          // Increment and create batch number
+          brandCounters[item.brand]++;
+          batchNumber = `${item.brand}-${String(brandCounters[item.brand]).padStart(3, '0')}`;
+        }
+        
+        if (!batchNumber) {
+          errors.push(`${item.description}: Could not generate batch number`);
+          skipped++;
+          await client.query('ROLLBACK');
+          continue;
+        }
+
+        // Check if item already exists in warehouse
+        const existingItem = await client.query(
+          `SELECT id, quantity, unit_cost, suggested_selling_price FROM inventory 
+           WHERE location_id = $1 AND description = $2 AND unit = $3
+           LIMIT 1`,
+          [locationId, item.description, item.unit]
+        );
+
+        let inventoryId;
+
+        if (existingItem.rows.length > 0) {
+          // Item already exists - check if it's in the selected list
+          const itemKey = `${item.description}|||${item.unit}`;
+          const updateOptions = selectedDuplicatesMap.get(itemKey);
+          
+          if (!updateOptions) {
+            // Not selected for update, skip it
+            skipped++;
+            await client.query('ROLLBACK');
+            continue;
+          }
+          
+          // Selected for update - apply based on options
+          if (handleDuplicates === 'skip') {
+            // Skip this item
+            skipped++;
+            await client.query('ROLLBACK');
+            continue;
+          } else if (handleDuplicates === 'update') {
+            // ===== NEW LOGIC: Check if cost is different =====
+            const existingCost = parseFloat(existingItem.rows[0].unit_cost);
+            const newCost = parseFloat(item.unit_cost);
+            const existingPrice = parseFloat(existingItem.rows[0].suggested_selling_price || 0);
+            let newPrice = parseFloat(item.suggested_selling_price || 0);
+            
+            // Auto-fill selling price from existing item if not provided in import
+            if (!item.suggested_selling_price || newPrice === 0) {
+              item.suggested_selling_price = existingItem.rows[0].suggested_selling_price;
+              newPrice = existingPrice; // Update newPrice after auto-fill
+              console.log(`📝 Auto-filled selling price for ${item.description}: ₱${existingPrice}`);
+            }
+            
+            const isDifferentCost = Math.abs(existingCost - newCost) > 0.01 || 
+                                   Math.abs(existingPrice - newPrice) > 0.01;
+            
+            // If user wants to update price AND the cost is different, create a NEW BATCH
+            if (updateOptions.updatePrice && isDifferentCost) {
+              // Create a new cost batch instead of updating existing
+              const timestamp = Date.now();
+              const costBatchId = `BATCH-${timestamp}-${Math.random().toString(36).substr(2, 9)}`;
+              
+              // Check if this exact cost already exists for this item
+              const allExistingCosts = await client.query(
+                `SELECT DISTINCT unit_cost FROM inventory 
+                 WHERE location_id = $1 AND description = $2 AND unit = $3`,
+                [locationId, item.description, item.unit]
+              );
+              
+              const isNewCost = !allExistingCosts.rows.some(row => 
+                Math.abs(parseFloat(row.unit_cost) - newCost) < 0.01
+              );
+              
+              const result = await client.query(
+                `INSERT INTO inventory 
+                 (location_id, batch_number, description, unit, quantity, unit_cost, suggested_selling_price, 
+                  expiry_date, main_category, sub_category, max_quantity, is_new_item, is_new_cost, cost_batch_id)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $5, false, $11, $12)
+                 RETURNING id`,
+                [locationId, batchNumber, item.description, item.unit, item.quantity, item.unit_cost, 
+                 item.suggested_selling_price, item.expiry_date, item.main_category, item.sub_category,
+                 isNewCost, costBatchId]
+              );
+              inventoryId = result.rows[0].id;
+              imported++;
+              console.log(`✨ Created new cost batch for ${item.description}: ₱${newCost} (was ₱${existingCost})`);
+            } else {
+              // Same cost or user doesn't want to update price - just update quantity
+              const updates = [];
+              const values = [];
+              let paramCount = 1;
+              
+              if (updateOptions.updateQty) {
+                updates.push(`quantity = quantity + $${paramCount}`);
+                values.push(item.quantity);
+                paramCount++;
+                
+                updates.push(`max_quantity = GREATEST(COALESCE(max_quantity, 0), quantity + $${paramCount})`);
+                values.push(item.quantity);
+                paramCount++;
+              }
+              
+              // Only update price if user selected it AND cost is the same
+              if (updateOptions.updatePrice && !isDifferentCost) {
+                updates.push(`unit_cost = $${paramCount}`);
+                values.push(item.unit_cost);
+                paramCount++;
+                
+                updates.push(`suggested_selling_price = $${paramCount}`);
+                values.push(item.suggested_selling_price);
+                paramCount++;
+              }
+              
+              // Always update these if provided
+              if (item.expiry_date) {
+                updates.push(`expiry_date = $${paramCount}`);
+                values.push(item.expiry_date);
+                paramCount++;
+              }
+              
+              if (item.main_category) {
+                updates.push(`main_category = $${paramCount}`);
+                values.push(item.main_category);
+                paramCount++;
+              }
+              
+              if (item.sub_category) {
+                updates.push(`sub_category = $${paramCount}`);
+                values.push(item.sub_category);
+                paramCount++;
+              }
+              
+              updates.push('updated_at = CURRENT_TIMESTAMP');
+              
+              // Add WHERE clause parameter
+              values.push(existingItem.rows[0].id);
+              
+              if (updates.length > 1) { // More than just updated_at
+                await client.query(
+                  `UPDATE inventory SET ${updates.join(', ')} WHERE id = $${paramCount}`,
+                  values
+                );
+              }
+              
+              inventoryId = existingItem.rows[0].id;
+              updated++;
+            }
+          }
+        } else {
+          // Insert new item with batch tracking
+          const timestamp = Date.now();
+          const costBatchId = `BATCH-${timestamp}-${Math.random().toString(36).substr(2, 9)}`;
+          
+          // Check if this is a new item or new cost
+          const existingItemsAnyLocation = await client.query(
+            `SELECT id FROM inventory WHERE description = $1 AND unit = $2 LIMIT 1`,
+            [item.description, item.unit]
+          );
+          
+          const isNewItem = existingItemsAnyLocation.rows.length === 0;
+          
+          // Check if this is a new cost (different from existing costs for this item)
+          let isNewCost = false;
+          if (!isNewItem) {
+            const existingCosts = await client.query(
+              `SELECT DISTINCT unit_cost FROM inventory WHERE description = $1 AND unit = $2`,
+              [item.description, item.unit]
+            );
+            
+            const hasDifferentCost = !existingCosts.rows.some(row => 
+              parseFloat(row.unit_cost) === parseFloat(item.unit_cost)
+            );
+            isNewCost = hasDifferentCost;
+          }
+          
+          const result = await client.query(
+            `INSERT INTO inventory 
+             (location_id, batch_number, description, unit, quantity, unit_cost, suggested_selling_price, 
+              expiry_date, main_category, sub_category, max_quantity, is_new_item, is_new_cost, cost_batch_id)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $5, $11, $12, $13)
+             RETURNING id`,
+            [locationId, batchNumber, item.description, item.unit, item.quantity, item.unit_cost, 
+             item.suggested_selling_price, item.expiry_date, item.main_category, item.sub_category,
+             isNewItem, isNewCost, costBatchId]
+          );
+          inventoryId = result.rows[0].id;
+          imported++;
+        }
+
+        // If branch is selected, create transfer
+        if (branchId) {
+          // Check if item exists in branch
+          const branchItem = await client.query(
+            `SELECT id FROM inventory 
+             WHERE location_id = $1 AND description = $2 AND unit = $3`,
+            [branchId, item.description, item.unit]
+          );
+
+          // If doesn't exist in branch, create it with batch tracking
+          if (branchItem.rows.length === 0) {
+            const branchCostBatchId = `BATCH-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+            
+            await client.query(
+              `INSERT INTO inventory 
+               (location_id, batch_number, description, unit, quantity, unit_cost, suggested_selling_price, 
+                expiry_date, main_category, sub_category, max_quantity, is_new_item, is_new_cost, cost_batch_id)
+               VALUES ($1, $2, $3, $4, 0, $5, $6, $7, $8, $9, 0, false, false, $10)
+               ON CONFLICT (location_id, description, unit) DO NOTHING`,
+              [branchId, batchNumber, item.description, item.unit, item.unit_cost, item.suggested_selling_price, 
+               item.expiry_date, item.main_category, item.sub_category, branchCostBatchId]
+            );
+          }
+
+          // Create transfer record
+          await client.query(
+            `INSERT INTO transfers 
+             (from_location_id, to_location_id, inventory_id, description, unit, quantity, unit_cost, transferred_by, status, notes)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'pending', 'Auto-created from import')`,
+            [locationId, branchId, inventoryId, item.description, item.unit, item.quantity, item.unit_cost, req.user.id]
+          );
+          transferred++;
+        }
+
+        await client.query('COMMIT');
+        
+      } catch (itemError) {
+        await client.query('ROLLBACK');
+        const errorMsg = `${item.description}: ${itemError.message}`;
+        console.error(`❌ Error processing item:`, {
+          description: item.description,
+          brand: item.brand,
+          batch_number: item.batch_number || 'not generated',
+          error: itemError.message
+        });
+        errors.push(errorMsg);
+        skipped++;
+      } finally {
+        client.release();
+      }
+    }
+    
+    console.log(`✅ Import complete: ${imported} imported, ${updated} updated, ${skipped} skipped, ${transferred} transferred`);
+    if (errors.length > 0) {
+      console.log(`⚠️ Errors: ${errors.length}`);
+      errors.forEach(err => console.log(`  - ${err}`));
+    }
+
+    // Log audit for the import operation
+    await logAudit({
+      userId: req.user.id,
+      username: req.user.username,
+      action: 'INVENTORY_IMPORT',
+      tableName: 'inventory',
+      recordId: null,
+      newValues: { 
+        imported: imported, 
+        updated: updated,
+        skipped: skipped, 
+        transferred: transferred,
+        errors: errors.length,
+        location: locationId 
+      },
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+      description: `Imported ${imported} items, updated ${updated}, skipped ${skipped}, transferred ${transferred}, ${errors.length} errors`
+    });
+
+    if (errors.length > 0) {
+      return res.status(200).json({
+        success: true,
+        message: `⚠️ Import completed with ${errors.length} errors`,
+        imported,
+        updated,
+        skipped,
+        transferred,
+        errors: errors.slice(0, 5), // Show first 5 errors
+        totalErrors: errors.length,
+        fullErrorList: errors // Full list for console
+      });
+    }
+
+    res.json({
+      success: true,
+      message: `✅ Import successful! ${imported} imported, ${updated} updated, ${skipped} skipped, ${transferred} transferred`,
+      imported,
+      updated,
+      skipped,
+      transferred
+    });
+
+  } catch (error) {
+    console.error('Import error:', error);
+    res.status(500).json({ error: 'Failed to import data: ' + error.message });
+  }
+});
+
+module.exports = router;
