@@ -38,7 +38,9 @@ function Inventory() {
     fromItemId: '',
     toItemId: '',
     unitsPerBox: '',
-    boxesToConvert: ''
+    boxesToConvert: '',
+    fromSearchText: '',
+    toSearchText: ''
   });
   const [formData, setFormData] = useState({
     items: [{
@@ -656,7 +658,7 @@ function Inventory() {
       
       alert('Units converted successfully!');
       setShowConversionModal(false);
-      setConversionData({ fromItemId: '', toItemId: '', unitsPerBox: '', boxesToConvert: '' });
+      setConversionData({ fromItemId: '', toItemId: '', unitsPerBox: '', boxesToConvert: '', fromSearchText: '', toSearchText: '' });
       fetchInventory();
     } catch (error) {
       alert(error.response?.data?.error || 'Error converting units');
@@ -1878,7 +1880,7 @@ function Inventory() {
                                     borderRadius: '12px',
                                     fontWeight: '700'
                                   }}>
-                                    🆕 NEW
+                                    NEW
                                   </span>
                                 )}
                                 {item.hasMultipleCosts && (
@@ -2631,55 +2633,53 @@ function Inventory() {
               <div className="form-group">
                 <label>From Item (BOX/BOT) *</label>
                 <SimpleAutocomplete
-                  items={filteredInventory
-                    .filter(item => ['BOX', 'BOT', 'box', 'bot'].includes(item.unit))
-                    .map(item => ({
-                      ...item,
-                      displayText: `${item.description} - ${item.unit} (Qty: ${formatQuantity(item.totalQuantity || item.quantity)})`
-                    }))
-                  }
-                  value={conversionData.fromItemId ? 
-                    filteredInventory.find(item => item.id === parseInt(conversionData.fromItemId))?.description || '' : ''}
+                  items={filteredInventory.filter(item => ['BOX', 'BOT', 'box', 'bot'].includes(item.unit))}
+                  value={conversionData.fromSearchText}
                   onChange={(value) => {
-                    // Extract description from display text
-                    const description = value.split(' - ')[0];
-                    const item = filteredInventory.find(i => i.description === description && ['BOX', 'BOT', 'box', 'bot'].includes(i.unit));
-                    setConversionData({...conversionData, fromItemId: item ? item.id : ''});
+                    setConversionData({...conversionData, fromSearchText: value});
                   }}
                   onSelect={(selectedItem) => {
-                    setConversionData({...conversionData, fromItemId: selectedItem.id});
+                    setConversionData({
+                      ...conversionData, 
+                      fromItemId: selectedItem.id,
+                      fromSearchText: `${selectedItem.description} - ${selectedItem.unit} (Qty: ${formatQuantity(selectedItem.totalQuantity || selectedItem.quantity)})`
+                    });
                   }}
-                  displayField="displayText"
+                  displayField="description"
                   placeholder="Search for BOX/BOT items..."
                   required={true}
                 />
+                {conversionData.fromItemId && (
+                  <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                    Selected: {filteredInventory.find(item => item.id === parseInt(conversionData.fromItemId))?.description} - {filteredInventory.find(item => item.id === parseInt(conversionData.fromItemId))?.unit} (Qty: {formatQuantity(filteredInventory.find(item => item.id === parseInt(conversionData.fromItemId))?.totalQuantity || filteredInventory.find(item => item.id === parseInt(conversionData.fromItemId))?.quantity || 0)})
+                  </div>
+                )}
               </div>
 
               <div className="form-group">
                 <label>To Item (PC) *</label>
                 <SimpleAutocomplete
-                  items={filteredInventory
-                    .filter(item => ['PC', 'pc', 'PCS', 'pcs'].includes(item.unit))
-                    .map(item => ({
-                      ...item,
-                      displayText: `${item.description} - ${item.unit} (Qty: ${formatQuantity(item.totalQuantity || item.quantity)})`
-                    }))
-                  }
-                  value={conversionData.toItemId ? 
-                    filteredInventory.find(item => item.id === parseInt(conversionData.toItemId))?.description || '' : ''}
+                  items={filteredInventory.filter(item => ['PC', 'pc', 'PCS', 'pcs'].includes(item.unit))}
+                  value={conversionData.toSearchText}
                   onChange={(value) => {
-                    // Extract description from display text
-                    const description = value.split(' - ')[0];
-                    const item = filteredInventory.find(i => i.description === description && ['PC', 'pc', 'PCS', 'pcs'].includes(i.unit));
-                    setConversionData({...conversionData, toItemId: item ? item.id : ''});
+                    setConversionData({...conversionData, toSearchText: value});
                   }}
                   onSelect={(selectedItem) => {
-                    setConversionData({...conversionData, toItemId: selectedItem.id});
+                    setConversionData({
+                      ...conversionData, 
+                      toItemId: selectedItem.id,
+                      toSearchText: `${selectedItem.description} - ${selectedItem.unit} (Qty: ${formatQuantity(selectedItem.totalQuantity || selectedItem.quantity)})`
+                    });
                   }}
-                  displayField="displayText"
+                  displayField="description"
                   placeholder="Search for PC items..."
                   required={true}
                 />
+                {conversionData.toItemId && (
+                  <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                    Selected: {filteredInventory.find(item => item.id === parseInt(conversionData.toItemId))?.description} - {filteredInventory.find(item => item.id === parseInt(conversionData.toItemId))?.unit} (Qty: {formatQuantity(filteredInventory.find(item => item.id === parseInt(conversionData.toItemId))?.totalQuantity || filteredInventory.find(item => item.id === parseInt(conversionData.toItemId))?.quantity || 0)})
+                  </div>
+                )}
               </div>
 
               <div className="form-group">
@@ -2733,7 +2733,7 @@ function Inventory() {
                   className="btn btn-secondary" 
                   onClick={() => {
                     setShowConversionModal(false);
-                    setConversionData({ fromItemId: '', toItemId: '', unitsPerBox: '', boxesToConvert: '' });
+                    setConversionData({ fromItemId: '', toItemId: '', unitsPerBox: '', boxesToConvert: '', fromSearchText: '', toSearchText: '' });
                   }}
                   style={{ flex: 1 }}
                 >

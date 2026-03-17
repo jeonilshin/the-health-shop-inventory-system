@@ -717,7 +717,7 @@ function Transfers() {
                                     borderRadius: '8px',
                                     fontWeight: '700'
                                   }}>
-                                    🆕 NEW
+                                    NEW
                                   </span>
                                 )}
                               </div>
