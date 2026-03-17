@@ -13,7 +13,6 @@ function CdrImportModal({ isOpen, onClose, onImportComplete, locations }) {
   const [editingIndex, setEditingIndex] = useState(null);
   const [editData, setEditData] = useState({});
   const [warehouseInventory, setWarehouseInventory] = useState([]);
-  const [searchResults, setSearchResults] = useState([]);
 
   // Branch mapping - maps CDR outlet names to actual branch names
   const branchMapping = {
@@ -32,7 +31,6 @@ function CdrImportModal({ isOpen, onClose, onImportComplete, locations }) {
       setEditingIndex(null);
       setEditData({});
       setWarehouseInventory([]);
-      setSearchResults([]);
     }
   }, [isOpen]);
 
@@ -184,7 +182,6 @@ function CdrImportModal({ isOpen, onClose, onImportComplete, locations }) {
       quantity: cdrData[index].quantity,
       searchText: cdrData[index].description
     });
-    setSearchResults([]);
   };
 
   const saveEdit = () => {
