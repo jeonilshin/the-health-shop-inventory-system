@@ -670,6 +670,63 @@ router.post('/:id/cancel', auth, async (req, res) => {
   }
 });
 
+// Delete transfer (admin only - for cancelled transfers)
+router.delete('/:id', auth, authorize('admin'), async (req, res) => {
+  const client = await pool.connect();
+  
+  try {
+    const { id } = req.params;
+
+    await client.query('BEGIN');
+
+    const transfer = await client.query(
+      'SELECT * FROM transfers WHERE id = $1',
+      [id]
+    );
+
+    if (transfer.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Transfer not found' });
+    }
+
+    const transferData = transfer.rows[0];
+
+    // Only allow deletion of cancelled or rejected transfers
+    if (transferData.status !== 'cancelled' && transferData.status !== 'rejected') {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Can only delete cancelled or rejected transfers' });
+    }
+
+    // Delete transfer_items first (if any)
+    await client.query('DELETE FROM transfer_items WHERE transfer_id = $1', [id]);
+
+    // Delete the transfer
+    await client.query('DELETE FROM transfers WHERE id = $1', [id]);
+
+    await client.query('COMMIT');
+    
+    // Log audit
+    await logAudit({
+      userId: req.user.id,
+      username: req.user.username,
+      action: 'TRANSFER_DELETE',
+      tableName: 'transfers',
+      recordId: id,
+      oldValues: transferData,
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+      description: `Deleted ${transferData.status} transfer: ${transferData.description} (${transferData.quantity} ${transferData.unit})`
+    });
+    
+    res.json({ message: 'Transfer deleted successfully', id: parseInt(id) });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    res.status(500).json({ error: error.message });
+  } finally {
+    client.release();
+  }
+});
+
 // Get transfer history
 router.get('/', auth, async (req, res) => {
   try {
@@ -740,6 +797,36 @@ router.get('/', auth, async (req, res) => {
     res.json(result.rows);
   } catch (error) {
     console.error('Error fetching transfers:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get transfer items for a specific transfer (for batch transfers)
+router.get('/:id/items', auth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    // Get transfer items
+    const result = await pool.query(
+      `SELECT ti.*, t.status, t.from_location_id, t.to_location_id,
+              fl.name as from_location_name,
+              tl.name as to_location_name
+       FROM transfer_items ti
+       JOIN transfers t ON ti.transfer_id = t.id
+       LEFT JOIN locations fl ON t.from_location_id = fl.id
+       LEFT JOIN locations tl ON t.to_location_id = tl.id
+       WHERE ti.transfer_id = $1
+       ORDER BY ti.id`,
+      [id]
+    );
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'No items found for this transfer' });
+    }
+    
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error fetching transfer items:', error);
     res.status(500).json({ error: error.message });
   }
 });

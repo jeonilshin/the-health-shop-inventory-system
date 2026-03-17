@@ -467,14 +467,49 @@ function Transfers() {
     return [...groupedTransfers, ...ungrouped];
   };
 
-  const handleViewItems = (transferGroup) => {
-    setSelectedTransferGroup(transferGroup.items);
-    setShowItemsModal(true);
+  const handleViewItems = (transfer) => {
+    // For batch transfers, fetch the transfer_items
+    if (transfer.description && transfer.description.includes('Batch Transfer')) {
+      fetchTransferItems(transfer.id);
+    } else if (transfer.isGroup) {
+      // For grouped transfers
+      setSelectedTransferGroup(transfer.items);
+      setShowItemsModal(true);
+    }
+  };
+
+  const fetchTransferItems = async (transferId) => {
+    try {
+      setLoading(true);
+      const response = await api.get(`/transfers/${transferId}/items`);
+      setSelectedTransferGroup(response.data);
+      setShowItemsModal(true);
+    } catch (error) {
+      alert('Error loading transfer items: ' + (error.response?.data?.error || error.message));
+    } finally {
+      setLoading(false);
+    }
   };
 
   const canCancel = (transfer) => {
     return (transfer.status === 'pending' || transfer.status === 'approved') &&
            (user.role === 'admin' || transfer.transferred_by === user.id);
+  };
+
+  const canDelete = (transfer) => {
+    return user.role === 'admin' && 
+           (transfer.status === 'cancelled' || transfer.status === 'rejected');
+  };
+
+  const handleDelete = async (id) => {
+    if (!window.confirm('⚠️ Permanently delete this transfer? This action cannot be undone.')) return;
+    try {
+      await api.delete(`/transfers/${id}`);
+      await fetchTransfers();
+      alert('Transfer deleted successfully');
+    } catch (error) {
+      alert(error.response?.data?.error || 'Error deleting transfer');
+    }
   };
 
   return (
@@ -1004,6 +1039,14 @@ function Transfers() {
                             View Items
                           </button>
                         </div>
+                      ) : transfer.description && transfer.description.includes('Batch Transfer') ? (
+                        <button
+                          className="btn btn-info"
+                          style={{ padding: '4px 12px', fontSize: '12px' }}
+                          onClick={() => handleViewItems(transfer)}
+                        >
+                          {transfer.description}
+                        </button>
                       ) : (
                         transfer.description
                       )}
@@ -1011,12 +1054,20 @@ function Transfers() {
                     <td>
                       {transfer.isGroup ? (
                         `${transfer.totalItems} items`
+                      ) : (transfer.description && transfer.description.includes('Batch Transfer')) || (transfer.notes && transfer.notes.includes('CDR')) ? (
+                        '—'
                       ) : (
                         `${formatQuantity(transfer.quantity)} ${transfer.unit}`
                       )}
                     </td>
                     <td style={{ fontWeight: 600 }}>
-                      ₱{formatPrice(transfer.isGroup ? transfer.totalValue : (parseFloat(transfer.quantity) * parseFloat(transfer.unit_cost)))}
+                      {transfer.isGroup ? (
+                        `₱${formatPrice(transfer.totalValue)}`
+                      ) : (transfer.description && transfer.description.includes('Batch Transfer')) || (transfer.notes && transfer.notes.includes('CDR')) ? (
+                        '—'
+                      ) : (
+                        `₱${formatPrice(parseFloat(transfer.quantity) * parseFloat(transfer.unit_cost))}`
+                      )}
                     </td>
                     <td>{transfer.transferred_by_name}</td>
                     <td>
@@ -1079,6 +1130,16 @@ function Transfers() {
                           >
                             <FiX size={12} />
                             Cancel
+                          </button>
+                        )}
+                        {canDelete(transfer) && (
+                          <button
+                            className="btn btn-danger"
+                            style={{ padding: '4px 8px', fontSize: '12px' }}
+                            onClick={() => handleDelete(transfer.id)}
+                          >
+                            <FiTrash2 size={12} />
+                            Delete
                           </button>
                         )}
                         {transfer.status === 'rejected' && transfer.rejection_reason && (
@@ -1215,7 +1276,9 @@ function Transfers() {
                       <th style={{ padding: '12px 8px', textAlign: 'right' }}>Quantity</th>
                       <th style={{ padding: '12px 8px', textAlign: 'right' }}>Unit Cost</th>
                       <th style={{ padding: '12px 8px', textAlign: 'right' }}>Total Value</th>
-                      <th style={{ padding: '12px 8px', textAlign: 'center' }}>Status</th>
+                      {selectedTransferGroup.length > 0 && selectedTransferGroup[0].status && (
+                        <th style={{ padding: '12px 8px', textAlign: 'center' }}>Status</th>
+                      )}
                     </tr>
                   </thead>
                   <tbody>
@@ -1228,9 +1291,11 @@ function Transfers() {
                         <td style={{ padding: '12px 8px', textAlign: 'right', fontWeight: '600' }}>
                           ₱{formatPrice(parseFloat(item.quantity) * parseFloat(item.unit_cost))}
                         </td>
-                        <td style={{ padding: '12px 8px', textAlign: 'center' }}>
-                          {getStatusBadge(item.status)}
-                        </td>
+                        {selectedTransferGroup.length > 0 && selectedTransferGroup[0].status && (
+                          <td style={{ padding: '12px 8px', textAlign: 'center' }}>
+                            {getStatusBadge(item.status)}
+                          </td>
+                        )}
                       </tr>
                     ))}
                   </tbody>

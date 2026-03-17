@@ -108,7 +108,7 @@ function Navbar() {
                 padding: '2px 6px',
                 borderRadius: '4px'
               }}>
-                v0.0.5
+                v0.0.6
               </span>
             </div>
             <div className="header-subtitle">Inventory System</div>
