@@ -387,10 +387,11 @@ router.post('/import', auth, authorize('admin', 'warehouse'), async (req, res) =
           continue;
         }
 
-        // Check if item already exists in warehouse
+        // Check if item already exists in warehouse (check for exact same cost batch)
         const existingItem = await client.query(
-          `SELECT id, quantity, unit_cost, suggested_selling_price FROM inventory 
+          `SELECT id, quantity, unit_cost, suggested_selling_price, cost_batch_id FROM inventory 
            WHERE location_id = $1 AND description = $2 AND unit = $3
+           ORDER BY created_at DESC
            LIMIT 1`,
           [locationId, item.description, item.unit]
         );

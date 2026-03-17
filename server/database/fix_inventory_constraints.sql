@@ -3,10 +3,12 @@
 -- First, let's check the current inventory table structure and recreate the unique constraint
 -- Drop the old constraint if it exists
 ALTER TABLE inventory DROP CONSTRAINT IF EXISTS inventory_location_id_description_unit_key;
+ALTER TABLE inventory DROP CONSTRAINT IF EXISTS inventory_location_description_unit_batch_key;
 
--- Add the correct unique constraint that matches our ON CONFLICT usage
-ALTER TABLE inventory ADD CONSTRAINT inventory_location_id_description_unit_key 
-UNIQUE (location_id, description, unit);
+-- Add the correct unique constraint that allows multiple cost batches per item
+-- This constraint includes cost_batch_id to allow multiple batches with different costs
+ALTER TABLE inventory ADD CONSTRAINT inventory_location_description_unit_batch_key 
+UNIQUE (location_id, description, unit, cost_batch_id);
 
 -- For the foreign key constraint issue with locations deletion,
 -- we need to handle ALL tables that reference locations
