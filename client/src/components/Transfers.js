@@ -4,6 +4,7 @@ import { AuthContext } from '../context/AuthContext';
 import { formatQuantity, formatPrice } from '../utils/formatNumber';
 import AutocompleteSearch from './AutocompleteSearch';
 import CdrImportModal from './CdrImportModal';
+import ExpressTransferModal from './ExpressTransferModal';
 import { FiSend, FiPackage, FiAlertCircle, FiCheck, FiX, FiTruck, FiClock, FiCheckCircle, FiXCircle, FiTrash2 } from 'react-icons/fi';
 
 function Transfers() {
@@ -17,6 +18,7 @@ function Transfers() {
   const [showRequestForm, setShowRequestForm] = useState(false);
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [showCdrImport, setShowCdrImport] = useState(false);
+  const [showExpressTransfer, setShowExpressTransfer] = useState(false);
   const [showItemsModal, setShowItemsModal] = useState(false);
   const [selectedTransferGroup, setSelectedTransferGroup] = useState([]);
   const [rejectTransferId, setRejectTransferId] = useState(null);
@@ -613,10 +615,16 @@ function Transfers() {
               </button>
             )}
             {user.role === 'admin' && (
-              <button className="btn btn-info" onClick={() => setShowCdrImport(true)}>
-                <FiTruck size={16} />
-                Import CDR
-              </button>
+              <>
+                <button className="btn btn-info" onClick={() => setShowCdrImport(true)}>
+                  <FiTruck size={16} />
+                  Import CDR
+                </button>
+                <button className="btn" style={{ backgroundColor: '#8b5cf6', color: 'white' }} onClick={() => setShowExpressTransfer(true)}>
+                  <FiPackage size={16} />
+                  Express Transfer
+                </button>
+              </>
             )}
           </div>
         </div>
@@ -1229,6 +1237,19 @@ function Transfers() {
           onImportComplete={() => {
             fetchTransfers();
             setShowCdrImport(false);
+          }}
+          locations={locations}
+        />
+      )}
+
+      {/* Express Transfer Modal */}
+      {showExpressTransfer && (
+        <ExpressTransferModal 
+          isOpen={showExpressTransfer}
+          onClose={() => setShowExpressTransfer(false)}
+          onTransferComplete={() => {
+            fetchTransfers();
+            setShowExpressTransfer(false);
           }}
           locations={locations}
         />
