@@ -661,24 +661,34 @@ function CdrImportModal({ isOpen, onClose, onImportComplete, locations }) {
                           </td>
                           <td style={{ padding: '8px' }}>
                             {editingIndex === item.originalIndex ? (
-                              <input
-                                type="text"
-                                value={editData.unit}
-                                onChange={(e) => setEditData({...editData, unit: e.target.value})}
-                                style={{ width: '60px', padding: '2px 4px', fontSize: '11px' }}
-                              />
+                              <div>
+                                <div style={{ fontSize: '9px', color: 'var(--text-muted)', marginBottom: '2px' }}>
+                                  CDR: {item.unit}
+                                </div>
+                                <input
+                                  type="text"
+                                  value={editData.unit}
+                                  onChange={(e) => setEditData({...editData, unit: e.target.value})}
+                                  style={{ width: '60px', padding: '2px 4px', fontSize: '11px' }}
+                                />
+                              </div>
                             ) : (
                               item.unit
                             )}
                           </td>
                           <td style={{ padding: '8px' }}>
                             {editingIndex === item.originalIndex ? (
-                              <input
-                                type="number"
-                                value={editData.quantity}
-                                onChange={(e) => setEditData({...editData, quantity: e.target.value})}
-                                style={{ width: '60px', padding: '2px 4px', fontSize: '11px' }}
-                              />
+                              <div>
+                                <div style={{ fontSize: '9px', color: 'var(--text-muted)', marginBottom: '2px' }}>
+                                  CDR: {item.quantity}
+                                </div>
+                                <input
+                                  type="number"
+                                  value={editData.quantity}
+                                  onChange={(e) => setEditData({...editData, quantity: e.target.value})}
+                                  style={{ width: '60px', padding: '2px 4px', fontSize: '11px' }}
+                                />
+                              </div>
                             ) : (
                               item.quantity
                             )}
