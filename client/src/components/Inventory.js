@@ -582,13 +582,27 @@ function Inventory() {
   const handleEditBatch = (batch) => {
     setEditingBatchId(batch.id);
     setBatchEditData({
-      description: batch.description || viewBatches.description,
-      unit: batch.unit || viewBatches.unit,
+      description: batch.description || viewBatches?.description || batch.item_description,
+      unit: batch.unit || viewBatches?.unit || batch.item_unit,
       quantity: batch.quantity,
       expiry_date: batch.expiry_date || '',
       unit_cost: batch.unit_cost,
       suggested_selling_price: batch.suggested_selling_price || ''
     });
+  };
+
+  const handleEditItem = (item) => {
+    // For single items, use the first cost batch or create from item data
+    const batch = item.costBatches?.[0] || {
+      id: item.id,
+      description: item.description,
+      unit: item.unit,
+      quantity: item.totalQuantity || item.quantity,
+      expiry_date: item.expiry_date,
+      unit_cost: item.unit_cost,
+      suggested_selling_price: item.suggested_selling_price
+    };
+    handleEditBatch(batch);
   };
 
   const handleSaveBatchEdit = async (id) => {
@@ -1563,56 +1577,195 @@ function Inventory() {
                           </tr>
                         )}
                         <tr key={item.id}>
-                          <td style={{ fontWeight: 600 }}>{item.description}</td>
-                          <td>{item.unit}</td>
+                          <td style={{ fontWeight: 600 }}>
+                            {editingBatchId === item.id ? (
+                              <input 
+                                type="text"
+                                value={batchEditData.description}
+                                onChange={(e) => setBatchEditData({...batchEditData, description: e.target.value})}
+                                style={{ 
+                                  width: '100%', 
+                                  padding: '4px 8px', 
+                                  fontSize: '12px',
+                                  border: '2px solid var(--primary)',
+                                  borderRadius: 'var(--radius)',
+                                  background: 'var(--bg-primary)',
+                                  color: 'var(--text-primary)'
+                                }}
+                              />
+                            ) : (
+                              item.description
+                            )}
+                          </td>
                           <td>
-                            <span className={`badge ${getStockBadgeClass(getStockStatus(item.quantity, item.max_quantity))}`}>
-                              {formatQuantity(item.quantity)}
-                            </span>
+                            {editingBatchId === item.id ? (
+                              <input 
+                                type="text"
+                                value={batchEditData.unit}
+                                onChange={(e) => setBatchEditData({...batchEditData, unit: e.target.value})}
+                                style={{ 
+                                  width: '80px', 
+                                  padding: '4px 8px', 
+                                  fontSize: '12px',
+                                  border: '2px solid var(--primary)',
+                                  borderRadius: 'var(--radius)',
+                                  background: 'var(--bg-primary)',
+                                  color: 'var(--text-primary)'
+                                }}
+                              />
+                            ) : (
+                              item.unit
+                            )}
+                          </td>
+                          <td>
+                            {editingBatchId === item.id ? (
+                              <input 
+                                type="number"
+                                step="1"
+                                min="0"
+                                value={batchEditData.quantity}
+                                onChange={(e) => setBatchEditData({...batchEditData, quantity: e.target.value})}
+                                style={{ 
+                                  width: '80px', 
+                                  padding: '4px 8px', 
+                                  fontSize: '12px',
+                                  border: '2px solid var(--primary)',
+                                  borderRadius: 'var(--radius)',
+                                  background: 'var(--bg-primary)',
+                                  color: 'var(--text-primary)'
+                                }}
+                              />
+                            ) : (
+                              <span className={`badge ${getStockBadgeClass(getStockStatus(item.quantity, item.max_quantity))}`}>
+                                {formatQuantity(item.quantity)}
+                              </span>
+                            )}
                           </td>
                           <td style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
                             {item.batch_number || '-'}
                           </td>
                           <td>
-                            {expiryDate ? (
-                              <span style={{ 
-                                fontSize: '12px',
-                                color: isExpired ? '#ef4444' : isExpiringSoon ? '#f59e0b' : 'var(--text-secondary)',
-                                fontWeight: (isExpired || isExpiringSoon) ? 600 : 400
-                              }}>
-                                {expiryDate.toLocaleDateString()}
-                                {isExpired && ' (Expired)'}
-                                {isExpiringSoon && ` (${daysUntilExpiry}d)`}
-                              </span>
+                            {editingBatchId === item.id ? (
+                              <input 
+                                type="date"
+                                value={batchEditData.expiry_date && batchEditData.expiry_date !== '' ? new Date(batchEditData.expiry_date).toISOString().split('T')[0] : ''}
+                                onChange={(e) => setBatchEditData({...batchEditData, expiry_date: e.target.value})}
+                                style={{ 
+                                  width: '130px', 
+                                  padding: '4px 8px', 
+                                  fontSize: '12px',
+                                  border: '2px solid var(--primary)',
+                                  borderRadius: 'var(--radius)',
+                                  background: 'var(--bg-primary)',
+                                  color: 'var(--text-primary)'
+                                }}
+                              />
                             ) : (
-                              <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>-</span>
+                              expiryDate ? (
+                                <span style={{ 
+                                  fontSize: '12px',
+                                  color: isExpired ? '#ef4444' : isExpiringSoon ? '#f59e0b' : 'var(--text-secondary)',
+                                  fontWeight: (isExpired || isExpiringSoon) ? 600 : 400
+                                }}>
+                                  {expiryDate.toLocaleDateString()}
+                                  {isExpired && ' (Expired)'}
+                                  {isExpiringSoon && ` (${daysUntilExpiry}d)`}
+                                </span>
+                              ) : (
+                                <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>-</span>
+                              )
                             )}
                           </td>
                           {user.role === 'admin' && (
                             <>
-                              <td>₱{formatPrice(item.unit_cost)}</td>
-                              <td>₱{formatPrice(item.suggested_selling_price || 0)}</td>
+                              <td>
+                                {editingBatchId === item.id ? (
+                                  <input 
+                                    type="number"
+                                    step="0.01"
+                                    min="0"
+                                    value={batchEditData.unit_cost}
+                                    onChange={(e) => setBatchEditData({...batchEditData, unit_cost: e.target.value})}
+                                    style={{ 
+                                      width: '90px', 
+                                      padding: '4px 8px', 
+                                      fontSize: '12px',
+                                      border: '2px solid var(--primary)',
+                                      borderRadius: 'var(--radius)',
+                                      background: 'var(--bg-primary)',
+                                      color: 'var(--text-primary)'
+                                    }}
+                                  />
+                                ) : (
+                                  `₱${formatPrice(item.unit_cost)}`
+                                )}
+                              </td>
+                              <td>
+                                {editingBatchId === item.id ? (
+                                  <input 
+                                    type="number"
+                                    step="0.01"
+                                    min="0"
+                                    value={batchEditData.suggested_selling_price}
+                                    onChange={(e) => setBatchEditData({...batchEditData, suggested_selling_price: e.target.value})}
+                                    style={{ 
+                                      width: '90px', 
+                                      padding: '4px 8px', 
+                                      fontSize: '12px',
+                                      border: '2px solid var(--primary)',
+                                      borderRadius: 'var(--radius)',
+                                      background: 'var(--bg-primary)',
+                                      color: 'var(--text-primary)'
+                                    }}
+                                  />
+                                ) : (
+                                  `₱${formatPrice(item.suggested_selling_price || 0)}`
+                                )}
+                              </td>
                               <td style={{ fontWeight: 600 }}>₱{formatPrice(parseFloat(item.quantity) * parseFloat(item.unit_cost))}</td>
                             </>
                           )}
                           {user.role === 'admin' && (
                             <td>
                               <div style={{ display: 'flex', gap: '4px' }}>
-                                <button 
-                                  className="btn btn-primary" 
-                                  style={{ padding: '6px 10px', fontSize: '12px' }}
-                                  onClick={() => handleEditBatch(item)}
-                                  title="Edit Item"
-                                >
-                                  <FiEdit2 size={12} />
-                                </button>
-                                <button
-                                  className="btn btn-danger"
-                                  style={{ padding: '6px 12px', fontSize: '12px' }}
-                                  onClick={() => handleDeleteInventory(item.id)}
-                                >
-                                  <FiTrash2 size={12} />
-                                </button>
+                                {editingBatchId === item.id ? (
+                                  <>
+                                    <button 
+                                      className="btn btn-success" 
+                                      style={{ padding: '6px 10px', fontSize: '12px' }}
+                                      onClick={() => handleSaveBatchEdit(item.id)}
+                                      title="Save Changes"
+                                    >
+                                      <FiCheck size={12} />
+                                    </button>
+                                    <button 
+                                      className="btn btn-danger" 
+                                      style={{ padding: '6px 10px', fontSize: '12px' }}
+                                      onClick={handleCancelBatchEdit}
+                                      title="Cancel Edit"
+                                    >
+                                      <FiX size={12} />
+                                    </button>
+                                  </>
+                                ) : (
+                                  <>
+                                    <button 
+                                      className="btn btn-primary" 
+                                      style={{ padding: '6px 10px', fontSize: '12px' }}
+                                      onClick={() => handleEditItem(item)}
+                                      title="Edit Item"
+                                    >
+                                      <FiEdit2 size={12} />
+                                    </button>
+                                    <button
+                                      className="btn btn-danger"
+                                      style={{ padding: '6px 12px', fontSize: '12px' }}
+                                      onClick={() => handleDeleteInventory(item.id)}
+                                    >
+                                      <FiTrash2 size={12} />
+                                    </button>
+                                  </>
+                                )}
                               </div>
                             </td>
                           )}
@@ -1628,7 +1781,23 @@ function Inventory() {
                         {/* Main Item Row */}
                         <tr style={{ backgroundColor: item.hasMultipleCosts ? 'rgba(245, 158, 11, 0.05)' : 'transparent' }}>
                           <td style={{ fontWeight: 600 }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            {!item.hasMultipleCosts && editingBatchId === item.id ? (
+                              <input 
+                                type="text"
+                                value={batchEditData.description}
+                                onChange={(e) => setBatchEditData({...batchEditData, description: e.target.value})}
+                                style={{ 
+                                  width: '100%', 
+                                  padding: '4px 8px', 
+                                  fontSize: '12px',
+                                  border: '2px solid var(--primary)',
+                                  borderRadius: 'var(--radius)',
+                                  background: 'var(--bg-primary)',
+                                  color: 'var(--text-primary)'
+                                }}
+                              />
+                            ) : (
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                 <span>{item.description}</span>
                                 {item.costBatches?.some(b => b.is_new_item) && (
                                   <span style={{ 
@@ -1659,34 +1828,109 @@ function Inventory() {
                                   </span>
                                 )}
                               </div>
+                            )}
                           </td>
-                          <td>{item.unit}</td>
                           <td>
-                            <span className={`badge ${getStockBadgeClass(getStockStatus(item.totalQuantity, item.max_quantity))}`}>
-                              {formatQuantity(item.totalQuantity)}
-                            </span>
-                            {item.hasMultipleCosts && (
-                              <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                                {item.costBatches?.length || 0} batches
-                              </div>
+                            {!item.hasMultipleCosts && editingBatchId === item.id ? (
+                              <input 
+                                type="text"
+                                value={batchEditData.unit}
+                                onChange={(e) => setBatchEditData({...batchEditData, unit: e.target.value})}
+                                style={{ 
+                                  width: '80px', 
+                                  padding: '4px 8px', 
+                                  fontSize: '12px',
+                                  border: '2px solid var(--primary)',
+                                  borderRadius: 'var(--radius)',
+                                  background: 'var(--bg-primary)',
+                                  color: 'var(--text-primary)'
+                                }}
+                              />
+                            ) : (
+                              item.unit
+                            )}
+                          </td>
+                          <td>
+                            {!item.hasMultipleCosts && editingBatchId === item.id ? (
+                              <input 
+                                type="number"
+                                step="1"
+                                min="0"
+                                value={batchEditData.quantity}
+                                onChange={(e) => setBatchEditData({...batchEditData, quantity: e.target.value})}
+                                style={{ 
+                                  width: '80px', 
+                                  padding: '4px 8px', 
+                                  fontSize: '12px',
+                                  border: '2px solid var(--primary)',
+                                  borderRadius: 'var(--radius)',
+                                  background: 'var(--bg-primary)',
+                                  color: 'var(--text-primary)'
+                                }}
+                              />
+                            ) : (
+                              <>
+                                <span className={`badge ${getStockBadgeClass(getStockStatus(item.totalQuantity, item.max_quantity))}`}>
+                                  {formatQuantity(item.totalQuantity)}
+                                </span>
+                                {item.hasMultipleCosts && (
+                                  <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                                    {item.costBatches?.length || 0} batches
+                                  </div>
+                                )}
+                              </>
                             )}
                           </td>
                           <td style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
                             {item.batch_number || '-'}
                           </td>
                           <td>
-                            {item.expiry_date ? (
-                              <span style={{ fontSize: '12px' }}>
-                                {new Date(item.expiry_date).toLocaleDateString()}
-                              </span>
+                            {!item.hasMultipleCosts && editingBatchId === item.id ? (
+                              <input 
+                                type="date"
+                                value={batchEditData.expiry_date && batchEditData.expiry_date !== '' ? new Date(batchEditData.expiry_date).toISOString().split('T')[0] : ''}
+                                onChange={(e) => setBatchEditData({...batchEditData, expiry_date: e.target.value})}
+                                style={{ 
+                                  width: '130px', 
+                                  padding: '4px 8px', 
+                                  fontSize: '12px',
+                                  border: '2px solid var(--primary)',
+                                  borderRadius: 'var(--radius)',
+                                  background: 'var(--bg-primary)',
+                                  color: 'var(--text-primary)'
+                                }}
+                              />
                             ) : (
-                              <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>-</span>
+                              item.expiry_date ? (
+                                <span style={{ fontSize: '12px' }}>
+                                  {new Date(item.expiry_date).toLocaleDateString()}
+                                </span>
+                              ) : (
+                                <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>-</span>
+                              )
                             )}
                           </td>
                           {user.role === 'admin' && (
                             <>
                               <td>
-                                {inventoryLoading ? (
+                                {!item.hasMultipleCosts && editingBatchId === item.id ? (
+                                  <input 
+                                    type="number"
+                                    step="0.01"
+                                    min="0"
+                                    value={batchEditData.unit_cost}
+                                    onChange={(e) => setBatchEditData({...batchEditData, unit_cost: e.target.value})}
+                                    style={{ 
+                                      width: '90px', 
+                                      padding: '4px 8px', 
+                                      fontSize: '12px',
+                                      border: '2px solid var(--primary)',
+                                      borderRadius: 'var(--radius)',
+                                      background: 'var(--bg-primary)',
+                                      color: 'var(--text-primary)'
+                                    }}
+                                  />
+                                ) : inventoryLoading ? (
                                   <PriceSkeleton />
                                 ) : item.hasMultipleCosts ? (
                                   <div style={{ fontSize: '11px' }}>
@@ -1700,7 +1944,24 @@ function Inventory() {
                                 )}
                               </td>
                               <td>
-                                {inventoryLoading ? (
+                                {!item.hasMultipleCosts && editingBatchId === item.id ? (
+                                  <input 
+                                    type="number"
+                                    step="0.01"
+                                    min="0"
+                                    value={batchEditData.suggested_selling_price}
+                                    onChange={(e) => setBatchEditData({...batchEditData, suggested_selling_price: e.target.value})}
+                                    style={{ 
+                                      width: '90px', 
+                                      padding: '4px 8px', 
+                                      fontSize: '12px',
+                                      border: '2px solid var(--primary)',
+                                      borderRadius: 'var(--radius)',
+                                      background: 'var(--bg-primary)',
+                                      color: 'var(--text-primary)'
+                                    }}
+                                  />
+                                ) : inventoryLoading ? (
                                   <PriceSkeleton />
                                 ) : item.hasMultipleCosts ? (
                                   <div style={{ fontSize: '11px' }}>
@@ -1727,32 +1988,63 @@ function Inventory() {
                           {user.role === 'admin' && (
                             <td>
                               <div style={{ display: 'flex', gap: '4px' }}>
-                                <button 
-                                  className="btn btn-info" 
-                                  style={{ padding: '6px 10px', fontSize: '12px' }}
-                                  onClick={() => handleViewHistory(item)}
-                                  title="View History"
-                                >
-                                  <FiClock size={12} />
-                                </button>
-                                {item.hasMultipleCosts ? (
-                                  <button 
-                                    className={`btn ${viewBatches && viewBatches.id === item.id ? 'btn-primary' : 'btn-secondary'}`}
-                                    style={{ padding: '6px 10px', fontSize: '12px' }}
-                                    onClick={() => handleViewBatches(item)}
-                                    title={viewBatches && viewBatches.id === item.id ? 'Hide Batches' : 'Edit Batches'}
-                                  >
-                                    <FiEdit2 size={12} />
-                                  </button>
+                                {!item.hasMultipleCosts && editingBatchId === item.id ? (
+                                  <>
+                                    <button 
+                                      className="btn btn-success" 
+                                      style={{ padding: '6px 10px', fontSize: '12px' }}
+                                      onClick={() => handleSaveBatchEdit(item.id)}
+                                      title="Save Changes"
+                                    >
+                                      <FiCheck size={12} />
+                                    </button>
+                                    <button 
+                                      className="btn btn-danger" 
+                                      style={{ padding: '6px 10px', fontSize: '12px' }}
+                                      onClick={handleCancelBatchEdit}
+                                      title="Cancel Edit"
+                                    >
+                                      <FiX size={12} />
+                                    </button>
+                                  </>
                                 ) : (
-                                  <button 
-                                    className="btn btn-primary" 
-                                    style={{ padding: '6px 10px', fontSize: '12px' }}
-                                    onClick={() => handleEditBatch(item.costBatches?.[0])}
-                                    title="Edit Item"
-                                  >
-                                    <FiEdit2 size={12} />
-                                  </button>
+                                  <>
+                                    <button 
+                                      className="btn btn-info" 
+                                      style={{ padding: '6px 10px', fontSize: '12px' }}
+                                      onClick={() => handleViewHistory(item)}
+                                      title="View History"
+                                    >
+                                      <FiClock size={12} />
+                                    </button>
+                                    {item.hasMultipleCosts ? (
+                                      <button 
+                                        className={`btn ${viewBatches && viewBatches.id === item.id ? 'btn-primary' : 'btn-secondary'}`}
+                                        style={{ padding: '6px 10px', fontSize: '12px' }}
+                                        onClick={() => handleViewBatches(item)}
+                                        title={viewBatches && viewBatches.id === item.id ? 'Hide Batches' : 'Edit Batches'}
+                                      >
+                                        <FiGitBranch size={12} />
+                                      </button>
+                                    ) : (
+                                      <button 
+                                        className="btn btn-primary" 
+                                        style={{ padding: '6px 10px', fontSize: '12px' }}
+                                        onClick={() => handleEditItem(item)}
+                                        title="Edit Item"
+                                      >
+                                        <FiEdit2 size={12} />
+                                      </button>
+                                    )}
+                                    <button
+                                      className="btn btn-danger"
+                                      style={{ padding: '6px 10px', fontSize: '12px' }}
+                                      onClick={() => handleDeleteInventory(item.id)}
+                                      title="Delete Item"
+                                    >
+                                      <FiTrash2 size={12} />
+                                    </button>
+                                  </>
                                 )}
                               </div>
                             </td>
