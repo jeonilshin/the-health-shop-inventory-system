@@ -2,7 +2,7 @@ import React, { useState, useEffect, useContext } from 'react';
 import api from '../utils/api';
 import { AuthContext } from '../context/AuthContext';
 import { formatQuantity, formatPrice } from '../utils/formatNumber';
-import { FiPackage, FiPlus, FiDownload, FiSearch, FiAlertCircle, FiTrash2, FiUpload, FiEdit2, FiClock, FiStar, FiDollarSign, FiGitBranch, FiX, FiCheck } from 'react-icons/fi';
+import { FiPackage, FiPlus, FiDownload, FiSearch, FiAlertCircle, FiTrash2, FiUpload, FiEdit2, FiClock, FiStar, FiDollarSign, FiGitBranch, FiX, FiCheck, FiGrid, FiList } from 'react-icons/fi';
 import SimpleAutocomplete from './SimpleAutocomplete';
 import ImportModal from './ImportModal';
 
@@ -31,6 +31,7 @@ function Inventory() {
   const [viewBatches, setViewBatches] = useState(null);
   const [editingBatchId, setEditingBatchId] = useState(null);
   const [batchEditData, setBatchEditData] = useState({});
+  const [locationViewMode, setLocationViewMode] = useState('list'); // 'list' or 'cards'
   const [showConversionModal, setShowConversionModal] = useState(false);
   const [conversionData, setConversionData] = useState({
     fromItemId: '',
@@ -735,12 +736,146 @@ function Inventory() {
         {/* Location Cards View (when "all" is selected) */}
         {selectedLocation === 'all' && user.role === 'admin' ? (
           <div>
-            <h3 style={{ marginBottom: '20px' }}>Select a Location</h3>
-            <div style={{ 
-              display: 'grid', 
-              gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', 
-              gap: '20px' 
-            }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+              <h3 style={{ margin: 0 }}>Select a Location</h3>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button 
+                  className={`btn ${locationViewMode === 'list' ? 'btn-primary' : 'btn-secondary'}`}
+                  onClick={() => setLocationViewMode('list')}
+                  style={{ padding: '8px 12px', fontSize: '14px' }}
+                  title="List View"
+                >
+                  <FiList size={16} />
+                </button>
+                <button 
+                  className={`btn ${locationViewMode === 'cards' ? 'btn-primary' : 'btn-secondary'}`}
+                  onClick={() => setLocationViewMode('cards')}
+                  style={{ padding: '8px 12px', fontSize: '14px' }}
+                  title="Card View"
+                >
+                  <FiGrid size={16} />
+                </button>
+              </div>
+            </div>
+            
+            {locationViewMode === 'list' ? (
+              // List View
+              <div style={{ overflowX: 'auto' }}>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Location</th>
+                      <th>Type</th>
+                      <th>In Stock Items</th>
+                      <th>Total Value</th>
+                      <th>Stock Alerts</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {locations.map(location => {
+                      const locationInventory = inventory.filter(item => item.location_id === location.id);
+                      const inStockItems = locationInventory.filter(item => parseFloat(item.quantity) > 0);
+                      const totalItems = inStockItems.length;
+                      const totalValue = inStockItems.reduce((sum, item) => 
+                        sum + (parseFloat(item.quantity) * parseFloat(item.unit_cost)), 0
+                      );
+                      const dangerousStock = locationInventory.filter(item => {
+                        const status = getStockStatus(item.quantity, item.max_quantity);
+                        return status === 'dangerous';
+                      }).length;
+                      const lowStock = locationInventory.filter(item => {
+                        const status = getStockStatus(item.quantity, item.max_quantity);
+                        return status === 'low';
+                      }).length;
+                      const noStock = locationInventory.filter(item => parseFloat(item.quantity) === 0).length;
+                      
+                      return (
+                        <tr key={location.id} style={{ cursor: 'pointer' }} onClick={() => setSelectedLocation(location.id)}>
+                          <td>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                              <div style={{ 
+                                width: '32px', 
+                                height: '32px', 
+                                borderRadius: '8px', 
+                                background: location.type === 'warehouse' ? 'rgba(37, 99, 235, 0.1)' : 'rgba(16, 185, 129, 0.1)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                fontSize: '16px'
+                              }}>
+                                {location.type === 'warehouse' ? '📦' : '🏪'}
+                              </div>
+                              <div>
+                                <div style={{ fontWeight: '600', fontSize: '14px' }}>{location.name}</div>
+                              </div>
+                            </div>
+                          </td>
+                          <td>
+                            <span className={`badge ${location.type === 'warehouse' ? 'badge-primary' : 'badge-success'}`} 
+                              style={{ fontSize: '11px' }}>
+                              {location.type}
+                            </span>
+                          </td>
+                          <td>
+                            <div style={{ fontSize: '16px', fontWeight: '600', color: 'var(--primary)' }}>
+                              {totalItems}
+                            </div>
+                          </td>
+                          <td>
+                            <div style={{ fontSize: '14px', fontWeight: '600' }}>
+                              ₱{formatPrice(totalValue)}
+                            </div>
+                          </td>
+                          <td>
+                            <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                              {noStock > 0 && (
+                                <span className="badge badge-secondary" style={{ fontSize: '10px' }}>
+                                  {noStock} no stock
+                                </span>
+                              )}
+                              {dangerousStock > 0 && (
+                                <span className="badge badge-danger" style={{ fontSize: '10px' }}>
+                                  {dangerousStock} critical
+                                </span>
+                              )}
+                              {lowStock > 0 && (
+                                <span className="badge badge-warning" style={{ fontSize: '10px' }}>
+                                  {lowStock} low
+                                </span>
+                              )}
+                              {noStock === 0 && dangerousStock === 0 && lowStock === 0 && (
+                                <span className="badge badge-success" style={{ fontSize: '10px' }}>
+                                  All good
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                          <td>
+                            <button 
+                              className="btn btn-primary"
+                              style={{ padding: '6px 12px', fontSize: '12px' }}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setSelectedLocation(location.id);
+                              }}
+                            >
+                              View Inventory
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              // Card View (existing)
+              <div style={{ 
+                display: 'grid', 
+                gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', 
+                gap: '20px' 
+              }}>
               {locations.map(location => {
                 const locationInventory = inventory.filter(item => item.location_id === location.id);
                 const inStockItems = locationInventory.filter(item => parseFloat(item.quantity) > 0);
@@ -896,7 +1031,8 @@ function Inventory() {
                   </div>
                 );
               })}
-            </div>
+              </div>
+            )}
           </div>
         ) : (
           <>
