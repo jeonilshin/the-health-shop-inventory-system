@@ -608,9 +608,10 @@ function CdrImportModal({ isOpen, onClose, onImportComplete, locations }) {
                     </thead>
                     <tbody>
                       {cdrData
+                        .map((item, originalIndex) => ({ ...item, originalIndex })) // Add original index
                         .filter(item => !showErrorsOnly || item.error)
-                        .map((item, index) => (
-                        <tr key={index} style={{ backgroundColor: item.error ? 'rgba(239, 68, 68, 0.1)' : 'transparent' }}>
+                        .map((item, filteredIndex) => (
+                        <tr key={item.originalIndex} style={{ backgroundColor: item.error ? 'rgba(239, 68, 68, 0.1)' : 'transparent' }}>
                           <td style={{ padding: '8px' }}>
                             {item.error ? (
                               <span className="badge badge-danger" style={{ fontSize: '10px' }}>Error</span>
@@ -620,23 +621,28 @@ function CdrImportModal({ isOpen, onClose, onImportComplete, locations }) {
                           </td>
                           <td style={{ padding: '8px' }}>{item.mappedBranch}</td>
                           <td style={{ padding: '8px' }}>
-                            {editingIndex === index ? (
-                              <div style={{ position: 'relative' }}>
-                                <SimpleAutocomplete
-                                  items={getFilteredSuggestions(editData.searchText)}
-                                  value={editData.searchText || ''}
-                                  onChange={(value) => setEditData({...editData, searchText: value})}
-                                  onSelect={handleProductSelect}
-                                  displayField="description"
-                                  placeholder="Search warehouse products..."
-                                  style={{ width: '100%', fontSize: '11px' }}
-                                />
-                                <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                                  <FiSearch size={10} style={{ marginRight: '4px' }} />
-                                  {getFilteredSuggestions(editData.searchText).length > 0 
-                                    ? `${getFilteredSuggestions(editData.searchText).length} suggestions found`
-                                    : 'No matching products found'
-                                  }
+                            {editingIndex === item.originalIndex ? (
+                              <div>
+                                <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginBottom: '4px', fontWeight: 'bold' }}>
+                                  Original CDR: {item.description}
+                                </div>
+                                <div style={{ position: 'relative' }}>
+                                  <SimpleAutocomplete
+                                    items={getFilteredSuggestions(editData.searchText)}
+                                    value={editData.searchText || ''}
+                                    onChange={(value) => setEditData({...editData, searchText: value})}
+                                    onSelect={handleProductSelect}
+                                    displayField="description"
+                                    placeholder="Search warehouse products..."
+                                    style={{ width: '100%', fontSize: '11px' }}
+                                  />
+                                  <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                                    <FiSearch size={10} style={{ marginRight: '4px' }} />
+                                    {getFilteredSuggestions(editData.searchText).length > 0 
+                                      ? `${getFilteredSuggestions(editData.searchText).length} suggestions found`
+                                      : 'No matching products found'
+                                    }
+                                  </div>
                                 </div>
                               </div>
                             ) : (
@@ -654,7 +660,7 @@ function CdrImportModal({ isOpen, onClose, onImportComplete, locations }) {
                             )}
                           </td>
                           <td style={{ padding: '8px' }}>
-                            {editingIndex === index ? (
+                            {editingIndex === item.originalIndex ? (
                               <input
                                 type="text"
                                 value={editData.unit}
@@ -666,7 +672,7 @@ function CdrImportModal({ isOpen, onClose, onImportComplete, locations }) {
                             )}
                           </td>
                           <td style={{ padding: '8px' }}>
-                            {editingIndex === index ? (
+                            {editingIndex === item.originalIndex ? (
                               <input
                                 type="number"
                                 value={editData.quantity}
@@ -679,7 +685,7 @@ function CdrImportModal({ isOpen, onClose, onImportComplete, locations }) {
                           </td>
                           <td style={{ padding: '8px' }}>
                             <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
-                              {editingIndex === index ? (
+                              {editingIndex === item.originalIndex ? (
                                 <>
                                   <button 
                                     className="btn btn-success" 
@@ -716,17 +722,17 @@ function CdrImportModal({ isOpen, onClose, onImportComplete, locations }) {
                               ) : (
                                 <button 
                                   className="btn btn-primary" 
-                                  onClick={() => handleEditItem(index)}
+                                  onClick={() => handleEditItem(item.originalIndex)}
                                   style={{ padding: '2px 6px', fontSize: '10px' }}
                                   title="Edit item"
                                 >
                                   <FiEdit2 size={10} />
                                 </button>
                               )}
-                              {item.suggested && editingIndex !== index && (
+                              {item.suggested && editingIndex !== item.originalIndex && (
                                 <button 
                                   className="btn btn-success" 
-                                  onClick={() => selectSuggestion(index, item.suggested)}
+                                  onClick={() => selectSuggestion(item.originalIndex, item.suggested)}
                                   style={{ padding: '2px 6px', fontSize: '10px' }}
                                   title="Use suggested product"
                                 >
