@@ -165,7 +165,7 @@ function CdrImportModal({ isOpen, onClose, onImportComplete, locations }) {
       Array.from(outletSet).forEach(outlet => {
         const bestMatch = findBestBranchMatch(outlet);
         if (bestMatch) {
-          mappings[outlet] = bestMatch.id;
+          mappings[outlet] = parseInt(bestMatch.id); // Ensure ID is stored as number
         } else {
           unmapped.push(outlet);
         }
@@ -376,11 +376,13 @@ function CdrImportModal({ isOpen, onClose, onImportComplete, locations }) {
         });
 
         for (const [branchId, items] of Object.entries(itemsByBranch)) {
-          // Find branch location
-          const branch = locations.find(loc => loc.id === branchId);
+          // Find branch location - ensure ID comparison works with both string and number
+          const branch = locations.find(loc => loc.id == branchId); // Use == for flexible comparison
 
           if (!branch) {
-            alert(`Branch not found with ID: ${branchId}`);
+            console.error(`Branch not found with ID: ${branchId}. Available branches:`, 
+              locations.filter(loc => loc.type === 'branch').map(b => ({ id: b.id, name: b.name })));
+            errors.push(`Branch not found with ID: ${branchId}`);
             continue;
           }
 
@@ -687,7 +689,7 @@ function CdrImportModal({ isOpen, onClose, onImportComplete, locations }) {
                                 value={branchId}
                                 onChange={(e) => setBranchMappings({
                                   ...branchMappings,
-                                  [outlet]: e.target.value
+                                  [outlet]: parseInt(e.target.value)
                                 })}
                                 style={{ padding: '4px 8px', fontSize: '12px' }}
                               >
@@ -734,7 +736,7 @@ function CdrImportModal({ isOpen, onClose, onImportComplete, locations }) {
                                 if (e.target.value) {
                                   setBranchMappings({
                                     ...branchMappings,
-                                    [outlet]: e.target.value
+                                    [outlet]: parseInt(e.target.value)
                                   });
                                   setUnmappedOutlets(unmappedOutlets.filter(o => o !== outlet));
                                 }

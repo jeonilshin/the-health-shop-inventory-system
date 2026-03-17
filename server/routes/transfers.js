@@ -806,10 +806,10 @@ router.post('/batch', auth, authorize('admin'), async (req, res) => {
         // Create transfer record
         const transferResult = await client.query(
           `INSERT INTO transfers 
-           (from_location_id, to_location_id, notes, status, transferred_by, transferred_by_name, created_at) 
-           VALUES ($1, $2, $3, 'approved', $4, $5, CURRENT_TIMESTAMP) 
+           (from_location_id, to_location_id, notes, status, transferred_by, created_at) 
+           VALUES ($1, $2, $3, 'approved', $4, CURRENT_TIMESTAMP) 
            RETURNING *`,
-          [from_location_id, to_location_id, notes, req.user.id, req.user.full_name || req.user.username]
+          [from_location_id, to_location_id, notes, req.user.id]
         );
 
         const transfer = transferResult.rows[0];
