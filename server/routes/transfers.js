@@ -757,4 +757,168 @@ router.get('/pending', auth, authorize('admin'), async (req, res) => {
   }
 });
 
+// Batch transfer creation (for CDR imports) - Admin only
+router.post('/batch', auth, authorize('admin'), async (req, res) => {
+  const client = await pool.connect();
+  
+  try {
+    const { transfers } = req.body; // Array of transfer objects
+    
+    if (!transfers || !Array.isArray(transfers) || transfers.length === 0) {
+      return res.status(400).json({ error: 'Transfers array is required' });
+    }
+
+    await client.query('BEGIN');
+
+    const results = [];
+    const errors = [];
+
+    for (const transferData of transfers) {
+      try {
+        const { from_location_id, to_location_id, notes, items } = transferData;
+
+        // Validate locations
+        const locations = await client.query(
+          'SELECT id, name, type FROM locations WHERE id IN ($1, $2)',
+          [from_location_id, to_location_id]
+        );
+
+        if (locations.rows.length !== 2) {
+          errors.push(`Invalid locations for transfer`);
+          continue;
+        }
+
+        const fromLocation = locations.rows.find(l => l.id == from_location_id);
+        const toLocation = locations.rows.find(l => l.id == to_location_id);
+
+        // Create transfer record
+        const transferResult = await client.query(
+          `INSERT INTO transfers 
+           (from_location_id, to_location_id, notes, status, transferred_by, transferred_by_name, created_at) 
+           VALUES ($1, $2, $3, 'approved', $4, $5, CURRENT_TIMESTAMP) 
+           RETURNING *`,
+          [from_location_id, to_location_id, notes, req.user.id, req.user.full_name || req.user.username]
+        );
+
+        const transfer = transferResult.rows[0];
+
+        // Process each item in the transfer
+        for (const item of items) {
+          const { inventory_item_id, quantity, description, unit, unit_cost } = item;
+
+          // Get inventory item details
+          const inventoryResult = await client.query(
+            'SELECT * FROM inventory WHERE id = $1 AND location_id = $2',
+            [inventory_item_id, from_location_id]
+          );
+
+          if (inventoryResult.rows.length === 0) {
+            errors.push(`Item not found in source location: ${description}`);
+            continue;
+          }
+
+          const inventoryItem = inventoryResult.rows[0];
+
+          // Check sufficient quantity
+          if (parseFloat(inventoryItem.quantity) < parseFloat(quantity)) {
+            errors.push(`Insufficient quantity for ${description}. Available: ${inventoryItem.quantity}, Requested: ${quantity}`);
+            continue;
+          }
+
+          // Create transfer item record
+          await client.query(
+            `INSERT INTO transfer_items 
+             (transfer_id, inventory_item_id, description, unit, quantity, unit_cost, batch_number, expiry_date) 
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+            [transfer.id, inventory_item_id, description, unit, quantity, unit_cost, 
+             inventoryItem.batch_number, inventoryItem.expiry_date]
+          );
+
+          // Reduce quantity from source location
+          await client.query(
+            'UPDATE inventory SET quantity = quantity - $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+            [quantity, inventory_item_id]
+          );
+
+          // Add to destination location (check if item exists)
+          const destInventory = await client.query(
+            `SELECT * FROM inventory 
+             WHERE location_id = $1 AND description = $2 AND unit = $3 
+             AND unit_cost = $4 AND COALESCE(batch_number, '') = COALESCE($5, '')`,
+            [to_location_id, description, unit, unit_cost, inventoryItem.batch_number]
+          );
+
+          if (destInventory.rows.length > 0) {
+            // Update existing inventory
+            await client.query(
+              'UPDATE inventory SET quantity = quantity + $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+              [quantity, destInventory.rows[0].id]
+            );
+          } else {
+            // Create new inventory record
+            await client.query(
+              `INSERT INTO inventory 
+               (location_id, description, unit, quantity, unit_cost, suggested_selling_price, 
+                batch_number, expiry_date, max_quantity, cost_batch_id, is_new_item, is_new_cost) 
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $4, $9, false, false)`,
+              [to_location_id, description, unit, quantity, unit_cost, 
+               inventoryItem.suggested_selling_price, inventoryItem.batch_number, 
+               inventoryItem.expiry_date, inventoryItem.cost_batch_id]
+            );
+          }
+        }
+
+        // Mark transfer as completed
+        await client.query(
+          'UPDATE transfers SET status = $1, completed_at = CURRENT_TIMESTAMP WHERE id = $2',
+          ['completed', transfer.id]
+        );
+
+        results.push({
+          transfer_id: transfer.id,
+          from_location: fromLocation.name,
+          to_location: toLocation.name,
+          items_count: items.length
+        });
+
+        // Log audit
+        await logAudit({
+          userId: req.user.id,
+          username: req.user.username,
+          action: 'BATCH_TRANSFER_CREATE',
+          tableName: 'transfers',
+          recordId: transfer.id,
+          newValues: { 
+            from_location: fromLocation.name,
+            to_location: toLocation.name,
+            items_count: items.length,
+            source: 'CDR_IMPORT'
+          },
+          ipAddress: req.ip,
+          userAgent: req.get('user-agent'),
+          description: `CDR batch transfer: ${items.length} items from ${fromLocation.name} to ${toLocation.name}`
+        });
+
+      } catch (itemError) {
+        errors.push(`Transfer error: ${itemError.message}`);
+      }
+    }
+
+    await client.query('COMMIT');
+
+    res.json({
+      success: true,
+      results,
+      errors,
+      message: `Batch transfer completed. ${results.length} transfers created, ${errors.length} errors.`
+    });
+
+  } catch (error) {
+    await client.query('ROLLBACK');
+    res.status(500).json({ error: error.message });
+  } finally {
+    client.release();
+  }
+});
+
 module.exports = router;

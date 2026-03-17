@@ -3,6 +3,7 @@ import api from '../utils/api';
 import { AuthContext } from '../context/AuthContext';
 import { formatQuantity, formatPrice } from '../utils/formatNumber';
 import AutocompleteSearch from './AutocompleteSearch';
+import CdrImportModal from './CdrImportModal';
 import { FiSend, FiPackage, FiAlertCircle, FiCheck, FiX, FiTruck, FiClock, FiCheckCircle, FiXCircle, FiTrash2 } from 'react-icons/fi';
 
 function Transfers() {
@@ -15,6 +16,7 @@ function Transfers() {
   const [showForm, setShowForm] = useState(false);
   const [showRequestForm, setShowRequestForm] = useState(false);
   const [showRejectModal, setShowRejectModal] = useState(false);
+  const [showCdrImport, setShowCdrImport] = useState(false);
   const [rejectTransferId, setRejectTransferId] = useState(null);
   const [rejectionReason, setRejectionReason] = useState('');
   const [loading, setLoading] = useState(false);
@@ -499,6 +501,12 @@ function Transfers() {
               <button className="btn btn-primary" onClick={() => { setShowForm(!showForm); setShowRequestForm(false); }}>
                 <FiSend size={16} />
                 {showForm ? 'Cancel' : (user.role === 'branch_manager' ? 'Transfer to Branch' : 'New Transfer')}
+              </button>
+            )}
+            {user.role === 'admin' && (
+              <button className="btn btn-info" onClick={() => setShowCdrImport(true)}>
+                <FiTruck size={16} />
+                Import CDR
               </button>
             )}
           </div>
@@ -1043,6 +1051,19 @@ function Transfers() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* CDR Import Modal */}
+      {showCdrImport && (
+        <CdrImportModal 
+          isOpen={showCdrImport}
+          onClose={() => setShowCdrImport(false)}
+          onImportComplete={() => {
+            fetchTransfers();
+            setShowCdrImport(false);
+          }}
+          locations={locations}
+        />
       )}
     </div>
   );
