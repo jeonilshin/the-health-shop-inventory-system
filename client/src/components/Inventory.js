@@ -16,6 +16,7 @@ function Inventory() {
   const [showForm, setShowForm] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [inventoryLoading, setInventoryLoading] = useState(false);
   const [inventoryHistory, setInventoryHistory] = useState([]);
   const [sortBy, setSortBy] = useState('batch'); // 'batch', 'description', 'category'
   const [sortOrder, setSortOrder] = useState('asc'); // 'asc', 'desc'
@@ -120,6 +121,7 @@ function Inventory() {
 
   const fetchInventory = async () => {
     try {
+      setInventoryLoading(true);
       const endpoint = selectedLocation === 'all' 
         ? '/inventory/all' 
         : `/inventory/location/${selectedLocation}`;
@@ -191,6 +193,9 @@ function Inventory() {
       }
     } catch (error) {
       // Error fetching inventory
+      console.error('Error fetching inventory:', error);
+    } finally {
+      setInventoryLoading(false);
     }
   };
 
@@ -656,8 +661,30 @@ function Inventory() {
     return 'badge-success';
   };
 
+  // Skeleton loading component for prices
+  const PriceSkeleton = ({ width = '60px' }) => (
+    <div 
+      style={{ 
+        width, 
+        height: '16px', 
+        background: 'linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%)',
+        backgroundSize: '200% 100%',
+        animation: 'shimmer 1.5s infinite',
+        borderRadius: '4px'
+      }}
+    />
+  );
+
   return (
     <div className="container">
+      <style>
+        {`
+          @keyframes shimmer {
+            0% { background-position: -200% 0; }
+            100% { background-position: 200% 0; }
+          }
+        `}
+      </style>
       <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '24px' }}>
         <FiPackage size={32} color="#2563eb" />
         <h2 style={{ margin: 0 }}>Inventory Management</h2>
@@ -1186,10 +1213,14 @@ function Inventory() {
                 Total Value (In Stock)
               </div>
               <div style={{ fontSize: '24px', fontWeight: '700' }}>
-                ₱{formatPrice(
-                  filteredInventory
-                    .filter(item => parseFloat(item.quantity) > 0)
-                    .reduce((sum, item) => sum + (parseFloat(item.quantity) * parseFloat(item.unit_cost)), 0)
+                {inventoryLoading ? (
+                  <PriceSkeleton width="120px" />
+                ) : (
+                  `₱${formatPrice(
+                    filteredInventory
+                      .filter(item => parseFloat(item.quantity) > 0)
+                      .reduce((sum, item) => sum + (parseFloat(item.quantity) * parseFloat(item.unit_cost)), 0)
+                  )}`
                 )}
               </div>
             </div>
@@ -1474,7 +1505,26 @@ function Inventory() {
             </tr>
           </thead>
           <tbody>
-            {filteredInventory.length === 0 ? (
+            {inventoryLoading ? (
+              // Show skeleton rows while loading
+              Array.from({ length: 5 }).map((_, index) => (
+                <tr key={`skeleton-${index}`}>
+                  <td><PriceSkeleton width="150px" /></td>
+                  <td><PriceSkeleton width="40px" /></td>
+                  <td><PriceSkeleton width="60px" /></td>
+                  <td><PriceSkeleton width="80px" /></td>
+                  <td><PriceSkeleton width="70px" /></td>
+                  {user.role === 'admin' && (
+                    <>
+                      <td><PriceSkeleton width="60px" /></td>
+                      <td><PriceSkeleton width="60px" /></td>
+                      <td><PriceSkeleton width="80px" /></td>
+                      <td><PriceSkeleton width="100px" /></td>
+                    </>
+                  )}
+                </tr>
+              ))
+            ) : filteredInventory.length === 0 ? (
               <tr>
                 <td colSpan={user.role === 'admin' ? 9 : 5} style={{ textAlign: 'center', padding: '20px' }}>
                   {searchTerm ? 'No items match your search' : 'No inventory items found'}
@@ -1636,7 +1686,9 @@ function Inventory() {
                           {user.role === 'admin' && (
                             <>
                               <td>
-                                {item.hasMultipleCosts ? (
+                                {inventoryLoading ? (
+                                  <PriceSkeleton />
+                                ) : item.hasMultipleCosts ? (
                                   <div style={{ fontSize: '11px' }}>
                                     <div>₱{formatPrice(Math.min(...(item.costBatches?.map(b => b.unit_cost) || [0])))}</div>
                                     <div style={{ color: 'var(--text-muted)' }}>
@@ -1648,7 +1700,9 @@ function Inventory() {
                                 )}
                               </td>
                               <td>
-                                {item.hasMultipleCosts ? (
+                                {inventoryLoading ? (
+                                  <PriceSkeleton />
+                                ) : item.hasMultipleCosts ? (
                                   <div style={{ fontSize: '11px' }}>
                                     <div>₱{formatPrice(Math.min(...(item.costBatches?.map(b => b.suggested_selling_price || 0) || [0])))}</div>
                                     <div style={{ color: 'var(--text-muted)' }}>
@@ -1660,9 +1714,13 @@ function Inventory() {
                                 )}
                               </td>
                               <td style={{ fontWeight: 600 }}>
-                                ₱{formatPrice((item.costBatches || []).reduce((sum, batch) => 
-                                  sum + (parseFloat(batch.quantity) * parseFloat(batch.unit_cost)), 0
-                                ))}
+                                {inventoryLoading ? (
+                                  <PriceSkeleton width="80px" />
+                                ) : (
+                                  `₱${formatPrice((item.costBatches || []).reduce((sum, batch) => 
+                                    sum + (parseFloat(batch.quantity) * parseFloat(batch.unit_cost)), 0
+                                  ))}`
+                                )}
                               </td>
                             </>
                           )}
@@ -1845,6 +1903,8 @@ function Inventory() {
                                             color: 'var(--text-primary)'
                                           }}
                                         />
+                                      ) : inventoryLoading ? (
+                                        <PriceSkeleton width="50px" />
                                       ) : (
                                         `₱${formatPrice(batch.unit_cost)}`
                                       )}
@@ -1867,12 +1927,18 @@ function Inventory() {
                                             color: 'var(--text-primary)'
                                           }}
                                         />
+                                      ) : inventoryLoading ? (
+                                        <PriceSkeleton width="50px" />
                                       ) : (
                                         `₱${formatPrice(batch.suggested_selling_price || 0)}`
                                       )}
                                     </td>
                                     <td style={{ fontSize: '12px', fontWeight: 600 }}>
-                                      ₱{formatPrice(parseFloat(batch.quantity) * parseFloat(batch.unit_cost))}
+                                      {inventoryLoading ? (
+                                        <PriceSkeleton width="60px" />
+                                      ) : (
+                                        `₱${formatPrice(parseFloat(batch.quantity) * parseFloat(batch.unit_cost))}`
+                                      )}
                                     </td>
                                   </>
                                 )}

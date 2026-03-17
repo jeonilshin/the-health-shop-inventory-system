@@ -8,20 +8,40 @@ function Login() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [loginTimeout, setLoginTimeout] = useState(false);
   const { login } = useContext(AuthContext);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
     setLoading(true);
+    setLoginTimeout(false);
+
+    // Set a timeout for long-running requests
+    const timeoutId = setTimeout(() => {
+      setLoginTimeout(true);
+    }, 10000); // 10 seconds
 
     try {
-      const response = await api.post('/auth/login', { username, password });
+      const response = await api.post('/auth/login', { 
+        username, 
+        password 
+      }, {
+        timeout: 30000 // 30 second timeout
+      });
+      
+      clearTimeout(timeoutId);
       login(response.data.token, response.data.user);
     } catch (err) {
-      setError(err.response?.data?.error || 'Login failed');
+      clearTimeout(timeoutId);
+      if (err.code === 'ECONNABORTED' || err.message.includes('timeout')) {
+        setError('Login is taking longer than expected. Please check your connection and try again.');
+      } else {
+        setError(err.response?.data?.error || 'Login failed. Please try again.');
+      }
     } finally {
       setLoading(false);
+      setLoginTimeout(false);
     }
   };
 
@@ -98,7 +118,7 @@ function Login() {
             {loading ? (
               <>
                 <div className="spinner" style={{ width: '16px', height: '16px', borderWidth: '2px', margin: 0 }}></div>
-                Logging in...
+                {loginTimeout ? 'Still connecting...' : 'Logging in...'}
               </>
             ) : (
               <>
@@ -107,6 +127,13 @@ function Login() {
               </>
             )}
           </button>
+          
+          {loginTimeout && (
+            <div className="alert alert-info" style={{ marginTop: '12px', fontSize: '13px' }}>
+              <FiActivity size={14} />
+              Login is taking longer than usual. This might be due to server startup or network issues.
+            </div>
+          )}
         </form>
       </div>
     </div>
