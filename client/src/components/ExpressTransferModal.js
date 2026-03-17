@@ -9,14 +9,84 @@ function ExpressTransferModal({ isOpen, onClose, onTransferComplete, locations }
   const [toWarehouse, setToWarehouse] = useState('');
   const [selectedItems, setSelectedItems] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [file, setFile] = useState(null);
+  const [parsedData, setParsedData] = useState([]);
+  const [warehouseInventory, setWarehouseInventory] = useState([]);
 
   const warehouses = locations.filter(loc => loc.type === 'warehouse');
 
   useEffect(() => {
-    // Inventory is loaded on-demand via AutocompleteSearch component
-    // No need to pre-load all inventory
+    if (fromWarehouse) {
+      fetchWarehouseInventory();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fromWarehouse]);
+
+  const fetchWarehouseInventory = async () => {
+    try {
+      setLoading(true);
+      const response = await api.get(`/inventory/location/${fromWarehouse}`);
+      setWarehouseInventory(response.data);
+    } catch (error) {
+      alert('Error loading inventory: ' + (error.response?.data?.error || error.message));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleFileUpload = async (e) => {
+    const uploadedFile = e.target.files[0];
+    if (!uploadedFile) return;
+
+    setFile(uploadedFile);
+    setLoading(true);
+
+    try {
+      const formData = new FormData();
+      formData.append('file', uploadedFile);
+
+      const response = await api.post('/import/preview', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+
+      if (response.data.success) {
+        const items = response.data.preview
+          .filter(item => !item.is_category && item.description && item.unit)
+          .map(item => {
+            // Try to find matching item in warehouse inventory
+            const match = warehouseInventory.find(inv => 
+              inv.description.toLowerCase() === item.description.toLowerCase() &&
+              inv.unit.toLowerCase() === item.unit.toLowerCase()
+            );
+
+            let error = null;
+            if (!match) {
+              error = 'Product not found in warehouse inventory';
+            } else if (parseFloat(match.quantity) < parseFloat(item.quantity)) {
+              error = `Insufficient quantity. Available: ${match.quantity}, Requested: ${item.quantity}`;
+            }
+
+            return {
+              inventory_item_id: match?.id || null,
+              description: item.description,
+              unit: item.unit,
+              quantity: item.quantity || '',
+              unit_cost: match?.unit_cost || 0,
+              available: match?.quantity || 0,
+              error: error,
+              suggested: match || null
+            };
+          });
+
+        setParsedData(items);
+        setSelectedItems(items.filter(item => !item.error));
+      }
+    } catch (error) {
+      alert('Error parsing file: ' + (error.response?.data?.error || error.message));
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleAddItem = () => {
     setSelectedItems([...selectedItems, { 
@@ -132,6 +202,9 @@ function ExpressTransferModal({ isOpen, onClose, onTransferComplete, locations }
     setFromWarehouse('');
     setToWarehouse('');
     setSelectedItems([]);
+    setFile(null);
+    setParsedData([]);
+    setWarehouseInventory([]);
     onClose();
   };
 
@@ -226,6 +299,39 @@ function ExpressTransferModal({ isOpen, onClose, onTransferComplete, locations }
                 Add items to transfer from {warehouses.find(w => w.id === parseInt(fromWarehouse))?.name} to {warehouses.find(w => w.id === parseInt(toWarehouse))?.name}
               </div>
 
+              {/* File Upload Option */}
+              <div style={{ 
+                padding: '16px', 
+                backgroundColor: 'var(--bg-secondary)', 
+                borderRadius: 'var(--radius)', 
+                marginBottom: '20px',
+                border: '2px dashed var(--border)'
+              }}>
+                <h4 style={{ margin: '0 0 12px 0', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <FiPackage size={16} />
+                  Upload CSV/Excel File (Optional)
+                </h4>
+                <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '12px' }}>
+                  Upload a file with the same format as CDR import: Brand, Description, UoM, Quantity
+                </p>
+                <input
+                  type="file"
+                  accept=".csv,.xlsx,.xls"
+                  onChange={handleFileUpload}
+                  style={{ marginBottom: '8px' }}
+                />
+                {file && (
+                  <div style={{ fontSize: '13px', color: 'var(--success)', marginTop: '8px' }}>
+                    ✓ File uploaded: {file.name} - {parsedData.length} items found
+                    {parsedData.filter(item => item.error).length > 0 && (
+                      <span style={{ color: 'var(--warning)', marginLeft: '8px' }}>
+                        ({parsedData.filter(item => item.error).length} errors)
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
+
               {loading ? (
                 <div style={{ textAlign: 'center', padding: '40px' }}>
                   <div className="spinner" style={{ width: '40px', height: '40px', margin: '0 auto' }}></div>
@@ -233,33 +339,79 @@ function ExpressTransferModal({ isOpen, onClose, onTransferComplete, locations }
                 </div>
               ) : (
                 <>
+                  {/* Show parsed items with errors */}
+                  {parsedData.length > 0 && parsedData.filter(item => item.error).length > 0 && (
+                    <div style={{ marginBottom: '20px' }}>
+                      <h4 style={{ color: 'var(--warning)', marginBottom: '12px' }}>
+                        Items with Errors ({parsedData.filter(item => item.error).length})
+                      </h4>
+                      {parsedData.filter(item => item.error).map((item, index) => (
+                        <div key={`error-${index}`} style={{ 
+                          padding: '12px', 
+                          backgroundColor: 'rgba(239, 68, 68, 0.1)', 
+                          borderRadius: 'var(--radius)', 
+                          marginBottom: '8px',
+                          border: '1px solid rgba(239, 68, 68, 0.3)'
+                        }}>
+                          <div style={{ fontWeight: '600', marginBottom: '4px' }}>
+                            {item.description} ({item.unit}) - Qty: {item.quantity}
+                          </div>
+                          <div style={{ fontSize: '13px', color: '#ef4444' }}>
+                            ⚠️ {item.error}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Manual item selection */}
+                  <h4 style={{ marginBottom: '12px' }}>
+                    {parsedData.length > 0 ? 'Valid Items' : 'Add Items Manually'}
+                  </h4>
+
                   {selectedItems.map((item, index) => (
                     <div key={index} style={{ 
                       padding: '16px', 
-                      backgroundColor: 'var(--bg-secondary)', 
+                      backgroundColor: item.suggested ? 'rgba(16, 185, 129, 0.1)' : 'var(--bg-secondary)', 
                       borderRadius: 'var(--radius)', 
                       marginBottom: '12px',
-                      border: '1px solid var(--border)'
+                      border: item.suggested ? '1px solid rgba(16, 185, 129, 0.3)' : '1px solid var(--border)'
                     }}>
                       <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr auto', gap: '12px', alignItems: 'end' }}>
                         <div className="form-group" style={{ marginBottom: 0 }}>
                           <label>Search Item *</label>
-                          <AutocompleteSearch
-                            locationId={fromWarehouse}
-                            placeholder="Search for product..."
-                            onSelect={(invItem) => handleItemSelect(index, invItem)}
-                          />
-                          {item.description && (
+                          {item.suggested ? (
                             <div style={{ 
-                              marginTop: '8px', 
-                              padding: '8px', 
-                              backgroundColor: 'rgba(59, 130, 246, 0.1)', 
+                              padding: '8px 12px', 
+                              backgroundColor: 'rgba(16, 185, 129, 0.1)', 
                               borderRadius: 'var(--radius)',
-                              fontSize: '13px',
-                              color: 'var(--primary)'
+                              border: '1px solid rgba(16, 185, 129, 0.3)'
                             }}>
-                              Selected: {item.description} ({item.unit}) - Available: {item.available}
+                              <div style={{ fontWeight: '600' }}>{item.description}</div>
+                              <div style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+                                {item.unit} - Available: {item.available}
+                              </div>
                             </div>
+                          ) : (
+                            <>
+                              <AutocompleteSearch
+                                locationId={fromWarehouse}
+                                placeholder="Search for product..."
+                                onSelect={(invItem) => handleItemSelect(index, invItem)}
+                              />
+                              {item.description && (
+                                <div style={{ 
+                                  marginTop: '8px', 
+                                  padding: '8px', 
+                                  backgroundColor: 'rgba(59, 130, 246, 0.1)', 
+                                  borderRadius: 'var(--radius)',
+                                  fontSize: '13px',
+                                  color: 'var(--primary)'
+                                }}>
+                                  Selected: {item.description} ({item.unit}) - Available: {item.available}
+                                </div>
+                              )}
+                            </>
                           )}
                         </div>
 
