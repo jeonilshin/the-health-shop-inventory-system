@@ -891,10 +891,10 @@ router.post('/batch', auth, authorize('admin'), async (req, res) => {
           }
         }
 
-        // Mark transfer as completed
+        // Mark transfer as delivered
         await client.query(
-          'UPDATE transfers SET status = $1, completed_at = CURRENT_TIMESTAMP WHERE id = $2',
-          ['completed', transfer.id]
+          'UPDATE transfers SET status = $1, delivered_at = CURRENT_TIMESTAMP WHERE id = $2',
+          ['delivered', transfer.id]
         );
 
         results.push({
