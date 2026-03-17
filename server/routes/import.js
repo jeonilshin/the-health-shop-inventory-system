@@ -76,6 +76,7 @@ router.post('/preview', auth, authorize('admin', 'warehouse'), upload.single('fi
       const description = getColumnValue([
         'THE HEALTHSHOP PRODUCTS',
         'PRODUCT DESCRIPTION',
+        'ITEM DESCRIPTION',
         'DESCRIPTION',
         'Product'
       ]).toString().trim();
