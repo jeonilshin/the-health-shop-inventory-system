@@ -1115,82 +1115,142 @@ function Inventory() {
             </div>
 
         <div className="form-group" style={{ marginBottom: '20px' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr auto auto auto auto auto auto', gap: '12px', alignItems: 'center' }}>
-            <div style={{ position: 'relative' }}>
-              <FiSearch style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} size={18} />
-              <input
-                type="text"
-                placeholder="Search by description, unit, or batch..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                style={{ width: '100%', paddingLeft: '40px' }}
-              />
+          <div style={{ 
+            display: 'grid', 
+            gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', 
+            gap: '12px', 
+            alignItems: 'end' 
+          }}>
+            <div style={{ position: 'relative', minWidth: '250px', gridColumn: 'span 2' }}>
+              <label style={{ display: 'block', marginBottom: '4px', fontSize: '14px', fontWeight: '600' }}>
+                Search Items
+              </label>
+              <div style={{ position: 'relative' }}>
+                <FiSearch style={{ 
+                  position: 'absolute', 
+                  left: '12px', 
+                  top: '50%', 
+                  transform: 'translateY(-50%)', 
+                  color: 'var(--text-muted)' 
+                }} size={18} />
+                <input
+                  type="text"
+                  placeholder="Search by description, unit, or batch..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  style={{ width: '100%', paddingLeft: '40px' }}
+                />
+              </div>
             </div>
             
-            <select 
-              value={selectedCategory} 
-              onChange={(e) => setSelectedCategory(e.target.value)}
-              style={{ minWidth: '180px' }}
-            >
-              <option value="all">All Categories</option>
-              {availableCategories.map(category => (
-                <option key={category} value={category}>{category}</option>
-              ))}
-            </select>
+            <div style={{ minWidth: '150px' }}>
+              <label style={{ display: 'block', marginBottom: '4px', fontSize: '14px', fontWeight: '600' }}>
+                Category
+              </label>
+              <select 
+                value={selectedCategory} 
+                onChange={(e) => setSelectedCategory(e.target.value)}
+                style={{ width: '100%' }}
+              >
+                <option value="all">All Categories</option>
+                {availableCategories.map(category => (
+                  <option key={category} value={category}>{category}</option>
+                ))}
+              </select>
+            </div>
             
-            <select 
-              value={stockFilter} 
-              onChange={(e) => setStockFilter(e.target.value)}
-              style={{ minWidth: '140px' }}
-            >
-              <option value="all">All Stock</option>
-              <option value="in_stock">✅ In Stock</option>
-              <option value="out_of_stock">❌ Out of Stock</option>
-            </select>
+            <div style={{ minWidth: '120px' }}>
+              <label style={{ display: 'block', marginBottom: '4px', fontSize: '14px', fontWeight: '600' }}>
+                Stock Status
+              </label>
+              <select 
+                value={stockFilter} 
+                onChange={(e) => setStockFilter(e.target.value)}
+                style={{ width: '100%' }}
+              >
+                <option value="all">All Stock</option>
+                <option value="in_stock">✅ In Stock</option>
+                <option value="out_of_stock">❌ Out of Stock</option>
+              </select>
+            </div>
             
-            <select 
-              value={expiryFilter} 
-              onChange={(e) => setExpiryFilter(e.target.value)}
-              style={{ minWidth: '160px' }}
-            >
-              <option value="all">All Expiry</option>
-              <option value="expired">🔴 Expired</option>
-              <option value="expiring_soon">🟡 Expiring Soon (30d)</option>
-              <option value="valid">🟢 Valid</option>
-            </select>
+            <div style={{ minWidth: '140px' }}>
+              <label style={{ display: 'block', marginBottom: '4px', fontSize: '14px', fontWeight: '600' }}>
+                Expiry Status
+              </label>
+              <select 
+                value={expiryFilter} 
+                onChange={(e) => setExpiryFilter(e.target.value)}
+                style={{ width: '100%' }}
+              >
+                <option value="all">All Expiry</option>
+                <option value="expired">🔴 Expired</option>
+                <option value="expiring_soon">🟡 Expiring Soon (30d)</option>
+                <option value="valid">🟢 Valid</option>
+              </select>
+            </div>
             
-            <select 
-              value={sortBy} 
-              onChange={(e) => setSortBy(e.target.value)}
-              style={{ minWidth: '150px' }}
-            >
-              <option value="batch">Sort by Batch</option>
-              <option value="description">Sort by Description</option>
-              <option value="category">Sort by Category</option>
-            </select>
+            <div style={{ minWidth: '120px' }}>
+              <label style={{ display: 'block', marginBottom: '4px', fontSize: '14px', fontWeight: '600' }}>
+                Sort By
+              </label>
+              <select 
+                value={sortBy} 
+                onChange={(e) => setSortBy(e.target.value)}
+                style={{ width: '100%' }}
+              >
+                <option value="batch">Sort by Batch</option>
+                <option value="description">Sort by Description</option>
+                <option value="category">Sort by Category</option>
+              </select>
+            </div>
             
-            <button 
-              className="btn" 
-              onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
-              style={{ minWidth: '100px' }}
-            >
-              {sortOrder === 'asc' ? 'A → Z' : 'Z → A'}
-            </button>
+            <div style={{ minWidth: '80px' }}>
+              <label style={{ display: 'block', marginBottom: '4px', fontSize: '14px', fontWeight: '600' }}>
+                Order
+              </label>
+              <button 
+                className="btn" 
+                onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
+                style={{ width: '100%', padding: '8px 12px' }}
+              >
+                {sortOrder === 'asc' ? 'A → Z' : 'Z → A'}
+              </button>
+            </div>
             
-            <select 
-              value={itemsPerPage} 
-              onChange={(e) => {
-                setItemsPerPage(Number(e.target.value));
-                setCurrentPage(1);
-              }}
-              style={{ minWidth: '120px' }}
-            >
-              <option value={50}>Show 50</option>
-              <option value={100}>Show 100</option>
-              <option value={200}>Show 200</option>
-              <option value={999999}>Show All</option>
-            </select>
+            <div style={{ minWidth: '100px' }}>
+              <label style={{ display: 'block', marginBottom: '4px', fontSize: '14px', fontWeight: '600' }}>
+                Per Page
+              </label>
+              <select 
+                value={itemsPerPage} 
+                onChange={(e) => {
+                  setItemsPerPage(Number(e.target.value));
+                  setCurrentPage(1);
+                }}
+                style={{ width: '100%' }}
+              >
+                <option value={50}>Show 50</option>
+                <option value={100}>Show 100</option>
+                <option value={200}>Show 200</option>
+                <option value={999999}>Show All</option>
+              </select>
+            </div>
           </div>
+          
+          {/* Mobile-friendly stacked layout for very small screens */}
+          <style>
+            {`
+              @media (max-width: 768px) {
+                .form-group > div {
+                  grid-template-columns: 1fr !important;
+                }
+                .form-group > div > div:first-child {
+                  grid-column: span 1 !important;
+                }
+              }
+            `}
+          </style>
         </div>
 
         {/* Summary Stats for Admin */}
@@ -2570,38 +2630,56 @@ function Inventory() {
 
               <div className="form-group">
                 <label>From Item (BOX/BOT) *</label>
-                <select
-                  value={conversionData.fromItemId}
-                  onChange={(e) => setConversionData({...conversionData, fromItemId: e.target.value})}
-                  required
-                >
-                  <option value="">Select item to convert from...</option>
-                  {filteredInventory
+                <SimpleAutocomplete
+                  items={filteredInventory
                     .filter(item => ['BOX', 'BOT', 'box', 'bot'].includes(item.unit))
-                    .map(item => (
-                      <option key={item.id} value={item.id}>
-                        {item.description} - {item.unit} (Qty: {formatQuantity(item.quantity)})
-                      </option>
-                    ))}
-                </select>
+                    .map(item => ({
+                      ...item,
+                      displayText: `${item.description} - ${item.unit} (Qty: ${formatQuantity(item.totalQuantity || item.quantity)})`
+                    }))
+                  }
+                  value={conversionData.fromItemId ? 
+                    filteredInventory.find(item => item.id === parseInt(conversionData.fromItemId))?.description || '' : ''}
+                  onChange={(value) => {
+                    // Extract description from display text
+                    const description = value.split(' - ')[0];
+                    const item = filteredInventory.find(i => i.description === description && ['BOX', 'BOT', 'box', 'bot'].includes(i.unit));
+                    setConversionData({...conversionData, fromItemId: item ? item.id : ''});
+                  }}
+                  onSelect={(selectedItem) => {
+                    setConversionData({...conversionData, fromItemId: selectedItem.id});
+                  }}
+                  displayField="displayText"
+                  placeholder="Search for BOX/BOT items..."
+                  required={true}
+                />
               </div>
 
               <div className="form-group">
                 <label>To Item (PC) *</label>
-                <select
-                  value={conversionData.toItemId}
-                  onChange={(e) => setConversionData({...conversionData, toItemId: e.target.value})}
-                  required
-                >
-                  <option value="">Select item to convert to...</option>
-                  {filteredInventory
+                <SimpleAutocomplete
+                  items={filteredInventory
                     .filter(item => ['PC', 'pc', 'PCS', 'pcs'].includes(item.unit))
-                    .map(item => (
-                      <option key={item.id} value={item.id}>
-                        {item.description} - {item.unit} (Qty: {formatQuantity(item.quantity)})
-                      </option>
-                    ))}
-                </select>
+                    .map(item => ({
+                      ...item,
+                      displayText: `${item.description} - ${item.unit} (Qty: ${formatQuantity(item.totalQuantity || item.quantity)})`
+                    }))
+                  }
+                  value={conversionData.toItemId ? 
+                    filteredInventory.find(item => item.id === parseInt(conversionData.toItemId))?.description || '' : ''}
+                  onChange={(value) => {
+                    // Extract description from display text
+                    const description = value.split(' - ')[0];
+                    const item = filteredInventory.find(i => i.description === description && ['PC', 'pc', 'PCS', 'pcs'].includes(i.unit));
+                    setConversionData({...conversionData, toItemId: item ? item.id : ''});
+                  }}
+                  onSelect={(selectedItem) => {
+                    setConversionData({...conversionData, toItemId: selectedItem.id});
+                  }}
+                  displayField="displayText"
+                  placeholder="Search for PC items..."
+                  required={true}
+                />
               </div>
 
               <div className="form-group">
