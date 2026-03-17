@@ -803,13 +803,25 @@ router.post('/batch', auth, authorize('admin'), async (req, res) => {
         const fromLocation = locations.rows.find(l => l.id == from_location_id);
         const toLocation = locations.rows.find(l => l.id == to_location_id);
 
-        // Create transfer record
+        // Create transfer record with summary information
+        const firstItem = items[0]; // Use first item for summary
+        const totalQuantity = items.reduce((sum, item) => sum + parseFloat(item.quantity), 0);
         const transferResult = await client.query(
           `INSERT INTO transfers 
-           (from_location_id, to_location_id, notes, status, transferred_by, created_at) 
-           VALUES ($1, $2, $3, 'approved', $4, CURRENT_TIMESTAMP) 
+           (from_location_id, to_location_id, description, unit, quantity, unit_cost, 
+            notes, status, transferred_by, created_at) 
+           VALUES ($1, $2, $3, $4, $5, $6, $7, 'approved', $8, CURRENT_TIMESTAMP) 
            RETURNING *`,
-          [from_location_id, to_location_id, notes, req.user.id]
+          [
+            from_location_id, 
+            to_location_id, 
+            `Batch Transfer: ${items.length} items`, // Summary description
+            'BATCH', // Summary unit
+            totalQuantity, // Total quantity
+            0, // Average or summary unit cost (will be detailed in transfer_items)
+            notes, 
+            req.user.id
+          ]
         );
 
         const transfer = transferResult.rows[0];
