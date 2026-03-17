@@ -166,13 +166,14 @@ function ImportModal({ isOpen, onClose, onImportComplete }) {
       return;
     }
 
-    // Filter out rows with critical errors (missing brand or description)
+    // Filter out rows with critical errors (missing brand, description, unit, or unit_cost)
+    // Note: quantity can be 0 or empty - that's valid (no stock)
     const validData = previewData.preview.filter(item => 
-      !item.is_category && item.brand && item.description && item.unit
+      !item.is_category && item.brand && item.description && item.unit && item.unit_cost > 0
     );
 
     const invalidData = previewData.preview.filter(item => 
-      !item.is_category && (!item.brand || !item.description || !item.unit)
+      !item.is_category && (!item.brand || !item.description || !item.unit || item.unit_cost <= 0)
     );
     
     console.log(`📊 Import validation: ${validData.length} valid, ${invalidData.length} invalid`);
@@ -187,6 +188,7 @@ function ImportModal({ isOpen, onClose, onImportComplete }) {
         if (!item.brand) issues.push('Missing Brand');
         if (!item.description) issues.push('Missing Description');
         if (!item.unit) issues.push('Missing Unit');
+        if (item.unit_cost <= 0) issues.push('Invalid/Missing Unit Cost');
         return `Row ${item.rowNumber}: ${item.description || '(no description)'} - ${issues.join(', ')}`;
       }).slice(0, 10); // Show first 10 errors
 

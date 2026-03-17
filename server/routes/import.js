@@ -325,11 +325,17 @@ router.post('/import', auth, authorize('admin', 'warehouse'), async (req, res) =
         continue;
       }
 
-      // Skip rows without required data
-      if (!item.description || !item.unit || !item.quantity || !item.unit_cost) {
-        errors.push(`Row ${data.indexOf(item) + 1}: Missing required fields (description, unit, quantity, or unit_cost)`);
+      // Skip rows without required data (but allow 0 quantity)
+      if (!item.description || !item.unit || !item.unit_cost) {
+        errors.push(`Row ${data.indexOf(item) + 1}: Missing required fields (description, unit, or unit_cost)`);
         skipped++;
         continue;
+      }
+
+      // Ensure quantity defaults to 0 if not provided
+      if (!item.quantity || item.quantity === '' || isNaN(item.quantity)) {
+        item.quantity = 0;
+        console.log(`📝 Set quantity to 0 for ${item.description} (was empty or invalid)`);
       }
 
       // Process each item in its own transaction
