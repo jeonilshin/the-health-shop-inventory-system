@@ -849,14 +849,6 @@ tbody tr:last-child td {
     height: 32px;
     font-size: 1rem;
   }
-    font-size: 14px;
-  }
-  
-  .stat-card-icon {
-    width: 36px;
-    height: 36px;
-    font-size: 1rem;
-  }
   
   th, td {
     padding: var(--spacing-xs) var(--spacing-sm);
