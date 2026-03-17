@@ -492,8 +492,9 @@ function Transfers() {
   };
 
   const canCancel = (transfer) => {
-    return (transfer.status === 'pending' || transfer.status === 'approved') &&
-           (user.role === 'admin' || transfer.transferred_by === user.id);
+    // Admin can cancel: pending, approved, or in_transit (after unreceive)
+    return user.role === 'admin' && 
+           (transfer.status === 'pending' || transfer.status === 'approved' || transfer.status === 'in_transit');
   };
 
   const canDelete = (transfer) => {
