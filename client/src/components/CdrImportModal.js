@@ -8,16 +8,18 @@ function CdrImportModal({ isOpen, onClose, onImportComplete, locations }) {
   const [file, setFile] = useState(null);
   const [fromWarehouse, setFromWarehouse] = useState('');
   const [cdrData, setCdrData] = useState([]);
+  const [lgdData, setLgdData] = useState([]); // Separate LGD items
   const [errors, setErrors] = useState([]);
   const [loading, setLoading] = useState(false);
   const [editingIndex, setEditingIndex] = useState(null);
   const [editData, setEditData] = useState({});
   const [warehouseInventory, setWarehouseInventory] = useState([]);
+  const [showErrorsOnly, setShowErrorsOnly] = useState(false); // Filter toggle
 
   // Branch mapping - maps CDR outlet names to actual branch names
   const branchMapping = {
-    'KCC GENSAN': 'THS - Gensan KCC',
-    'LGD': null // Ignore LGD entries
+    'KCC GENSAN': 'THS - Gensan KCC'
+    // LGD will be handled separately
   };
 
   useEffect(() => {
@@ -27,10 +29,12 @@ function CdrImportModal({ isOpen, onClose, onImportComplete, locations }) {
       setFile(null);
       setFromWarehouse('');
       setCdrData([]);
+      setLgdData([]);
       setErrors([]);
       setEditingIndex(null);
       setEditData({});
       setWarehouseInventory([]);
+      setShowErrorsOnly(false);
     }
   }, [isOpen]);
 
@@ -68,6 +72,7 @@ function CdrImportModal({ isOpen, onClose, onImportComplete, locations }) {
       const dataLines = lines.slice(headerIndex + 1).filter(line => line.trim() && !line.startsWith(','));
 
       const parsedData = [];
+      const lgdItems = []; // Separate array for LGD items
 
       for (let i = 0; i < dataLines.length; i++) {
         const values = dataLines[i].split(',').map(v => v.trim());
@@ -82,18 +87,10 @@ function CdrImportModal({ isOpen, onClose, onImportComplete, locations }) {
         // Skip empty rows or rows without essential data
         if (!row['OUTLET'] || !row['ITEM DESCRIPTION'] || !row['QUANTITY']) continue;
 
-        // Skip LGD entries
-        if (row['OUTLET'] === 'LGD') continue;
-
-        // Map outlet to branch
-        const mappedBranch = branchMapping[row['OUTLET']];
-        if (mappedBranch === null) continue; // Skip ignored outlets
-
         const item = {
           originalIndex: i,
           date: row['DATE'],
           outlet: row['OUTLET'],
-          mappedBranch: mappedBranch || row['OUTLET'], // Use mapped name or original
           brand: row['BRAND'],
           description: row['ITEM DESCRIPTION'],
           unit: row['UoM'],
@@ -103,10 +100,22 @@ function CdrImportModal({ isOpen, onClose, onImportComplete, locations }) {
           suggested: null
         };
 
+        // Handle LGD items separately
+        if (row['OUTLET'] === 'LGD') {
+          lgdItems.push(item);
+          continue;
+        }
+
+        // Map outlet to branch for non-LGD items
+        const mappedBranch = branchMapping[row['OUTLET']];
+        if (mappedBranch === null) continue; // Skip ignored outlets
+
+        item.mappedBranch = mappedBranch || row['OUTLET']; // Use mapped name or original
         parsedData.push(item);
       }
 
       setCdrData(parsedData);
+      setLgdData(lgdItems);
       setStep(2);
     } catch (error) {
       alert('Error parsing CDR file: ' + error.message);
@@ -238,49 +247,100 @@ function CdrImportModal({ isOpen, onClose, onImportComplete, locations }) {
   const processCdrImport = async () => {
     const validItems = cdrData.filter(item => !item.error && item.suggested);
     
-    if (validItems.length === 0) {
+    if (validItems.length === 0 && lgdData.length === 0) {
       alert('No valid items to import');
       return;
     }
 
     setLoading(true);
     try {
-      // Group items by branch
-      const itemsByBranch = {};
-      validItems.forEach(item => {
-        if (!itemsByBranch[item.mappedBranch]) {
-          itemsByBranch[item.mappedBranch] = [];
-        }
-        itemsByBranch[item.mappedBranch].push(item);
-      });
-
-      // Prepare transfers array for batch API
       const transfers = [];
 
-      for (const [branchName, items] of Object.entries(itemsByBranch)) {
-        // Find branch location
-        const branch = locations.find(loc => 
-          loc.name.toLowerCase().includes(branchName.toLowerCase()) ||
-          branchName.toLowerCase().includes(loc.name.toLowerCase())
+      // Process regular CDR items
+      if (validItems.length > 0) {
+        // Group items by branch
+        const itemsByBranch = {};
+        validItems.forEach(item => {
+          if (!itemsByBranch[item.mappedBranch]) {
+            itemsByBranch[item.mappedBranch] = [];
+          }
+          itemsByBranch[item.mappedBranch].push(item);
+        });
+
+        for (const [branchName, items] of Object.entries(itemsByBranch)) {
+          // Find branch location
+          const branch = locations.find(loc => 
+            loc.name.toLowerCase().includes(branchName.toLowerCase()) ||
+            branchName.toLowerCase().includes(loc.name.toLowerCase())
+          );
+
+          if (!branch) {
+            alert(`Branch not found: ${branchName}`);
+            continue;
+          }
+
+          transfers.push({
+            from_location_id: fromWarehouse,
+            to_location_id: branch.id,
+            notes: `CDR Import - ${new Date().toLocaleDateString()} - ${branchName}`,
+            items: items.map(item => ({
+              inventory_item_id: item.suggested.id,
+              quantity: item.quantity,
+              description: item.description,
+              unit: item.unit,
+              unit_cost: item.suggested.unit_cost
+            }))
+          });
+        }
+      }
+
+      // Process LGD items - create completed transfers and remove from inventory
+      if (lgdData.length > 0) {
+        // Find LGD location (create if doesn't exist)
+        let lgdLocation = locations.find(loc => 
+          loc.name.toLowerCase().includes('lgd') || 
+          loc.name.toLowerCase().includes('lost goods')
         );
 
-        if (!branch) {
-          alert(`Branch not found: ${branchName}`);
-          continue;
+        if (!lgdLocation) {
+          // Create LGD location
+          const lgdResponse = await api.post('/locations', {
+            name: 'LGD (Lost Goods Department)',
+            type: 'branch',
+            address: 'Virtual Location for Lost Goods'
+          });
+          lgdLocation = lgdResponse.data;
         }
 
-        transfers.push({
-          from_location_id: fromWarehouse,
-          to_location_id: branch.id,
-          notes: `CDR Import - ${new Date().toLocaleDateString()} - ${branchName}`,
-          items: items.map(item => ({
-            inventory_item_id: item.suggested.id,
-            quantity: item.quantity,
-            description: item.description,
-            unit: item.unit,
-            unit_cost: item.suggested.unit_cost
-          }))
-        });
+        // Process each LGD item
+        for (const lgdItem of lgdData) {
+          // Find matching inventory item in warehouse
+          const warehouseItem = warehouseInventory.find(inv => 
+            inv.description.toLowerCase() === lgdItem.description.toLowerCase() &&
+            inv.unit.toLowerCase() === lgdItem.unit.toLowerCase()
+          );
+
+          if (warehouseItem && warehouseItem.quantity >= lgdItem.quantity) {
+            transfers.push({
+              from_location_id: fromWarehouse,
+              to_location_id: lgdLocation.id,
+              notes: `LGD Transfer - ${new Date().toLocaleDateString()} - Auto-completed`,
+              status: 'completed', // Mark as completed immediately
+              items: [{
+                inventory_item_id: warehouseItem.id,
+                quantity: lgdItem.quantity,
+                description: lgdItem.description,
+                unit: lgdItem.unit,
+                unit_cost: warehouseItem.unit_cost
+              }]
+            });
+          }
+        }
+      }
+
+      if (transfers.length === 0) {
+        alert('No valid transfers to create');
+        return;
       }
 
       // Call batch transfer API
@@ -289,6 +349,10 @@ function CdrImportModal({ isOpen, onClose, onImportComplete, locations }) {
       if (response.data.success) {
         const { results, errors } = response.data;
         let message = `CDR import completed!\n${results.length} transfers created successfully.`;
+        
+        if (lgdData.length > 0) {
+          message += `\n${lgdData.length} LGD items processed and completed automatically.`;
+        }
         
         if (errors.length > 0) {
           message += `\n${errors.length} errors occurred:\n${errors.slice(0, 5).join('\n')}`;
@@ -390,7 +454,7 @@ function CdrImportModal({ isOpen, onClose, onImportComplete, locations }) {
             <div>
               <div className="alert alert-success" style={{ marginBottom: '20px' }}>
                 <FiCheck size={16} />
-                Found {cdrData.length} items in CDR file. Now select the source warehouse.
+                Found {cdrData.length} regular items and {lgdData.length} LGD items in CDR file. Now select the source warehouse.
               </div>
 
               <div className="form-group">
@@ -426,7 +490,7 @@ function CdrImportModal({ isOpen, onClose, onImportComplete, locations }) {
                       </tr>
                     </thead>
                     <tbody>
-                      {cdrData.slice(0, 10).map((item, index) => (
+                      {cdrData.slice(0, 8).map((item, index) => (
                         <tr key={index}>
                           <td style={{ padding: '8px' }}>{item.outlet}</td>
                           <td style={{ padding: '8px' }}>{item.mappedBranch}</td>
@@ -435,14 +499,34 @@ function CdrImportModal({ isOpen, onClose, onImportComplete, locations }) {
                           <td style={{ padding: '8px' }}>{item.quantity}</td>
                         </tr>
                       ))}
+                      {lgdData.slice(0, 2).map((item, index) => (
+                        <tr key={`lgd-${index}`} style={{ backgroundColor: 'rgba(245, 158, 11, 0.1)' }}>
+                          <td style={{ padding: '8px' }}>
+                            <span className="badge badge-warning" style={{ fontSize: '10px' }}>LGD</span>
+                          </td>
+                          <td style={{ padding: '8px' }}>
+                            <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Auto-complete</span>
+                          </td>
+                          <td style={{ padding: '8px' }}>{item.description}</td>
+                          <td style={{ padding: '8px' }}>{item.unit}</td>
+                          <td style={{ padding: '8px' }}>{item.quantity}</td>
+                        </tr>
+                      ))}
                     </tbody>
                   </table>
-                  {cdrData.length > 10 && (
+                  {(cdrData.length + lgdData.length) > 10 && (
                     <div style={{ padding: '8px', textAlign: 'center', color: 'var(--text-muted)' }}>
-                      ... and {cdrData.length - 10} more items
+                      ... and {(cdrData.length + lgdData.length) - 10} more items
                     </div>
                   )}
                 </div>
+                
+                {lgdData.length > 0 && (
+                  <div className="alert alert-warning" style={{ marginTop: '12px' }}>
+                    <FiAlertCircle size={16} />
+                    <strong>{lgdData.length} LGD items</strong> will be automatically transferred to LGD location and marked as completed.
+                  </div>
+                )}
               </div>
 
               <button 
@@ -465,9 +549,32 @@ function CdrImportModal({ isOpen, onClose, onImportComplete, locations }) {
                 </div>
               )}
 
+              {lgdData.length > 0 && (
+                <div className="alert alert-info" style={{ marginBottom: '20px' }}>
+                  <FiAlertCircle size={16} />
+                  <strong>{lgdData.length} LGD items</strong> will be automatically processed and completed.
+                </div>
+              )}
+
+              <div style={{ marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+                <h4>Review Items ({cdrData.length} regular, {lgdData.length} LGD, {errors.length} errors)</h4>
+                
+                <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '14px' }}>
+                    <input
+                      type="checkbox"
+                      checked={showErrorsOnly}
+                      onChange={(e) => setShowErrorsOnly(e.target.checked)}
+                    />
+                    Show errors only
+                  </label>
+                </div>
+              </div>
+
+              {/* Regular CDR Items */}
               <div style={{ marginBottom: '20px' }}>
-                <h4>Review Items ({cdrData.length} total, {errors.length} errors)</h4>
-                <div style={{ maxHeight: '400px', overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 'var(--radius)' }}>
+                <h5 style={{ marginBottom: '12px', color: 'var(--primary)' }}>Regular CDR Items</h5>
+                <div style={{ maxHeight: '300px', overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 'var(--radius)' }}>
                   <table style={{ width: '100%', fontSize: '12px' }}>
                     <thead>
                       <tr style={{ background: 'var(--bg-secondary)' }}>
@@ -480,7 +587,9 @@ function CdrImportModal({ isOpen, onClose, onImportComplete, locations }) {
                       </tr>
                     </thead>
                     <tbody>
-                      {cdrData.map((item, index) => (
+                      {cdrData
+                        .filter(item => !showErrorsOnly || item.error)
+                        .map((item, index) => (
                         <tr key={index} style={{ backgroundColor: item.error ? 'rgba(239, 68, 68, 0.1)' : 'transparent' }}>
                           <td style={{ padding: '8px' }}>
                             {item.error ? (
@@ -592,6 +701,44 @@ function CdrImportModal({ isOpen, onClose, onImportComplete, locations }) {
                 </div>
               </div>
 
+              {/* LGD Items */}
+              {lgdData.length > 0 && (
+                <div style={{ marginBottom: '20px' }}>
+                  <h5 style={{ marginBottom: '12px', color: '#f59e0b', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <FiAlertCircle size={16} />
+                    LGD Items (Auto-Complete)
+                  </h5>
+                  <div style={{ maxHeight: '200px', overflowY: 'auto', border: '1px solid #f59e0b', borderRadius: 'var(--radius)', backgroundColor: 'rgba(245, 158, 11, 0.05)' }}>
+                    <table style={{ width: '100%', fontSize: '12px' }}>
+                      <thead>
+                        <tr style={{ background: 'rgba(245, 158, 11, 0.1)' }}>
+                          <th style={{ padding: '8px' }}>Status</th>
+                          <th style={{ padding: '8px' }}>Description</th>
+                          <th style={{ padding: '8px' }}>Unit</th>
+                          <th style={{ padding: '8px' }}>Qty</th>
+                          <th style={{ padding: '8px' }}>Action</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {lgdData.map((item, index) => (
+                          <tr key={`lgd-${index}`}>
+                            <td style={{ padding: '8px' }}>
+                              <span className="badge badge-warning" style={{ fontSize: '10px' }}>LGD</span>
+                            </td>
+                            <td style={{ padding: '8px' }}>{item.description}</td>
+                            <td style={{ padding: '8px' }}>{item.unit}</td>
+                            <td style={{ padding: '8px' }}>{item.quantity}</td>
+                            <td style={{ padding: '8px' }}>
+                              <span style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Auto-complete transfer</span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
               <div style={{ display: 'flex', gap: '12px' }}>
                 <button 
                   className="btn btn-secondary" 
@@ -606,7 +753,7 @@ function CdrImportModal({ isOpen, onClose, onImportComplete, locations }) {
                   disabled={errors.length > 0 || loading}
                   style={{ flex: 2 }}
                 >
-                  {loading ? 'Creating Transfers...' : `Import ${cdrData.filter(item => !item.error).length} Items`}
+                  {loading ? 'Creating Transfers...' : `Import ${cdrData.filter(item => !item.error).length + lgdData.length} Items`}
                 </button>
               </div>
             </div>
