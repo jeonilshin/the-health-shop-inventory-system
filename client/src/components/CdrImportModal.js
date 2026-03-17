@@ -184,12 +184,13 @@ function CdrImportModal({ isOpen, onClose, onImportComplete, locations }) {
   };
 
   const handleEditItem = (index) => {
+    const item = cdrData[index];
     setEditingIndex(index);
     setEditData({
-      description: cdrData[index].description,
-      unit: cdrData[index].unit,
-      quantity: cdrData[index].quantity,
-      searchText: cdrData[index].description
+      description: item.description, // Keep original CDR description
+      unit: item.unit, // Keep original CDR unit
+      quantity: item.quantity, // Keep original CDR quantity
+      searchText: item.description // Start search with original description
     });
   };
 
@@ -209,24 +210,14 @@ function CdrImportModal({ isOpen, onClose, onImportComplete, locations }) {
   };
 
   const handleProductSelect = (selectedProduct) => {
+    // Only update the edit form, don't auto-apply
     setEditData({
       ...editData,
       description: selectedProduct.description,
       unit: selectedProduct.unit,
       searchText: selectedProduct.description
+      // Keep original quantity - don't change it
     });
-    
-    // Auto-apply the selection
-    const updatedData = [...cdrData];
-    updatedData[editingIndex] = {
-      ...updatedData[editingIndex],
-      description: selectedProduct.description,
-      unit: selectedProduct.unit,
-      suggested: selectedProduct,
-      error: null
-    };
-    setCdrData(updatedData);
-    setErrors(updatedData.filter(item => item.error));
   };
 
   const selectSuggestion = (index, suggestion) => {
@@ -237,11 +228,40 @@ function CdrImportModal({ isOpen, onClose, onImportComplete, locations }) {
       unit: suggestion.unit,
       suggested: suggestion,
       error: null
+      // Keep original quantity - don't change it
     };
     setCdrData(updatedData);
     
     // Update errors list
     setErrors(updatedData.filter(item => item.error));
+  };
+
+  // Filter warehouse inventory for better suggestions
+  const getFilteredSuggestions = (searchText) => {
+    if (!searchText || searchText.length < 2) return [];
+    
+    const searchLower = searchText.toLowerCase();
+    
+    // First, try exact matches
+    const exactMatches = warehouseInventory.filter(item =>
+      item.description.toLowerCase().includes(searchLower)
+    );
+    
+    // If no exact matches, try fuzzy matching
+    if (exactMatches.length === 0) {
+      const cleanSearch = searchLower
+        .replace(/\b(the|and|or|with|w\/|mg|ml|g|s|capsule|tablet|bottle|box|pack)\b/g, '')
+        .trim();
+      
+      return warehouseInventory.filter(item => {
+        const cleanDesc = item.description.toLowerCase()
+          .replace(/\b(the|and|or|with|w\/|mg|ml|g|s|capsule|tablet|bottle|box|pack)\b/g, '')
+          .trim();
+        return cleanDesc.includes(cleanSearch) || cleanSearch.includes(cleanDesc);
+      }).slice(0, 10); // Limit to 10 suggestions
+    }
+    
+    return exactMatches.slice(0, 10); // Limit to 10 suggestions
   };
 
   const processCdrImport = async () => {
@@ -603,9 +623,9 @@ function CdrImportModal({ isOpen, onClose, onImportComplete, locations }) {
                             {editingIndex === index ? (
                               <div style={{ position: 'relative' }}>
                                 <SimpleAutocomplete
-                                  items={warehouseInventory}
+                                  items={getFilteredSuggestions(editData.searchText)}
                                   value={editData.searchText || ''}
-                                  onChange={(value) => setEditData({...editData, searchText: value, description: value})}
+                                  onChange={(value) => setEditData({...editData, searchText: value})}
                                   onSelect={handleProductSelect}
                                   displayField="description"
                                   placeholder="Search warehouse products..."
@@ -613,7 +633,10 @@ function CdrImportModal({ isOpen, onClose, onImportComplete, locations }) {
                                 />
                                 <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '2px' }}>
                                   <FiSearch size={10} style={{ marginRight: '4px' }} />
-                                  Type to search warehouse inventory
+                                  {getFilteredSuggestions(editData.searchText).length > 0 
+                                    ? `${getFilteredSuggestions(editData.searchText).length} suggestions found`
+                                    : 'No matching products found'
+                                  }
                                 </div>
                               </div>
                             ) : (
@@ -655,13 +678,14 @@ function CdrImportModal({ isOpen, onClose, onImportComplete, locations }) {
                             )}
                           </td>
                           <td style={{ padding: '8px' }}>
-                            <div style={{ display: 'flex', gap: '4px' }}>
+                            <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
                               {editingIndex === index ? (
                                 <>
                                   <button 
                                     className="btn btn-success" 
                                     onClick={saveEdit}
                                     style={{ padding: '2px 6px', fontSize: '10px' }}
+                                    title="Save changes"
                                   >
                                     <FiCheck size={10} />
                                   </button>
@@ -669,20 +693,37 @@ function CdrImportModal({ isOpen, onClose, onImportComplete, locations }) {
                                     className="btn btn-secondary" 
                                     onClick={() => setEditingIndex(null)}
                                     style={{ padding: '2px 6px', fontSize: '10px' }}
+                                    title="Cancel edit"
                                   >
                                     <FiX size={10} />
                                   </button>
+                                  {getFilteredSuggestions(editData.searchText).length > 0 && (
+                                    <button 
+                                      className="btn btn-info" 
+                                      onClick={() => {
+                                        const suggestions = getFilteredSuggestions(editData.searchText);
+                                        if (suggestions.length > 0) {
+                                          handleProductSelect(suggestions[0]);
+                                        }
+                                      }}
+                                      style={{ padding: '2px 6px', fontSize: '10px' }}
+                                      title="Use first suggestion"
+                                    >
+                                      Use
+                                    </button>
+                                  )}
                                 </>
                               ) : (
                                 <button 
                                   className="btn btn-primary" 
                                   onClick={() => handleEditItem(index)}
                                   style={{ padding: '2px 6px', fontSize: '10px' }}
+                                  title="Edit item"
                                 >
                                   <FiEdit2 size={10} />
                                 </button>
                               )}
-                              {item.suggested && (
+                              {item.suggested && editingIndex !== index && (
                                 <button 
                                   className="btn btn-success" 
                                   onClick={() => selectSuggestion(index, item.suggested)}
