@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import api from '../utils/api';
-import { FiUpload, FiX, FiCheck, FiAlertCircle, FiEdit2, FiTruck } from 'react-icons/fi';
+import { FiX, FiCheck, FiAlertCircle, FiEdit2, FiTruck } from 'react-icons/fi';
 
 function CdrImportModal({ isOpen, onClose, onImportComplete, locations }) {
   const [step, setStep] = useState(1); // 1: Upload, 2: Select Warehouse, 3: Review & Fix
@@ -65,7 +65,6 @@ function CdrImportModal({ isOpen, onClose, onImportComplete, locations }) {
       const dataLines = lines.slice(headerIndex + 1).filter(line => line.trim() && !line.startsWith(','));
 
       const parsedData = [];
-      const parseErrors = [];
 
       for (let i = 0; i < dataLines.length; i++) {
         const values = dataLines[i].split(',').map(v => v.trim());
