@@ -505,6 +505,10 @@ function Transfers() {
            (transfer.status === 'cancelled' || transfer.status === 'rejected');
   };
 
+  const canUndoCancel = (transfer) => {
+    return user.role === 'admin' && transfer.status === 'cancelled';
+  };
+
   const handleDelete = async (id) => {
     if (!window.confirm('⚠️ Permanently delete this transfer? This action cannot be undone.')) return;
     try {
@@ -513,6 +517,17 @@ function Transfers() {
       alert('Transfer deleted successfully');
     } catch (error) {
       alert(error.response?.data?.error || 'Error deleting transfer');
+    }
+  };
+
+  const handleUndoCancel = async (id) => {
+    if (!window.confirm('Restore this cancelled transfer back to In Transit status?')) return;
+    try {
+      await api.post(`/transfers/${id}/undo-cancel`);
+      await fetchTransfers();
+      alert('Transfer restored to In Transit status');
+    } catch (error) {
+      alert(error.response?.data?.error || 'Error restoring transfer');
     }
   };
 
@@ -1140,6 +1155,16 @@ function Transfers() {
                           >
                             <FiX size={12} />
                             Cancel
+                          </button>
+                        )}
+                        {canUndoCancel(transfer) && (
+                          <button
+                            className="btn"
+                            style={{ padding: '4px 8px', fontSize: '12px', backgroundColor: '#f59e0b', color: 'white' }}
+                            onClick={() => handleUndoCancel(transfer.id)}
+                          >
+                            <FiClock size={12} />
+                            Undo Cancel
                           </button>
                         )}
                         {canDelete(transfer) && (
