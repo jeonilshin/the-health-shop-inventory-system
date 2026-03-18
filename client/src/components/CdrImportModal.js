@@ -212,20 +212,52 @@ function CdrImportModal({ isOpen, onClose, onImportComplete, locations }) {
       const warehouseInventory = response.data;
       setWarehouseInventory(warehouseInventory); // Store for search functionality
 
-      const updatedData = cdrData.map(item => {
-        // Try to find exact match first
-        let match = warehouseInventory.find(inv => 
-          inv.description.toLowerCase() === item.description.toLowerCase() &&
-          inv.unit.toLowerCase() === item.unit.toLowerCase()
-        );
-
-        if (!match) {
-          // Try partial match on description
-          match = warehouseInventory.find(inv => 
-            inv.description.toLowerCase().includes(item.description.toLowerCase()) ||
-            item.description.toLowerCase().includes(inv.description.toLowerCase())
-          );
+      // Aggregate quantities by description + unit (sum across all cost batches)
+      const aggregatedInventory = {};
+      warehouseInventory.forEach(inv => {
+        const key = `${inv.description.toLowerCase()}|||${inv.unit.toLowerCase()}`;
+        if (!aggregatedInventory[key]) {
+          aggregatedInventory[key] = {
+            ...inv,
+            totalQuantity: 0,
+            batches: []
+          };
         }
+        aggregatedInventory[key].totalQuantity += parseFloat(inv.quantity || 0);
+        aggregatedInventory[key].batches.push({
+          id: inv.id,
+          quantity: inv.quantity,
+          unit_cost: inv.unit_cost,
+          batch_number: inv.batch_number
+        });
+      });
+
+      const updatedData = cdrData.map(item => {
+        const key = `${item.description.toLowerCase()}|||${item.unit.toLowerCase()}`;
+        const aggregated = aggregatedInventory[key];
+        
+        // If exact match found in aggregated inventory
+        if (aggregated) {
+          let error = null;
+          if (aggregated.totalQuantity < parseFloat(item.quantity)) {
+            error = `Insufficient quantity in warehouse. Available: ${aggregated.totalQuantity}, Requested: ${item.quantity}`;
+          }
+
+          return {
+            ...item,
+            error: error,
+            suggested: aggregated // Use aggregated data with totalQuantity
+          };
+        }
+
+        // Try to find match with fuzzy search
+        let match = null;
+        
+        // Try partial match on description
+        match = warehouseInventory.find(inv => 
+          inv.description.toLowerCase().includes(item.description.toLowerCase()) ||
+          item.description.toLowerCase().includes(inv.description.toLowerCase())
+        );
 
         if (!match) {
           // Try fuzzy match (remove common words and check)
@@ -241,17 +273,9 @@ function CdrImportModal({ isOpen, onClose, onImportComplete, locations }) {
           });
         }
 
-        // Check for insufficient quantity
-        let error = null;
-        if (!match) {
-          error = 'Product not found in warehouse inventory';
-        } else if (parseFloat(match.quantity) < parseFloat(item.quantity)) {
-          error = `Insufficient quantity in warehouse. Available: ${match.quantity}, Requested: ${item.quantity}`;
-        }
-
         return {
           ...item,
-          error: error,
+          error: match ? null : 'Product not found in warehouse inventory',
           suggested: match || null
         };
       });
@@ -398,13 +422,28 @@ function CdrImportModal({ isOpen, onClose, onImportComplete, locations }) {
             from_location_id: fromWarehouse,
             to_location_id: branch.id,
             notes: `CDR Import - ${new Date().toLocaleDateString()} - ${branch.name}`,
-            items: items.map(item => ({
-              inventory_item_id: item.suggested.id,
-              quantity: item.quantity,
-              description: item.description,
-              unit: item.unit,
-              unit_cost: item.suggested.unit_cost
-            }))
+            items: items.map(item => {
+              // Find the first batch with sufficient quantity
+              let selectedBatch = item.suggested.batches.find(b => parseFloat(b.quantity) >= parseFloat(item.quantity));
+              
+              // If no single batch has enough, use the first batch with any quantity
+              if (!selectedBatch) {
+                selectedBatch = item.suggested.batches.find(b => parseFloat(b.quantity) > 0);
+              }
+              
+              // Fallback to first batch if all are 0
+              if (!selectedBatch) {
+                selectedBatch = item.suggested.batches[0];
+              }
+
+              return {
+                inventory_item_id: selectedBatch.id,
+                quantity: item.quantity,
+                description: item.description,
+                unit: item.unit,
+                unit_cost: selectedBatch.unit_cost
+              };
+            })
           });
         }
       }
