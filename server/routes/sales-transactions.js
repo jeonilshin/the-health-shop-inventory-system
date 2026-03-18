@@ -158,21 +158,46 @@ router.post('/', auth, authorize('admin', 'warehouse', 'branch_manager', 'branch
       ]
     );
     
-    // Deduct from inventory
-    const inventoryResult = await client.query(
-      `UPDATE inventory 
-       SET quantity = quantity - $1, updated_at = CURRENT_TIMESTAMP
-       WHERE location_id = $2 AND description = $3 AND unit = $4
-       RETURNING *`,
-      [quantity_sold, location_id, item_description, item_unit]
+    // Deduct from inventory using FIFO (First In First Out) or from available batches
+    // First, get all batches for this item ordered by creation date
+    const batchesResult = await client.query(
+      `SELECT * FROM inventory 
+       WHERE location_id = $1 AND description = $2 AND unit = $3 AND quantity > 0
+       ORDER BY created_at ASC`,
+      [location_id, item_description, item_unit]
     );
     
-    if (inventoryResult.rows.length === 0) {
+    if (batchesResult.rows.length === 0) {
       throw new Error('Item not found in inventory or insufficient stock');
     }
     
-    if (parseFloat(inventoryResult.rows[0].quantity) < 0) {
-      throw new Error('Insufficient inventory. Cannot sell more than available stock.');
+    // Calculate total available quantity
+    const totalAvailable = batchesResult.rows.reduce((sum, batch) => sum + parseFloat(batch.quantity), 0);
+    
+    if (totalAvailable < parseFloat(quantity_sold)) {
+      throw new Error(`Insufficient inventory. Available: ${totalAvailable}, Requested: ${quantity_sold}`);
+    }
+    
+    // Deduct from batches using FIFO
+    let remainingToDeduct = parseFloat(quantity_sold);
+    const updatedBatches = [];
+    
+    for (const batch of batchesResult.rows) {
+      if (remainingToDeduct <= 0) break;
+      
+      const batchQty = parseFloat(batch.quantity);
+      const deductFromThisBatch = Math.min(batchQty, remainingToDeduct);
+      
+      const updateResult = await client.query(
+        `UPDATE inventory 
+         SET quantity = quantity - $1, updated_at = CURRENT_TIMESTAMP
+         WHERE id = $2
+         RETURNING *`,
+        [deductFromThisBatch, batch.id]
+      );
+      
+      updatedBatches.push(updateResult.rows[0]);
+      remainingToDeduct -= deductFromThisBatch;
     }
     
     await client.query('COMMIT');
@@ -192,7 +217,7 @@ router.post('/', auth, authorize('admin', 'warehouse', 'branch_manager', 'branch
     
     res.status(201).json({
       sale: saleResult.rows[0],
-      inventory: inventoryResult.rows[0]
+      inventory: updatedBatches[0] // Return first updated batch
     });
   } catch (error) {
     await client.query('ROLLBACK');
