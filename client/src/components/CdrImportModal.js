@@ -246,7 +246,7 @@ function CdrImportModal({ isOpen, onClose, onImportComplete, locations }) {
         if (!match) {
           error = 'Product not found in warehouse inventory';
         } else if (parseFloat(match.quantity) < parseFloat(item.quantity)) {
-          error = `Insufficient quantity. Available: ${match.quantity}, Requested: ${item.quantity}`;
+          error = `Insufficient quantity in warehouse. Available: ${match.quantity}, Requested: ${item.quantity}`;
         }
 
         return {
