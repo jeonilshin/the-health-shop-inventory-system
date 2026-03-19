@@ -594,7 +594,8 @@ function Inventory() {
       quantity: batch.quantity || 0,
       expiry_date: batch.expiry_date || '',
       unit_cost: batch.unit_cost || 0,
-      suggested_selling_price: batch.suggested_selling_price || 0
+      suggested_selling_price: batch.suggested_selling_price || 0,
+      batch_number: batch.batch_number || ''
     });
   };
 
@@ -1764,7 +1765,24 @@ function Inventory() {
                             )}
                           </td>
                           <td style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                            {item.batch_number || '-'}
+                            {editingBatchId === item.id ? (
+                              <input 
+                                type="text"
+                                value={batchEditData.batch_number}
+                                onChange={(e) => setBatchEditData({...batchEditData, batch_number: e.target.value})}
+                                style={{ 
+                                  width: '120px', 
+                                  padding: '4px 8px', 
+                                  fontSize: '12px',
+                                  border: '2px solid var(--primary)',
+                                  borderRadius: 'var(--radius)',
+                                  background: 'var(--bg-primary)',
+                                  color: 'var(--text-primary)'
+                                }}
+                              />
+                            ) : (
+                              item.batch_number || '-'
+                            )}
                           </td>
                           <td>
                             {editingBatchId === item.id ? (
@@ -2023,7 +2041,24 @@ function Inventory() {
                             )}
                           </td>
                           <td style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                            {item.batch_number || '-'}
+                            {!item.hasMultipleCosts && editingBatchId === item.id ? (
+                              <input 
+                                type="text"
+                                value={batchEditData.batch_number}
+                                onChange={(e) => setBatchEditData({...batchEditData, batch_number: e.target.value})}
+                                style={{ 
+                                  width: '120px', 
+                                  padding: '4px 8px', 
+                                  fontSize: '12px',
+                                  border: '2px solid var(--primary)',
+                                  borderRadius: 'var(--radius)',
+                                  background: 'var(--bg-primary)',
+                                  color: 'var(--text-primary)'
+                                }}
+                              />
+                            ) : (
+                              item.batch_number || '-'
+                            )}
                           </td>
                           <td>
                             {!item.hasMultipleCosts && editingBatchId === item.id ? (
