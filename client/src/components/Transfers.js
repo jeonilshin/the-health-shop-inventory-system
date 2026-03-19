@@ -37,6 +37,12 @@ function Transfers() {
     unit_cost: '',
     notes: ''
   });
+  const [dateFilter, setDateFilter] = useState({
+    startDate: '',
+    endDate: ''
+  });
+  const [showExportPreview, setShowExportPreview] = useState(false);
+  const [exportData, setExportData] = useState([]);
 
   useEffect(() => {
     fetchLocations();
@@ -546,6 +552,117 @@ function Transfers() {
     }
   };
 
+  const getFilteredTransfers = () => {
+    let filtered = transfers.filter(transfer => {
+      // For admin, exclude pending transfers from history
+      if (user.role === 'admin' && transfer.status === 'pending') {
+        return false;
+      }
+      return true;
+    });
+
+    // Apply date filters
+    if (dateFilter.startDate) {
+      filtered = filtered.filter(t => new Date(t.transfer_date) >= new Date(dateFilter.startDate));
+    }
+    if (dateFilter.endDate) {
+      filtered = filtered.filter(t => new Date(t.transfer_date) <= new Date(dateFilter.endDate + 'T23:59:59'));
+    }
+
+    return filtered;
+  };
+
+  const handleExportPreview = () => {
+    const filtered = getFilteredTransfers();
+    const data = [];
+
+    filtered.forEach(transfer => {
+      if (transfer.isGroup) {
+        // For grouped transfers, add each item
+        transfer.items.forEach(item => {
+          data.push({
+            date: new Date(item.transfer_date).toLocaleDateString(),
+            status: item.status,
+            from: item.from_location_name,
+            to: item.to_location_name,
+            item: item.description,
+            quantity: `${formatQuantity(item.quantity)} ${item.unit}`,
+            value: user.role === 'admin' ? formatPrice(parseFloat(item.quantity) * parseFloat(item.unit_cost)) : 'N/A',
+            requestedBy: item.transferred_by_name,
+            notes: item.notes || ''
+          });
+        });
+      } else {
+        data.push({
+          date: new Date(transfer.transfer_date).toLocaleDateString(),
+          status: transfer.status,
+          from: transfer.from_location_name,
+          to: transfer.to_location_name,
+          item: transfer.description || 'Multiple Items',
+          quantity: transfer.description && transfer.description.includes('Batch Transfer') ? '—' : `${formatQuantity(transfer.quantity)} ${transfer.unit}`,
+          value: user.role === 'admin' ? formatPrice(parseFloat(transfer.quantity || 0) * parseFloat(transfer.unit_cost || 0)) : 'N/A',
+          requestedBy: transfer.transferred_by_name,
+          notes: transfer.notes || ''
+        });
+      }
+    });
+
+    setExportData(data);
+    setShowExportPreview(true);
+  };
+
+  const handleDownloadCSV = () => {
+    const headers = user.role === 'admin' 
+      ? ['Date', 'Status', 'From', 'To', 'Item', 'Quantity', 'Value', 'Requested By', 'Notes']
+      : ['Date', 'Status', 'From', 'To', 'Item', 'Quantity', 'Requested By', 'Notes'];
+    
+    const rows = exportData.map(row => 
+      user.role === 'admin'
+        ? [row.date, row.status, row.from, row.to, row.item, row.quantity, row.value, row.requestedBy, row.notes]
+        : [row.date, row.status, row.from, row.to, row.item, row.quantity, row.requestedBy, row.notes]
+    );
+    
+    const csvContent = [headers, ...rows].map(row => row.map(cell => `"${cell}"`).join(',')).join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `transfers_${new Date().toISOString().split('T')[0]}.csv`;
+    a.click();
+    window.URL.revokeObjectURL(url);
+  };
+
+  const handleDownloadXLSX = () => {
+    // Create a simple HTML table that Excel can open
+    const headers = user.role === 'admin' 
+      ? ['Date', 'Status', 'From', 'To', 'Item', 'Quantity', 'Value', 'Requested By', 'Notes']
+      : ['Date', 'Status', 'From', 'To', 'Item', 'Quantity', 'Requested By', 'Notes'];
+    
+    const rows = exportData.map(row => 
+      user.role === 'admin'
+        ? [row.date, row.status, row.from, row.to, row.item, row.quantity, row.value, row.requestedBy, row.notes]
+        : [row.date, row.status, row.from, row.to, row.item, row.quantity, row.requestedBy, row.notes]
+    );
+    
+    let html = '<table><thead><tr>';
+    headers.forEach(h => html += `<th>${h}</th>`);
+    html += '</tr></thead><tbody>';
+    rows.forEach(row => {
+      html += '<tr>';
+      row.forEach(cell => html += `<td>${cell}</td>`);
+      html += '</tr>';
+    });
+    html += '</tbody></table>';
+    
+    const blob = new Blob([html], { type: 'application/vnd.ms-excel' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `transfers_${new Date().toISOString().split('T')[0]}.xls`;
+    a.click();
+    window.URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="container">
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '24px' }}>
@@ -657,6 +774,47 @@ function Transfers() {
                 </button>
               </>
             )}
+            <button className="btn btn-success" onClick={handleExportPreview}>
+              <FiPackage size={16} />
+              Download
+            </button>
+          </div>
+        </div>
+
+        {/* Date Filters */}
+        <div style={{ 
+          marginBottom: '20px', 
+          padding: '16px', 
+          backgroundColor: 'var(--bg-secondary)', 
+          borderRadius: 'var(--radius)',
+          border: '1px solid var(--border)'
+        }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px', alignItems: 'end' }}>
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label>Start Date</label>
+              <input
+                type="date"
+                value={dateFilter.startDate}
+                onChange={(e) => setDateFilter({...dateFilter, startDate: e.target.value})}
+                style={{ width: '100%' }}
+              />
+            </div>
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label>End Date</label>
+              <input
+                type="date"
+                value={dateFilter.endDate}
+                onChange={(e) => setDateFilter({...dateFilter, endDate: e.target.value})}
+                style={{ width: '100%' }}
+              />
+            </div>
+            <button 
+              className="btn btn-secondary" 
+              onClick={() => setDateFilter({ startDate: '', endDate: '' })}
+              style={{ height: 'fit-content' }}
+            >
+              Clear Filters
+            </button>
           </div>
         </div>
 
@@ -869,7 +1027,8 @@ function Transfers() {
                                 <option value="">Select batch...</option>
                                 {costBatches[`${item.selectedItem.description}-${item.selectedItem.unit}`].map((batch) => (
                                   <option key={batch.cost_batch_id} value={batch.cost_batch_id}>
-                                    ₱{formatPrice(batch.unit_cost)} - Qty: {formatQuantity(batch.quantity)}
+                                    {user.role === 'admin' && `₱${formatPrice(batch.unit_cost)} - `}
+                                    Qty: {formatQuantity(batch.quantity)}
                                     {batch.is_new_cost && ' (NEW COST)'}
                                   </option>
                                 ))}
@@ -1047,20 +1206,13 @@ function Transfers() {
                   <th>To</th>
                   <th>Item</th>
                   <th>Quantity</th>
-                  <th>Value</th>
+                  {user.role === 'admin' && <th>Value</th>}
                   <th>Requested By</th>
                   <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {groupTransfers(transfers
-                  .filter(transfer => {
-                    // For admin, exclude pending transfers from history (they're shown in Pending Approvals section)
-                    if (user.role === 'admin' && transfer.status === 'pending') {
-                      return false;
-                    }
-                    return true;
-                  }))
+                {groupTransfers(getFilteredTransfers())
                   .map((transfer) => (
                   <tr key={transfer.id}>
                     <td>{new Date(transfer.transfer_date).toLocaleDateString()}</td>
@@ -1100,15 +1252,17 @@ function Transfers() {
                         `${formatQuantity(transfer.quantity)} ${transfer.unit}`
                       )}
                     </td>
-                    <td style={{ fontWeight: 600 }}>
-                      {transfer.isGroup ? (
-                        `₱${formatPrice(transfer.totalValue)}`
-                      ) : (transfer.description && transfer.description.includes('Batch Transfer')) || (transfer.notes && transfer.notes.includes('CDR')) ? (
-                        '—'
-                      ) : (
-                        `₱${formatPrice(parseFloat(transfer.quantity) * parseFloat(transfer.unit_cost))}`
-                      )}
-                    </td>
+                    {user.role === 'admin' && (
+                      <td style={{ fontWeight: 600 }}>
+                        {transfer.isGroup ? (
+                          `₱${formatPrice(transfer.totalValue)}`
+                        ) : (transfer.description && transfer.description.includes('Batch Transfer')) || (transfer.notes && transfer.notes.includes('CDR')) ? (
+                          '—'
+                        ) : (
+                          `₱${formatPrice(parseFloat(transfer.quantity) * parseFloat(transfer.unit_cost))}`
+                        )}
+                      </td>
+                    )}
                     <td>{transfer.transferred_by_name}</td>
                     <td>
                       <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap' }}>
@@ -1337,8 +1491,12 @@ function Transfers() {
                       <th style={{ padding: '12px 8px', textAlign: 'left' }}>Item</th>
                       <th style={{ padding: '12px 8px', textAlign: 'left' }}>Unit</th>
                       <th style={{ padding: '12px 8px', textAlign: 'right' }}>Quantity</th>
-                      <th style={{ padding: '12px 8px', textAlign: 'right' }}>Unit Cost</th>
-                      <th style={{ padding: '12px 8px', textAlign: 'right' }}>Total Value</th>
+                      {user.role === 'admin' && (
+                        <>
+                          <th style={{ padding: '12px 8px', textAlign: 'right' }}>Unit Cost</th>
+                          <th style={{ padding: '12px 8px', textAlign: 'right' }}>Total Value</th>
+                        </>
+                      )}
                       {selectedTransferGroup.length > 0 && selectedTransferGroup[0].status && (
                         <th style={{ padding: '12px 8px', textAlign: 'center' }}>Status</th>
                       )}
@@ -1350,10 +1508,14 @@ function Transfers() {
                         <td style={{ padding: '12px 8px', fontWeight: '600' }}>{item.description}</td>
                         <td style={{ padding: '12px 8px' }}>{item.unit}</td>
                         <td style={{ padding: '12px 8px', textAlign: 'right' }}>{formatQuantity(item.quantity)}</td>
-                        <td style={{ padding: '12px 8px', textAlign: 'right' }}>₱{formatPrice(item.unit_cost)}</td>
-                        <td style={{ padding: '12px 8px', textAlign: 'right', fontWeight: '600' }}>
-                          ₱{formatPrice(parseFloat(item.quantity) * parseFloat(item.unit_cost))}
-                        </td>
+                        {user.role === 'admin' && (
+                          <>
+                            <td style={{ padding: '12px 8px', textAlign: 'right' }}>₱{formatPrice(item.unit_cost)}</td>
+                            <td style={{ padding: '12px 8px', textAlign: 'right', fontWeight: '600' }}>
+                              ₱{formatPrice(parseFloat(item.quantity) * parseFloat(item.unit_cost))}
+                            </td>
+                          </>
+                        )}
                         {selectedTransferGroup.length > 0 && selectedTransferGroup[0].status && (
                           <td style={{ padding: '12px 8px', textAlign: 'center' }}>
                             {getStatusBadge(item.status)}
@@ -1362,19 +1524,21 @@ function Transfers() {
                       </tr>
                     ))}
                   </tbody>
-                  <tfoot>
-                    <tr style={{ background: 'var(--bg-secondary)', fontWeight: '600' }}>
-                      <td colSpan={4} style={{ padding: '12px 8px', textAlign: 'right' }}>Total:</td>
-                      <td style={{ padding: '12px 8px', textAlign: 'right', fontSize: '16px' }}>
-                        ₱{formatPrice(selectedTransferGroup.reduce((sum, item) => 
-                          sum + (parseFloat(item.quantity) * parseFloat(item.unit_cost)), 0
-                        ))}
-                      </td>
-                      <td style={{ padding: '12px 8px', textAlign: 'center' }}>
-                        {selectedTransferGroup.length} items
-                      </td>
-                    </tr>
-                  </tfoot>
+                  {user.role === 'admin' && (
+                    <tfoot>
+                      <tr style={{ background: 'var(--bg-secondary)', fontWeight: '600' }}>
+                        <td colSpan={3} style={{ padding: '12px 8px', textAlign: 'right' }}>Total:</td>
+                        <td style={{ padding: '12px 8px', textAlign: 'right', fontSize: '16px' }}>
+                          ₱{formatPrice(selectedTransferGroup.reduce((sum, item) => 
+                            sum + (parseFloat(item.quantity) * parseFloat(item.unit_cost)), 0
+                          ))}
+                        </td>
+                        <td style={{ padding: '12px 8px', textAlign: 'center' }}>
+                          {selectedTransferGroup.length} items
+                        </td>
+                      </tr>
+                    </tfoot>
+                  )}
                 </table>
               </div>
 
@@ -1402,6 +1566,103 @@ function Transfers() {
                 onClick={() => setShowItemsModal(false)}
               >
                 Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Export Preview Modal */}
+      {showExportPreview && (
+        <div className="modal-overlay" onClick={() => setShowExportPreview(false)}>
+          <div className="modal-content" style={{ maxWidth: '90%', maxHeight: '90vh' }} onClick={(e) => e.stopPropagation()}>
+            <div style={{ 
+              padding: '24px', 
+              borderBottom: '2px solid var(--border)',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center'
+            }}>
+              <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <FiPackage size={20} />
+                Export Preview ({exportData.length} records)
+              </h3>
+              <button 
+                className="btn btn-secondary" 
+                onClick={() => setShowExportPreview(false)}
+                style={{ padding: '8px' }}
+              >
+                <FiX size={20} />
+              </button>
+            </div>
+
+            <div style={{ padding: '24px', maxHeight: '60vh', overflowY: 'auto' }}>
+              <div style={{ overflowX: 'auto' }}>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Date</th>
+                      <th>Status</th>
+                      <th>From</th>
+                      <th>To</th>
+                      <th>Item</th>
+                      <th>Quantity</th>
+                      {user.role === 'admin' && <th>Value</th>}
+                      <th>Requested By</th>
+                      <th>Notes</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {exportData.map((row, index) => (
+                      <tr key={index}>
+                        <td>{row.date}</td>
+                        <td>{row.status}</td>
+                        <td>{row.from}</td>
+                        <td>{row.to}</td>
+                        <td>{row.item}</td>
+                        <td>{row.quantity}</td>
+                        {user.role === 'admin' && <td>₱{row.value}</td>}
+                        <td>{row.requestedBy}</td>
+                        <td style={{ maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {row.notes}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div style={{ 
+              padding: '16px 24px', 
+              borderTop: '1px solid var(--border)',
+              display: 'flex',
+              justifyContent: 'flex-end',
+              gap: '12px'
+            }}>
+              <button 
+                className="btn btn-secondary" 
+                onClick={() => setShowExportPreview(false)}
+              >
+                Cancel
+              </button>
+              <button 
+                className="btn btn-success" 
+                onClick={() => {
+                  handleDownloadCSV();
+                  setShowExportPreview(false);
+                }}
+              >
+                Download CSV
+              </button>
+              <button 
+                className="btn btn-primary" 
+                onClick={() => {
+                  handleDownloadXLSX();
+                  setShowExportPreview(false);
+                }}
+              >
+                Download XLSX
               </button>
             </div>
           </div>
