@@ -42,7 +42,10 @@ function Inventory() {
     unitsPerBox: '',
     boxesToConvert: '',
     fromSearchText: '',
-    toSearchText: ''
+    toSearchText: '',
+    fromItemDescription: '',
+    fromItemUnit: '',
+    fromItemQty: 0
   });
   const [formData, setFormData] = useState({
     items: [{
@@ -2714,6 +2717,9 @@ function Inventory() {
                     setConversionData({
                       ...conversionData, 
                       fromItemId: itemIdToUse,
+                      fromItemDescription: selectedItem.description,
+                      fromItemUnit: selectedItem.unit,
+                      fromItemQty: qty,
                       fromSearchText: `${selectedItem.description} - ${selectedItem.unit} (Qty: ${formatQuantity(qty)})`
                     });
                   }}
@@ -2723,21 +2729,11 @@ function Inventory() {
                 />
                 {conversionData.fromItemId && (
                   <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
-                    {(() => {
-                      // Find the selected batch
-                      const selectedBatch = filteredInventory.find(i => {
-                        if (i.id === parseInt(conversionData.fromItemId)) return true;
-                        if (i.costBatches) {
-                          return i.costBatches.some(b => b.id === parseInt(conversionData.fromItemId));
-                        }
-                        return false;
-                      });
-                      
-                      if (!selectedBatch) return 'Item not found';
-                      
-                      const qty = selectedBatch.totalQuantity || selectedBatch.quantity || 0;
-                      return `Selected: ${selectedBatch.description} - ${selectedBatch.unit} (Qty: ${formatQuantity(qty)})`;
-                    })()}
+                    {conversionData.fromItemDescription && conversionData.fromItemUnit ? (
+                      `Selected: ${conversionData.fromItemDescription} - ${conversionData.fromItemUnit} (Qty: ${formatQuantity(conversionData.fromItemQty)})`
+                    ) : (
+                      'Item not found'
+                    )}
                   </div>
                 )}
               </div>
