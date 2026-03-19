@@ -280,19 +280,30 @@ function Inventory() {
   }, [searchTerm, inventory, sortBy, sortOrder, selectedCategory, expiryFilter, stockFilter]);
 
   const handleExport = () => {
-    const headers = selectedLocation === 'all' 
-      ? ['Location', 'Description', 'Unit', 'Quantity', 'Unit Cost', 'Suggested Price', 'Total Value']
-      : ['Description', 'Unit', 'Quantity', 'Unit Cost', 'Suggested Price', 'Total Value'];
+    // Only include cost columns for admin users
+    const headers = user.role === 'admin' 
+      ? (selectedLocation === 'all' 
+          ? ['Location', 'Description', 'Unit', 'Quantity', 'Unit Cost', 'Suggested Price', 'Total Value']
+          : ['Description', 'Unit', 'Quantity', 'Unit Cost', 'Suggested Price', 'Total Value'])
+      : (selectedLocation === 'all' 
+          ? ['Location', 'Description', 'Unit', 'Quantity']
+          : ['Description', 'Unit', 'Quantity']);
     
     const rows = filteredInventory.map(item => {
-      const baseRow = [
-        item.description,
-        item.unit,
-        item.quantity,
-        item.unit_cost,
-        item.suggested_selling_price || 0,
-        parseFloat(item.quantity) * parseFloat(item.unit_cost)
-      ];
+      const baseRow = user.role === 'admin' 
+        ? [
+            item.description,
+            item.unit,
+            item.quantity,
+            item.unit_cost,
+            item.suggested_selling_price || 0,
+            parseFloat(item.quantity) * parseFloat(item.unit_cost)
+          ]
+        : [
+            item.description,
+            item.unit,
+            item.quantity
+          ];
       
       return selectedLocation === 'all' 
         ? [item.location_name, ...baseRow]
@@ -2652,7 +2663,9 @@ function Inventory() {
                             <div>From: {record.from_location_name} → To: {record.to_location_name}</div>
                             <div>Status: <span className={`badge badge-${record.status === 'completed' ? 'success' : record.status === 'pending' ? 'warning' : 'secondary'}`}>{record.status}</span></div>
                             <div>Transferred by: {record.user_name}</div>
-                            <div>Unit Cost: ₱{formatPrice(record.unit_cost)}</div>
+                            {user.role === 'admin' && (
+                              <div>Unit Cost: ₱{formatPrice(record.unit_cost)}</div>
+                            )}
                           </>
                         )}
                         {record.type === 'adjustment' && (
@@ -2664,9 +2677,13 @@ function Inventory() {
                                 <div style={{ color: 'var(--success)', fontWeight: '600' }}>
                                   Added: {record.new_values.quantity} {record.new_values.unit}
                                 </div>
-                                <div>Unit Cost: ₱{formatPrice(record.new_values.unit_cost)}</div>
-                                {record.new_values.suggested_selling_price && (
-                                  <div>Selling Price: ₱{formatPrice(record.new_values.suggested_selling_price)}</div>
+                                {user.role === 'admin' && (
+                                  <>
+                                    <div>Unit Cost: ₱{formatPrice(record.new_values.unit_cost)}</div>
+                                    {record.new_values.suggested_selling_price && (
+                                      <div>Selling Price: ₱{formatPrice(record.new_values.suggested_selling_price)}</div>
+                                    )}
+                                  </>
                                 )}
                               </div>
                             )}

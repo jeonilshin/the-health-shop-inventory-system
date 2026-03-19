@@ -416,7 +416,8 @@ function Sales() {
                   <option value="">Choose which batch to sell from...</option>
                   {costBatches.map((batch) => (
                     <option key={batch.cost_batch_id} value={batch.cost_batch_id}>
-                      Cost: ₱{formatPrice(batch.unit_cost)} | Price: ₱{formatPrice(batch.suggested_selling_price || 0)} | 
+                      {user.role === 'admin' && `Cost: ₱${formatPrice(batch.unit_cost)} | `}
+                      Price: ₱{formatPrice(batch.suggested_selling_price || 0)} | 
                       Qty: {formatQuantity(batch.quantity)} | 
                       Batch: {batch.batch_number || 'N/A'}
                       {batch.is_new_cost ? ' (NEW COST)' : ''}
