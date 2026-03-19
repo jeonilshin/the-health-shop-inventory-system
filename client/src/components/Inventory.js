@@ -647,19 +647,12 @@ function Inventory() {
       return;
     }
 
-    // Find the from item to check available quantity
-    const fromItem = filteredInventory.find(item => item.id === parseInt(conversionData.fromItemId));
-    if (!fromItem) {
-      alert('From item not found');
-      return;
-    }
-
-    // Use totalQuantity for grouped items (multiple cost batches), otherwise use quantity
-    const availableQty = parseFloat(fromItem.totalQuantity || fromItem.quantity || 0);
+    // Use stored values instead of searching filteredInventory
+    const availableQty = parseFloat(conversionData.fromItemQty || 0);
     const requestedQty = parseFloat(conversionData.boxesToConvert);
 
     if (requestedQty > availableQty) {
-      alert(`Insufficient quantity. Available: ${formatQuantity(availableQty)} ${fromItem.unit}, Requested: ${requestedQty}`);
+      alert(`Insufficient quantity. Available: ${formatQuantity(availableQty)} ${conversionData.fromItemUnit}, Requested: ${requestedQty}`);
       return;
     }
 
@@ -673,7 +666,17 @@ function Inventory() {
       
       alert('Units converted successfully!');
       setShowConversionModal(false);
-      setConversionData({ fromItemId: '', toItemId: '', unitsPerBox: '', boxesToConvert: '', fromSearchText: '', toSearchText: '' });
+      setConversionData({ 
+        fromItemId: '', 
+        toItemId: '', 
+        unitsPerBox: '', 
+        boxesToConvert: '', 
+        fromSearchText: '', 
+        toSearchText: '',
+        fromItemDescription: '',
+        fromItemUnit: '',
+        fromItemQty: 0
+      });
       fetchInventory();
     } catch (error) {
       alert(error.response?.data?.error || 'Error converting units');
