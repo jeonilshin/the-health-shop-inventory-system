@@ -2702,10 +2702,11 @@ function Inventory() {
                     setConversionData({...conversionData, fromSearchText: value});
                   }}
                   onSelect={(selectedItem) => {
+                    const qty = selectedItem.totalQuantity || selectedItem.quantity || 0;
                     setConversionData({
                       ...conversionData, 
                       fromItemId: selectedItem.id,
-                      fromSearchText: `${selectedItem.description} - ${selectedItem.unit} (Qty: ${formatQuantity(selectedItem.quantity)})`
+                      fromSearchText: `${selectedItem.description} - ${selectedItem.unit} (Qty: ${formatQuantity(qty)})`
                     });
                   }}
                   displayField="description"
@@ -2714,7 +2715,11 @@ function Inventory() {
                 />
                 {conversionData.fromItemId && (
                   <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
-                    Selected: {filteredInventory.find(item => item.id === parseInt(conversionData.fromItemId))?.description} - {filteredInventory.find(item => item.id === parseInt(conversionData.fromItemId))?.unit} (Qty: {formatQuantity(filteredInventory.find(item => item.id === parseInt(conversionData.fromItemId))?.quantity || 0)})
+                    {(() => {
+                      const item = filteredInventory.find(i => i.id === parseInt(conversionData.fromItemId));
+                      const qty = item?.totalQuantity || item?.quantity || 0;
+                      return `Selected: ${item?.description} - ${item?.unit} (Qty: ${formatQuantity(qty)})`;
+                    })()}
                   </div>
                 )}
               </div>
