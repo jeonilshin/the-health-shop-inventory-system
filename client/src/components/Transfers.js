@@ -212,12 +212,27 @@ function Transfers() {
         alert('Please select an item for all rows');
         return;
       }
+      if (!item.cost_batch_id) {
+        alert('Please select a cost batch for all items');
+        return;
+      }
       if (!item.quantity || parseFloat(item.quantity) <= 0) {
         alert('Please enter valid quantities for all items');
         return;
       }
-      if (parseFloat(item.quantity) > parseFloat(item.selectedItem.quantity)) {
-        alert(`Insufficient quantity for ${item.selectedItem.description}. Available: ${item.selectedItem.quantity}`);
+      
+      // Get the selected batch quantity
+      const selectedBatch = costBatches[`${item.selectedItem.description}-${item.selectedItem.unit}`]?.find(
+        b => b.cost_batch_id === item.cost_batch_id
+      );
+      
+      if (!selectedBatch) {
+        alert(`Cost batch not found for ${item.selectedItem.description}`);
+        return;
+      }
+      
+      if (parseFloat(item.quantity) > parseFloat(selectedBatch.quantity)) {
+        alert(`Insufficient quantity for ${item.selectedItem.description}. Available in selected batch: ${selectedBatch.quantity}`);
         return;
       }
     }
