@@ -839,8 +839,7 @@ function Transfers() {
                   setRequestFormData({
                     ...requestFormData,
                     description: item.description,
-                    unit: item.unit,
-                    unit_cost: item.unit_cost || ''
+                    unit: item.unit
                   });
                 }}
               />
@@ -878,18 +877,6 @@ function Transfers() {
                       onChange={(e) => setRequestFormData({ ...requestFormData, quantity: e.target.value })}
                       required
                       min="0.01"
-                    />
-                  </div>
-
-                  <div className="form-group">
-                    <label>Unit Cost</label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      value={requestFormData.unit_cost}
-                      onChange={(e) => setRequestFormData({ ...requestFormData, unit_cost: e.target.value })}
-                      required
-                      min="0"
                     />
                   </div>
                 </div>
@@ -1015,20 +1002,19 @@ function Transfers() {
                             )}
                           </div>
 
-                          {/* Cost Batch Selection */}
+                          {/* Batch Selection */}
                           {item.selectedItem && costBatches[`${item.selectedItem.description}-${item.selectedItem.unit}`] && (
                             <div className="form-group" style={{ marginBottom: 0 }}>
-                              <label>Cost Batch</label>
+                              <label>Batch</label>
                               <select
                                 value={item.cost_batch_id}
                                 onChange={(e) => handleBatchSelect(index, e.target.value)}
                                 required
                               >
                                 <option value="">Select batch...</option>
-                                {costBatches[`${item.selectedItem.description}-${item.selectedItem.unit}`].map((batch) => (
+                                {costBatches[`${item.selectedItem.description}-${item.selectedItem.unit}`].map((batch, batchIndex) => (
                                   <option key={batch.cost_batch_id} value={batch.cost_batch_id}>
-                                    {user.role === 'admin' && `₱${formatPrice(batch.unit_cost)} - `}
-                                    Qty: {formatQuantity(batch.quantity)}
+                                    {batch.batch_number || `BATCH-${batchIndex + 1}`} - Qty: {formatQuantity(batch.quantity)}
                                     {batch.is_new_cost && ' (NEW COST)'}
                                   </option>
                                 ))}

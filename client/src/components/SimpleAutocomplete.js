@@ -168,7 +168,7 @@ function SimpleAutocomplete({
                   color: '#6b7280'
                 }}>
                   Unit: {item.unit}
-                  {item.unit_cost && ` • Cost: ₱${item.unit_cost}`}
+                  {item.suggested_selling_price && ` • Price: ₱${item.suggested_selling_price}`}
                   {(item.totalQuantity !== undefined || item.quantity !== undefined) && ` • Qty: ${item.totalQuantity || item.quantity}`}
                 </div>
               )}
