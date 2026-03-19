@@ -651,8 +651,8 @@ function Inventory() {
       return;
     }
 
-    // Use the actual quantity from the item, not totalQuantity
-    const availableQty = parseFloat(fromItem.quantity || 0);
+    // Use totalQuantity for grouped items (multiple cost batches), otherwise use quantity
+    const availableQty = parseFloat(fromItem.totalQuantity || fromItem.quantity || 0);
     const requestedQty = parseFloat(conversionData.boxesToConvert);
 
     if (requestedQty > availableQty) {
