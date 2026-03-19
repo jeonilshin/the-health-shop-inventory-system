@@ -2703,9 +2703,17 @@ function Inventory() {
                   }}
                   onSelect={(selectedItem) => {
                     const qty = selectedItem.totalQuantity || selectedItem.quantity || 0;
+                    // If item has multiple cost batches, select the first one with available quantity
+                    let itemIdToUse = selectedItem.id;
+                    if (selectedItem.costBatches && selectedItem.costBatches.length > 0) {
+                      const batchWithQty = selectedItem.costBatches.find(b => parseFloat(b.quantity) > 0);
+                      if (batchWithQty) {
+                        itemIdToUse = batchWithQty.id;
+                      }
+                    }
                     setConversionData({
                       ...conversionData, 
-                      fromItemId: selectedItem.id,
+                      fromItemId: itemIdToUse,
                       fromSearchText: `${selectedItem.description} - ${selectedItem.unit} (Qty: ${formatQuantity(qty)})`
                     });
                   }}
@@ -2716,9 +2724,19 @@ function Inventory() {
                 {conversionData.fromItemId && (
                   <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
                     {(() => {
-                      const item = filteredInventory.find(i => i.id === parseInt(conversionData.fromItemId));
-                      const qty = item?.totalQuantity || item?.quantity || 0;
-                      return `Selected: ${item?.description} - ${item?.unit} (Qty: ${formatQuantity(qty)})`;
+                      // Find the selected batch
+                      const selectedBatch = filteredInventory.find(i => {
+                        if (i.id === parseInt(conversionData.fromItemId)) return true;
+                        if (i.costBatches) {
+                          return i.costBatches.some(b => b.id === parseInt(conversionData.fromItemId));
+                        }
+                        return false;
+                      });
+                      
+                      if (!selectedBatch) return 'Item not found';
+                      
+                      const qty = selectedBatch.totalQuantity || selectedBatch.quantity || 0;
+                      return `Selected: ${selectedBatch.description} - ${selectedBatch.unit} (Qty: ${formatQuantity(qty)})`;
                     })()}
                   </div>
                 )}
