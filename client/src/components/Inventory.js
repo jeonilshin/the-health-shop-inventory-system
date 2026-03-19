@@ -586,12 +586,12 @@ function Inventory() {
   const handleEditBatch = (batch) => {
     setEditingBatchId(batch.id);
     setBatchEditData({
-      description: batch.description || viewBatches?.description || batch.item_description,
-      unit: batch.unit || viewBatches?.unit || batch.item_unit,
-      quantity: batch.quantity,
+      description: batch.description || batch.item_description || '',
+      unit: batch.unit || batch.item_unit || '',
+      quantity: batch.quantity || 0,
       expiry_date: batch.expiry_date || '',
-      unit_cost: batch.unit_cost,
-      suggested_selling_price: batch.suggested_selling_price || ''
+      unit_cost: batch.unit_cost || 0,
+      suggested_selling_price: batch.suggested_selling_price || 0
     });
   };
 
@@ -1724,10 +1724,19 @@ function Inventory() {
                             {editingBatchId === item.id ? (
                               <input 
                                 type="number"
-                                step="1"
+                                step="0.01"
                                 min="0"
                                 value={batchEditData.quantity}
-                                onChange={(e) => setBatchEditData({...batchEditData, quantity: e.target.value})}
+                                onChange={(e) => {
+                                  const value = e.target.value;
+                                  if (value === '' || /^\d*\.?\d{0,2}$/.test(value)) {
+                                    setBatchEditData({...batchEditData, quantity: value});
+                                  }
+                                }}
+                                onBlur={(e) => {
+                                  const value = parseFloat(e.target.value) || 0;
+                                  setBatchEditData({...batchEditData, quantity: value.toFixed(2)});
+                                }}
                                 style={{ 
                                   width: '80px', 
                                   padding: '4px 8px', 
@@ -1967,10 +1976,19 @@ function Inventory() {
                             {!item.hasMultipleCosts && editingBatchId === item.id ? (
                               <input 
                                 type="number"
-                                step="1"
+                                step="0.01"
                                 min="0"
                                 value={batchEditData.quantity}
-                                onChange={(e) => setBatchEditData({...batchEditData, quantity: e.target.value})}
+                                onChange={(e) => {
+                                  const value = e.target.value;
+                                  if (value === '' || /^\d*\.?\d{0,2}$/.test(value)) {
+                                    setBatchEditData({...batchEditData, quantity: value});
+                                  }
+                                }}
+                                onBlur={(e) => {
+                                  const value = parseFloat(e.target.value) || 0;
+                                  setBatchEditData({...batchEditData, quantity: value.toFixed(2)});
+                                }}
                                 style={{ 
                                   width: '80px', 
                                   padding: '4px 8px', 
