@@ -218,20 +218,27 @@ router.post('/:id/approve', auth, authorize('admin'), async (req, res) => {
 
 
 
-    // Validate inventory still available
+    // Validate inventory still available - check total across all cost batches
     const inventory = await client.query(
       'SELECT quantity FROM inventory WHERE location_id = $1 AND description = $2 AND unit = $3',
       [transferData.from_location_id, transferData.description, transferData.unit]
     );
 
-    // Convert to numbers for comparison
-    const availableQty = parseFloat(inventory.rows[0]?.quantity || 0);
-    const requiredQty = parseFloat(transferData.quantity);
-
-    if (inventory.rows.length === 0 || availableQty < requiredQty) {
+    if (inventory.rows.length === 0) {
       await client.query('ROLLBACK');
       return res.status(400).json({ 
-        error: `Insufficient inventory to approve this transfer. Available: ${availableQty}, Required: ${requiredQty}` 
+        error: 'Item not found in source location inventory' 
+      });
+    }
+
+    // Calculate total available quantity across all cost batches
+    const totalAvailable = inventory.rows.reduce((sum, batch) => sum + parseFloat(batch.quantity || 0), 0);
+    const requiredQty = parseFloat(transferData.quantity);
+
+    if (totalAvailable < requiredQty) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ 
+        error: `Insufficient inventory to approve this transfer. Available: ${totalAvailable}, Required: ${requiredQty}` 
       });
     }
 
@@ -382,28 +389,45 @@ router.post('/:id/ship', auth, authorize('admin', 'warehouse'), async (req, res)
       return res.status(400).json({ error: 'Transfer must be approved before shipping' });
     }
 
-    // Check inventory availability
+    // Check inventory availability - check total across all cost batches
     const inventory = await client.query(
-      'SELECT quantity FROM inventory WHERE location_id = $1 AND description = $2 AND unit = $3',
+      'SELECT * FROM inventory WHERE location_id = $1 AND description = $2 AND unit = $3 ORDER BY created_at ASC',
       [transferData.from_location_id, transferData.description, transferData.unit]
     );
 
-    // Convert to numbers for comparison
-    const availableQty = parseFloat(inventory.rows[0]?.quantity || 0);
+    if (inventory.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Item not found in source location inventory' });
+    }
+
+    // Calculate total available quantity across all cost batches
+    const totalAvailable = inventory.rows.reduce((sum, batch) => sum + parseFloat(batch.quantity || 0), 0);
     const requiredQty = parseFloat(transferData.quantity);
 
-    if (inventory.rows.length === 0 || availableQty < requiredQty) {
+    if (totalAvailable < requiredQty) {
       await client.query('ROLLBACK');
       return res.status(400).json({ 
-        error: `Insufficient inventory. Available: ${availableQty}, Required: ${requiredQty}` 
+        error: `Insufficient inventory. Available: ${totalAvailable}, Required: ${requiredQty}` 
       });
     }
 
-    // DEDUCT from source inventory
-    await client.query(
-      'UPDATE inventory SET quantity = quantity - $1, updated_at = CURRENT_TIMESTAMP WHERE location_id = $2 AND description = $3 AND unit = $4',
-      [transferData.quantity, transferData.from_location_id, transferData.description, transferData.unit]
-    );
+    // DEDUCT from source inventory using FIFO (First In First Out)
+    let remainingToDeduct = requiredQty;
+    for (const batch of inventory.rows) {
+      if (remainingToDeduct <= 0) break;
+      
+      const batchQty = parseFloat(batch.quantity);
+      if (batchQty <= 0) continue; // Skip empty batches
+      
+      const deductFromThisBatch = Math.min(batchQty, remainingToDeduct);
+      
+      await client.query(
+        'UPDATE inventory SET quantity = quantity - $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+        [deductFromThisBatch, batch.id]
+      );
+      
+      remainingToDeduct -= deductFromThisBatch;
+    }
 
     // Create delivery record
     const delivery = await client.query(
