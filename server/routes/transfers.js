@@ -50,6 +50,7 @@ router.post('/', auth, authorize('admin', 'warehouse', 'branch_manager'), async 
     const isBranchManagerRequest = req.user.role === 'branch_manager' && to_location_id == req.user.location_id;
     
     if (!isBranchManagerRequest) {
+      // Get all cost batches for this item
       const sourceInventory = await client.query(
         'SELECT * FROM inventory WHERE location_id = $1 AND description = $2 AND unit = $3',
         [from_location_id, description, unit]
@@ -60,14 +61,14 @@ router.post('/', auth, authorize('admin', 'warehouse', 'branch_manager'), async 
         return res.status(404).json({ error: 'Item not found in source location inventory' });
       }
 
-      // Convert to numbers for comparison
-      const availableQty = parseFloat(sourceInventory.rows[0].quantity);
+      // Calculate total available quantity across all cost batches
+      const totalAvailable = sourceInventory.rows.reduce((sum, batch) => sum + parseFloat(batch.quantity || 0), 0);
       const requestedQty = parseFloat(quantity);
 
-      if (availableQty < requestedQty) {
+      if (totalAvailable < requestedQty) {
         await client.query('ROLLBACK');
         return res.status(400).json({ 
-          error: `Insufficient quantity. Available: ${availableQty}, Requested: ${requestedQty}` 
+          error: `Insufficient quantity. Available: ${totalAvailable}, Requested: ${requestedQty}` 
         });
       }
     }
