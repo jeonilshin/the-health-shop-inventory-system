@@ -62,7 +62,7 @@ router.get('/product-branches/:description/:unit', auth, authorize('admin'), asy
 // Add inventory item (admin and warehouse only)
 router.post('/', auth, authorize('admin', 'warehouse'), async (req, res) => {
   try {
-    const { 
+    let { 
       location_id, 
       description, 
       unit, 
@@ -80,15 +80,22 @@ router.post('/', auth, authorize('admin', 'warehouse'), async (req, res) => {
       return res.status(403).json({ error: 'Warehouse staff can only add inventory to their own location' });
     }
 
+    // Check if item exists with different cost/price/expiry
+    const existingItems = await pool.query(
+      'SELECT * FROM inventory WHERE location_id = $1 AND description = $2 AND unit = $3 ORDER BY created_at DESC',
+      [location_id, description, unit]
+    );
+
+    // If cost is 0 or empty, use the previous batch's cost and price
+    if ((!unit_cost || parseFloat(unit_cost) === 0) && existingItems.rows.length > 0) {
+      const previousBatch = existingItems.rows[0];
+      unit_cost = previousBatch.unit_cost;
+      suggested_selling_price = suggested_selling_price || previousBatch.suggested_selling_price;
+    }
+
     // Generate cost batch ID
     const timestamp = Date.now();
     const costBatchId = `BATCH-${timestamp}-${Math.random().toString(36).substr(2, 9)}`;
-
-    // Check if item exists with different cost/price/expiry
-    const existingItems = await pool.query(
-      'SELECT * FROM inventory WHERE location_id = $1 AND description = $2 AND unit = $3',
-      [location_id, description, unit]
-    );
 
     let shouldCreateNewBatch = is_new_cost || is_new_item;
     

@@ -341,10 +341,26 @@ router.post('/import', auth, authorize('admin', 'warehouse'), async (req, res) =
         console.log(`📝 Set quantity to 0 for ${item.description} (was empty or invalid)`);
       }
 
-      // Ensure unit_cost defaults to 0 if not provided
-      if (!item.unit_cost || item.unit_cost === '' || isNaN(item.unit_cost) || item.unit_cost < 0) {
-        item.unit_cost = 0;
-        console.log(`📝 Set unit cost to 0 for ${item.description} (was empty or invalid)`);
+      // If unit_cost is 0 or empty, try to use previous batch's cost
+      if (!item.unit_cost || item.unit_cost === '' || isNaN(item.unit_cost) || item.unit_cost < 0 || parseFloat(item.unit_cost) === 0) {
+        // Check for existing items with this description and unit
+        const previousBatch = await pool.query(
+          `SELECT unit_cost, suggested_selling_price FROM inventory 
+           WHERE location_id = $1 AND description = $2 AND unit = $3 
+           ORDER BY created_at DESC LIMIT 1`,
+          [locationId, item.description, item.unit]
+        );
+        
+        if (previousBatch.rows.length > 0) {
+          item.unit_cost = previousBatch.rows[0].unit_cost;
+          if (!item.suggested_selling_price || parseFloat(item.suggested_selling_price) === 0) {
+            item.suggested_selling_price = previousBatch.rows[0].suggested_selling_price;
+          }
+          console.log(`📝 Using previous batch cost for ${item.description}: ₱${item.unit_cost}`);
+        } else {
+          item.unit_cost = 0;
+          console.log(`📝 Set unit cost to 0 for ${item.description} (no previous batch found)`);
+        }
       }
 
       // Ensure selling_price defaults to 0 if not provided
