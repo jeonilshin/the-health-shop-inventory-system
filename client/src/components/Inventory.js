@@ -597,7 +597,11 @@ function Inventory() {
 
   const handleEditItem = (item) => {
     // For single items, use the first cost batch or create from item data
-    const batch = item.costBatches?.[0] || {
+    const batch = item.costBatches?.[0] ? {
+      ...item.costBatches[0],
+      description: item.description,  // Add from parent item
+      unit: item.unit                 // Add from parent item
+    } : {
       id: item.id,
       description: item.description,
       unit: item.unit,
@@ -1440,7 +1444,7 @@ function Inventory() {
                       <label>Quantity *</label>
                       <input
                         type="number"
-                        step="0.01"
+                        step="1"
                         value={item.quantity}
                         onChange={(e) => updateItem(index, 'quantity', e.target.value)}
                         required
@@ -1450,7 +1454,7 @@ function Inventory() {
                       <label>Unit Cost *</label>
                       <input
                         type="number"
-                        step="0.01"
+                        step="1"
                         value={item.unit_cost}
                         onChange={(e) => updateItem(index, 'unit_cost', e.target.value)}
                         required
@@ -1460,7 +1464,7 @@ function Inventory() {
                       <label>Suggested Selling Price</label>
                       <input
                         type="number"
-                        step="0.01"
+                        step="1"
                         value={item.suggested_selling_price}
                         onChange={(e) => updateItem(index, 'suggested_selling_price', e.target.value)}
                       />
@@ -1724,7 +1728,7 @@ function Inventory() {
                             {editingBatchId === item.id ? (
                               <input 
                                 type="number"
-                                step="0.01"
+                                step="1"
                                 min="0"
                                 value={batchEditData.quantity}
                                 onChange={(e) => {
@@ -1794,7 +1798,7 @@ function Inventory() {
                                 {editingBatchId === item.id ? (
                                   <input 
                                     type="number"
-                                    step="0.01"
+                                    step="1"
                                     min="0"
                                     value={batchEditData.unit_cost}
                                     onChange={(e) => setBatchEditData({...batchEditData, unit_cost: e.target.value})}
@@ -1818,7 +1822,7 @@ function Inventory() {
                                 {editingBatchId === item.id ? (
                                   <input 
                                     type="number"
-                                    step="0.01"
+                                    step="1"
                                     min="0"
                                     value={batchEditData.suggested_selling_price}
                                     onChange={(e) => setBatchEditData({...batchEditData, suggested_selling_price: e.target.value})}
@@ -1976,7 +1980,7 @@ function Inventory() {
                             {!item.hasMultipleCosts && editingBatchId === item.id ? (
                               <input 
                                 type="number"
-                                step="0.01"
+                                step="1"
                                 min="0"
                                 value={batchEditData.quantity}
                                 onChange={(e) => {
@@ -2047,7 +2051,7 @@ function Inventory() {
                                 {!item.hasMultipleCosts && editingBatchId === item.id ? (
                                   <input 
                                     type="number"
-                                    step="0.01"
+                                    step="1"
                                     min="0"
                                     value={batchEditData.unit_cost}
                                     onChange={(e) => setBatchEditData({...batchEditData, unit_cost: e.target.value})}
@@ -2078,7 +2082,7 @@ function Inventory() {
                                 {!item.hasMultipleCosts && editingBatchId === item.id ? (
                                   <input 
                                     type="number"
-                                    step="0.01"
+                                    step="1"
                                     min="0"
                                     value={batchEditData.suggested_selling_price}
                                     onChange={(e) => setBatchEditData({...batchEditData, suggested_selling_price: e.target.value})}
@@ -2312,7 +2316,7 @@ function Inventory() {
                                       {isEditing ? (
                                         <input 
                                           type="number"
-                                          step="0.01"
+                                          step="1"
                                           min="0"
                                           value={batchEditData.unit_cost}
                                           onChange={(e) => setBatchEditData({...batchEditData, unit_cost: e.target.value})}
@@ -2336,7 +2340,7 @@ function Inventory() {
                                       {isEditing ? (
                                         <input 
                                           type="number"
-                                          step="0.01"
+                                          step="1"
                                           min="0"
                                           value={batchEditData.suggested_selling_price}
                                           onChange={(e) => setBatchEditData({...batchEditData, suggested_selling_price: e.target.value})}
