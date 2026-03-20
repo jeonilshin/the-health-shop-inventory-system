@@ -277,6 +277,90 @@ function Reports() {
 
   const canSubmit = ['admin', 'warehouse', 'branch_manager', 'branch_staff'].includes(user.role);
 
+  const handlePrintReportsList = () => {
+    const printWindow = window.open('', '_blank');
+    const filteredReports = getFilteredReports();
+    
+    printWindow.document.write(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Sales Reports Summary</title>
+        <style>
+          body { font-family: Arial, sans-serif; padding: 20px; }
+          h1 { text-align: center; margin-bottom: 10px; }
+          .info { text-align: center; margin-bottom: 20px; color: #666; }
+          table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+          th, td { border: 1px solid #ddd; padding: 8px; text-align: left; font-size: 12px; }
+          th { background-color: #2563eb; color: white; }
+          tr:nth-child(even) { background-color: #f9f9f9; }
+          .status-approved { color: #10b981; font-weight: bold; }
+          .status-pending { color: #f59e0b; font-weight: bold; }
+          .status-rejected { color: #ef4444; font-weight: bold; }
+          @media print {
+            button { display: none; }
+          }
+        </style>
+      </head>
+      <body>
+        <h1>Sales Reports Summary</h1>
+        <div class="info">
+          <div><strong>Generated:</strong> ${new Date().toLocaleString()}</div>
+          ${filters.location ? `<div><strong>Location:</strong> ${locations.find(l => l.id === parseInt(filters.location))?.name || 'All'}</div>` : ''}
+        </div>
+        
+        <table>
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Type</th>
+              ${user.role === 'admin' ? '<th>Location</th>' : ''}
+              <th>Net Sales</th>
+              <th>Total Receipts</th>
+              <th>Disbursements</th>
+              <th>Net Cash</th>
+              <th>Status</th>
+              <th>Submitted By</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${filteredReports.map(report => `
+              <tr>
+                <td>${new Date(report.report_date).toLocaleDateString()}</td>
+                <td>${report.report_type}</td>
+                ${user.role === 'admin' ? `<td>${report.location_name || ''}</td>` : ''}
+                <td>₱${formatPrice(report.net_sales || 0)}</td>
+                <td>₱${formatPrice(report.total_cash_receipts || 0)}</td>
+                <td>₱${formatPrice(report.total_disbursements || 0)}</td>
+                <td>₱${formatPrice(report.net_cash_receipts || 0)}</td>
+                <td class="status-${report.status}">${report.status.toUpperCase()}</td>
+                <td>${report.submitted_by_name || ''}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+        
+        <div style="margin-top: 30px; text-align: center;">
+          <button onclick="window.print()" style="padding: 10px 20px; background: #2563eb; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 14px;">Print Report</button>
+          <button onclick="window.close()" style="padding: 10px 20px; background: #6b7280; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 14px; margin-left: 10px;">Close</button>
+        </div>
+      </body>
+      </html>
+    `);
+    printWindow.document.close();
+  };
+
+  const getFilteredReports = () => {
+    return reports.filter(report => {
+      if (filters.type && report.report_type !== filters.type) return false;
+      if (filters.status && report.status !== filters.status) return false;
+      if (filters.location && report.location_id !== parseInt(filters.location)) return false;
+      if (filters.startDate && new Date(report.report_date) < new Date(filters.startDate)) return false;
+      if (filters.endDate && new Date(report.report_date) > new Date(filters.endDate)) return false;
+      return true;
+    });
+  };
+
   return (
     <div className="container">
       <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '24px' }}>
@@ -592,18 +676,24 @@ function Reports() {
       )}
 
       <div className="card">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '10px' }}>
           <h3 style={{ margin: 0 }}>Reports List</h3>
-          {user.role === 'admin' && (
-            <div className="form-group" style={{ marginBottom: 0, minWidth: '200px' }}>
-              <select value={filters.location || ''} onChange={(e) => setFilters({...filters, location: e.target.value})}>
-                <option value="">All Locations</option>
-                {locations.map(loc => (
-                  <option key={loc.id} value={loc.id}>{loc.name} ({loc.type})</option>
-                ))}
-              </select>
-            </div>
-          )}
+          <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+            {user.role === 'admin' && (
+              <div className="form-group" style={{ marginBottom: 0, minWidth: '200px' }}>
+                <select value={filters.location || ''} onChange={(e) => setFilters({...filters, location: e.target.value})}>
+                  <option value="">All Locations</option>
+                  {locations.map(loc => (
+                    <option key={loc.id} value={loc.id}>{loc.name} ({loc.type})</option>
+                  ))}
+                </select>
+              </div>
+            )}
+            <button className="btn btn-primary" onClick={handlePrintReportsList}>
+              <FiFileText size={16} />
+              Print Reports
+            </button>
+          </div>
         </div>
         <table>
           <thead>

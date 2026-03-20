@@ -1015,7 +1015,7 @@ function Transfers() {
                                 {costBatches[`${item.selectedItem.description}-${item.selectedItem.unit}`].map((batch, batchIndex) => (
                                   <option key={batch.cost_batch_id} value={batch.cost_batch_id}>
                                     {batch.batch_number || `BATCH-${batchIndex + 1}`} - Qty: {formatQuantity(batch.quantity)}
-                                    {batch.is_new_cost && ' (NEW COST)'}
+                                    {batch.is_new_cost && ' (NEW BATCH)'}
                                   </option>
                                 ))}
                               </select>

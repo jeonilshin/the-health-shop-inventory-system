@@ -199,6 +199,106 @@ function Sales() {
 
   const canRecordSales = ['admin', 'warehouse', 'branch_manager', 'branch_staff'].includes(user.role);
 
+  const handlePrint = () => {
+    const printWindow = window.open('', '_blank');
+    const locationName = filters.locationId === 'all' ? 'All Locations' : locations.find(l => l.id === parseInt(filters.locationId))?.name || 'Unknown';
+    
+    printWindow.document.write(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Sales Report</title>
+        <style>
+          body { font-family: Arial, sans-serif; padding: 20px; }
+          h1 { text-align: center; margin-bottom: 10px; }
+          .info { text-align: center; margin-bottom: 20px; color: #666; }
+          .summary { display: flex; justify-content: space-around; margin: 20px 0; padding: 15px; background: #f5f5f5; border-radius: 8px; }
+          .summary-item { text-align: center; }
+          .summary-label { font-size: 12px; color: #666; }
+          .summary-value { font-size: 20px; font-weight: bold; margin-top: 5px; }
+          table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+          th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+          th { background-color: #2563eb; color: white; }
+          tr:nth-child(even) { background-color: #f9f9f9; }
+          .total-row { font-weight: bold; background-color: #e3f2fd !important; }
+          @media print {
+            button { display: none; }
+          }
+        </style>
+      </head>
+      <body>
+        <h1>Sales Report</h1>
+        <div class="info">
+          <div><strong>Location:</strong> ${locationName}</div>
+          <div><strong>Period:</strong> ${filters.startDate} to ${filters.endDate}</div>
+          <div><strong>Generated:</strong> ${new Date().toLocaleString()}</div>
+        </div>
+        
+        <div class="summary">
+          ${user.role === 'admin' ? `
+            <div class="summary-item">
+              <div class="summary-label">Total Sales</div>
+              <div class="summary-value">₱${formatPrice(totalSales)}</div>
+            </div>
+          ` : ''}
+          <div class="summary-item">
+            <div class="summary-label">Items Sold</div>
+            <div class="summary-value">${Math.round(totalItems)}</div>
+          </div>
+          <div class="summary-item">
+            <div class="summary-label">Transactions</div>
+            <div class="summary-value">${sales.length}</div>
+          </div>
+        </div>
+        
+        <table>
+          <thead>
+            <tr>
+              <th>Date</th>
+              ${user.role === 'admin' ? '<th>Branch</th>' : ''}
+              <th>Item</th>
+              <th>Qty</th>
+              <th>Unit Price</th>
+              <th>Discount</th>
+              <th>Total</th>
+              <th>Payment</th>
+              <th>Sold By</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${sales.map(sale => `
+              <tr>
+                <td>${new Date(sale.transaction_date).toLocaleDateString()}</td>
+                ${user.role === 'admin' ? `<td>${sale.location_name || ''}</td>` : ''}
+                <td>${sale.item_description} (${sale.item_unit})</td>
+                <td>${formatQuantity(sale.quantity_sold)}</td>
+                <td>₱${formatPrice(sale.unit_price)}</td>
+                <td>${sale.discount_amount > 0 ? `₱${formatPrice(sale.discount_amount)}` : '-'}</td>
+                <td>₱${formatPrice(sale.total_amount)}</td>
+                <td>${sale.payment_method}</td>
+                <td>${sale.user_name || ''}</td>
+              </tr>
+            `).join('')}
+            ${user.role === 'admin' ? `
+              <tr class="total-row">
+                <td colspan="${user.role === 'admin' ? '6' : '5'}" style="text-align: right;">TOTAL:</td>
+                <td>₱${formatPrice(totalSales)}</td>
+                <td colspan="2"></td>
+              </tr>
+            ` : ''}
+          </tbody>
+        </table>
+        
+        <div style="margin-top: 30px; text-align: center;">
+          <button onclick="window.print()" style="padding: 10px 20px; background: #2563eb; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 14px;">Print Report</button>
+          <button onclick="window.close()" style="padding: 10px 20px; background: #6b7280; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 14px; margin-left: 10px;">Close</button>
+        </div>
+      </body>
+      </html>
+    `);
+    printWindow.document.close();
+  };
+
   return (
     <div className="container">
       {/* Header */}
@@ -420,7 +520,7 @@ function Sales() {
                       Price: ₱{formatPrice(batch.suggested_selling_price || 0)} | 
                       Qty: {formatQuantity(batch.quantity)} | 
                       Batch: {batch.batch_number || 'N/A'}
-                      {batch.is_new_cost ? ' (NEW COST)' : ''}
+                      {batch.is_new_cost ? ' (NEW BATCH)' : ''}
                     </option>
                   ))}
                 </select>
@@ -732,7 +832,13 @@ function Sales() {
 
       {/* Sales List */}
       <div className="card">
-        <h3>Sales Transactions</h3>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+          <h3 style={{ margin: 0 }}>Sales Transactions</h3>
+          <button className="btn btn-primary" onClick={handlePrint}>
+            <FiShoppingCart size={16} />
+            Print Sales Report
+          </button>
+        </div>
         <table>
           <thead>
             <tr>

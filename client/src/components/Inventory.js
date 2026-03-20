@@ -1468,25 +1468,29 @@ function Inventory() {
                         required
                       />
                     </div>
-                    <div className="form-group" style={{ marginBottom: 0 }}>
-                      <label>Unit Cost *</label>
-                      <input
-                        type="number"
-                        step="1"
-                        value={item.unit_cost}
-                        onChange={(e) => updateItem(index, 'unit_cost', e.target.value)}
-                        required
-                      />
-                    </div>
-                    <div className="form-group" style={{ marginBottom: 0 }}>
-                      <label>Suggested Selling Price</label>
-                      <input
-                        type="number"
-                        step="1"
-                        value={item.suggested_selling_price}
-                        onChange={(e) => updateItem(index, 'suggested_selling_price', e.target.value)}
-                      />
-                    </div>
+                    {user.role === 'admin' && (
+                      <>
+                        <div className="form-group" style={{ marginBottom: 0 }}>
+                          <label>Unit Cost *</label>
+                          <input
+                            type="number"
+                            step="1"
+                            value={item.unit_cost}
+                            onChange={(e) => updateItem(index, 'unit_cost', e.target.value)}
+                            required
+                          />
+                        </div>
+                        <div className="form-group" style={{ marginBottom: 0 }}>
+                          <label>Suggested Selling Price</label>
+                          <input
+                            type="number"
+                            step="1"
+                            value={item.suggested_selling_price}
+                            onChange={(e) => updateItem(index, 'suggested_selling_price', e.target.value)}
+                          />
+                        </div>
+                      </>
+                    )}
                     <div className="form-group" style={{ marginBottom: 0 }}>
                       <label>Batch Number</label>
                       <SimpleAutocomplete
@@ -1558,7 +1562,7 @@ function Inventory() {
                         fontSize: '14px'
                       }}>
                         <FiDollarSign size={16} />
-                        New Cost {item.is_new_cost && '(Auto-detected)'}
+                        New Batch {item.is_new_cost && '(Auto-detected)'}
                       </label>
                     </div>
                     
@@ -1570,7 +1574,7 @@ function Inventory() {
                       maxWidth: '250px',
                       textAlign: 'right'
                     }}>
-                      "New Cost" is auto-checked when price or expiry differs from existing batches. Uncheck to add to existing batch.
+                      "New Batch" is auto-checked when price or expiry differs from existing batches. Uncheck to add to existing batch.
                     </div>
                   </div>
                 </div>
