@@ -502,6 +502,33 @@ function Inventory() {
   const updateItem = (index, field, value) => {
     const newItems = [...formData.items];
     newItems[index][field] = value;
+    
+    // Auto-increment batch number if user enters a prefix
+    if (field === 'batch_number' && value) {
+      // Check if value is just a prefix (letters only or letters with dash)
+      const prefixMatch = value.match(/^([A-Za-z]+)-?$/);
+      if (prefixMatch) {
+        const prefix = prefixMatch[1];
+        // Find the highest number for this prefix in inventory history
+        const matchingBatches = inventoryHistory
+          .filter(item => item.batch_number && item.batch_number.startsWith(prefix + '-'))
+          .map(item => {
+            const match = item.batch_number.match(new RegExp(`^${prefix}-(\\d+)$`));
+            return match ? parseInt(match[1]) : 0;
+          })
+          .filter(num => num > 0);
+        
+        if (matchingBatches.length > 0) {
+          const maxNumber = Math.max(...matchingBatches);
+          const nextNumber = (maxNumber + 1).toString().padStart(3, '0');
+          newItems[index][field] = `${prefix}-${nextNumber}`;
+        } else {
+          // No existing batches with this prefix, start with 001
+          newItems[index][field] = `${prefix}-001`;
+        }
+      }
+    }
+    
     setFormData({ ...formData, items: newItems });
     
     // Auto-detect if this should be marked as new cost (debounced)
