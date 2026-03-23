@@ -17,12 +17,15 @@ app.use((req, res, next) => {
 });
 
 // ── CORS ──────────────────────────────────────────────────────
-// CORS_ORIGIN (or FRONTEND_URL) can be a single URL or comma-separated list
+// CORS_ORIGIN (or FRONTEND_URL) — single URL or comma-separated list
 // e.g.  CORS_ORIGIN=https://www.thehealthshop.company,https://thehealthshop.company
 const rawOrigins = process.env.CORS_ORIGIN || process.env.FRONTEND_URL;
 const allowedOrigins = rawOrigins
-  ? rawOrigins.split(',').map(u => u.trim()).filter(Boolean)
+  ? rawOrigins.split(',').map(u => u.trim().replace(/\/$/, '')).filter(Boolean)
   : ['http://localhost:3000', 'http://localhost:3001'];
+
+// Log at startup so you can verify in Render logs
+console.log('[CORS] Allowed origins:', allowedOrigins);
 
 app.use(cors({
   origin: (origin, callback) => {
@@ -30,9 +33,12 @@ app.use(cors({
     if (!origin) return callback(null, true);
     // In development allow everything
     if (process.env.NODE_ENV !== 'production') return callback(null, true);
-    if (allowedOrigins.includes(origin)) return callback(null, true);
-    console.warn(`[CORS] Blocked origin: ${origin}`);
-    callback(new Error('Not allowed by CORS'));
+    // Strip trailing slash from incoming origin before comparing
+    const normalised = origin.replace(/\/$/, '');
+    if (allowedOrigins.includes(normalised)) return callback(null, true);
+    console.warn(`[CORS] Blocked: "${origin}" — not in [${allowedOrigins.join(', ')}]`);
+    // Return false (not an Error) so Express doesn't log a 500
+    return callback(null, false);
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
