@@ -119,6 +119,7 @@ app.use('/api/unit-conversions',   apiLimiter, require('./routes/unit-conversion
 app.use('/api/sales-reports',      apiLimiter, require('./routes/sales-reports'));
 app.use('/api/sales-transactions', apiLimiter, require('./routes/sales-transactions'));
 app.use('/api/import',             apiLimiter, require('./routes/import'));
+app.use('/api/delivery-discrepancies', apiLimiter, require('./routes/delivery-discrepancies'));
 
 // ── 404 Handler ───────────────────────────────────────────────
 app.use((req, res) => {

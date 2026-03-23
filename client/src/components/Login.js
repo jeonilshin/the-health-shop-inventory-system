@@ -1,14 +1,18 @@
-import React, { useState, useContext } from 'react';
+import { useState, useContext } from 'react';
 import { AuthContext } from '../context/AuthContext';
 import api from '../utils/api';
-import { FiUser, FiLock, FiLogIn, FiActivity, FiEye, FiEyeOff, FiAlertCircle, FiInfo } from 'react-icons/fi';
+import {
+  FiUser, FiLock, FiLogIn, FiActivity,
+  FiEye, FiEyeOff, FiAlertCircle, FiInfo,
+  FiPackage, FiTruck, FiBarChart2
+} from 'react-icons/fi';
 
 function Login() {
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
+  const [username, setUsername]       = useState('');
+  const [password, setPassword]       = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [error, setError]             = useState('');
+  const [loading, setLoading]         = useState(false);
   const [loginTimeout, setLoginTimeout] = useState(false);
   const { login } = useContext(AuthContext);
 
@@ -37,219 +41,200 @@ function Login() {
     }
   };
 
+  const inputBase = {
+    width: '100%',
+    padding: '12px 14px 12px 44px',
+    border: '1.5px solid #e2e8f0',
+    borderRadius: '12px',
+    fontSize: '14px',
+    color: '#0f172a',
+    background: '#f8fafc',
+    outline: 'none',
+    boxSizing: 'border-box',
+    transition: 'border-color 0.15s, box-shadow 0.15s, background 0.15s',
+    fontFamily: 'inherit',
+  };
+
+  const onFocusStyle = (e) => {
+    e.target.style.borderColor = '#2563eb';
+    e.target.style.background  = '#ffffff';
+    e.target.style.boxShadow   = '0 0 0 3px rgba(37,99,235,0.1)';
+  };
+  const onBlurStyle = (e) => {
+    e.target.style.borderColor = '#e2e8f0';
+    e.target.style.background  = '#f8fafc';
+    e.target.style.boxShadow   = 'none';
+  };
+
   return (
     <div style={{
-      display: 'flex',
       minHeight: '100vh',
-      background: 'linear-gradient(135deg, #1e3a8a 0%, #1d4ed8 35%, #2563eb 65%, #3b82f6 100%)',
+      background: '#070d1a',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
       position: 'relative',
       overflow: 'hidden',
+      fontFamily: 'var(--font-sans)',
+      padding: '24px',
     }}>
-      {/* Decorative background circles */}
+
+      {/* ── Ambient glow blobs ──────────────────────────────── */}
       <div style={{
-        position: 'absolute', top: '-120px', right: '-120px',
-        width: '400px', height: '400px', borderRadius: '50%',
-        background: 'rgba(255,255,255,0.06)', pointerEvents: 'none',
+        position: 'absolute', top: '-180px', left: '-180px',
+        width: '560px', height: '560px', borderRadius: '50%',
+        background: 'radial-gradient(circle, rgba(37,99,235,0.18) 0%, transparent 65%)',
+        pointerEvents: 'none',
       }} />
       <div style={{
-        position: 'absolute', bottom: '-80px', left: '-80px',
-        width: '300px', height: '300px', borderRadius: '50%',
-        background: 'rgba(255,255,255,0.05)', pointerEvents: 'none',
+        position: 'absolute', bottom: '-160px', right: '-160px',
+        width: '480px', height: '480px', borderRadius: '50%',
+        background: 'radial-gradient(circle, rgba(16,185,129,0.16) 0%, transparent 65%)',
+        pointerEvents: 'none',
       }} />
       <div style={{
-        position: 'absolute', top: '40%', left: '30%',
-        width: '160px', height: '160px', borderRadius: '50%',
-        background: 'rgba(255,255,255,0.03)', pointerEvents: 'none',
+        position: 'absolute', top: '50%', left: '50%',
+        transform: 'translate(-50%, -50%)',
+        width: '800px', height: '800px', borderRadius: '50%',
+        background: 'radial-gradient(circle, rgba(37,99,235,0.05) 0%, transparent 60%)',
+        pointerEvents: 'none',
       }} />
 
-      {/* Left branding panel (hidden on mobile) */}
+      {/* ── Dot grid overlay ────────────────────────────────── */}
       <div style={{
-        flex: 1,
-        display: 'flex',
-        flexDirection: 'column',
-        justifyContent: 'center',
-        alignItems: 'flex-start',
-        padding: '60px',
-        color: 'white',
-        maxWidth: '480px',
-      }} className="login-branding">
-        <div style={{
-          display: 'inline-flex',
-          alignItems: 'center',
-          gap: '12px',
-          marginBottom: '32px',
-          background: 'rgba(255,255,255,0.12)',
-          border: '1px solid rgba(255,255,255,0.2)',
-          borderRadius: '14px',
-          padding: '10px 18px',
-        }}>
-          <FiActivity size={22} />
-          <span style={{ fontWeight: 700, fontSize: '16px' }}>The Health Shop</span>
-        </div>
+        position: 'absolute', inset: 0,
+        backgroundImage: 'radial-gradient(rgba(255,255,255,0.04) 1px, transparent 1px)',
+        backgroundSize: '36px 36px',
+        pointerEvents: 'none',
+      }} />
 
-        <h1 style={{ fontSize: '2.5rem', fontWeight: 800, lineHeight: 1.2, marginBottom: '16px', letterSpacing: '-0.02em' }}>
-          Inventory<br />Management<br />System
-        </h1>
-        <p style={{ fontSize: '16px', opacity: 0.8, lineHeight: 1.7, maxWidth: '320px' }}>
-          Track stock levels, manage transfers, record sales, and keep your branches running smoothly.
-        </p>
-
-        <div style={{ display: 'flex', gap: '32px', marginTop: '48px', opacity: 0.75 }}>
-          {[['28', 'Branches'], ['2', 'Warehouses'], ['∞', 'Products']].map(([n, l]) => (
-            <div key={l} style={{ textAlign: 'center' }}>
-              <div style={{ fontSize: '1.75rem', fontWeight: 800, lineHeight: 1 }}>{n}</div>
-              <div style={{ fontSize: '12px', marginTop: '4px' }}>{l}</div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Right form panel */}
+      {/* ── Login card ──────────────────────────────────────── */}
       <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        flex: '0 0 auto',
+        position: 'relative',
         width: '100%',
-        maxWidth: '460px',
-        padding: '32px 24px',
-        background: 'rgba(255,255,255,0.04)',
-        backdropFilter: 'blur(12px)',
-        borderLeft: '1px solid rgba(255,255,255,0.1)',
+        maxWidth: '440px',
+        background: '#ffffff',
+        borderRadius: '24px',
+        overflow: 'hidden',
+        boxShadow: '0 0 0 1px rgba(255,255,255,0.05), 0 32px 80px rgba(0,0,0,0.55), 0 8px 24px rgba(0,0,0,0.3)',
       }}>
+
+        {/* Top accent gradient bar */}
         <div style={{
-          width: '100%',
-          maxWidth: '380px',
-          background: 'white',
-          borderRadius: '20px',
-          padding: '40px 36px',
-          boxShadow: '0 32px 64px rgba(0,0,0,0.2), 0 0 0 1px rgba(0,0,0,0.04)',
-        }}>
-          {/* Logo */}
-          <div style={{ textAlign: 'center', marginBottom: '32px' }}>
-            <div style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              width: '60px',
-              height: '60px',
-              borderRadius: '16px',
-              background: 'linear-gradient(135deg, #2563eb 0%, #1e40af 100%)',
-              marginBottom: '16px',
-              boxShadow: '0 8px 24px rgba(37,99,235,0.35)',
-            }}>
-              <FiActivity size={28} color="white" />
+          height: '4px',
+          background: 'linear-gradient(90deg, #1e40af 0%, #2563eb 30%, #10b981 70%, #059669 100%)',
+        }} />
+
+        <div style={{ padding: '40px 40px 32px' }}>
+
+          {/* ── Brand ─────────────────────────────────────── */}
+          <div style={{ textAlign: 'center', marginBottom: '36px' }}>
+            {/* Logo icon */}
+            <div style={{ position: 'relative', display: 'inline-block', marginBottom: '20px' }}>
+              <div style={{
+                width: '72px', height: '72px', borderRadius: '22px',
+                background: 'linear-gradient(135deg, #059669 0%, #10b981 50%, #34d399 100%)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                boxShadow: '0 8px 32px rgba(16,185,129,0.4)',
+                margin: '0 auto',
+              }}>
+                <FiActivity size={32} color="white" strokeWidth={2.2} />
+              </div>
+              {/* Pulse ring */}
+              <div className="login-pulse-ring" />
             </div>
-            <h2 style={{ margin: '0 0 6px 0', fontSize: '22px', fontWeight: 800, color: '#0f172a', letterSpacing: '-0.02em' }}>
+
+            <div style={{ marginBottom: '4px' }}>
+              <span style={{
+                fontSize: '11px', fontWeight: 700, letterSpacing: '0.12em',
+                textTransform: 'uppercase', color: '#10b981',
+              }}>
+                The Health Shop
+              </span>
+            </div>
+            <h2 style={{
+              margin: '4px 0 8px', fontSize: '26px', fontWeight: 800,
+              color: '#0f172a', letterSpacing: '-0.03em', lineHeight: 1.2,
+            }}>
               Welcome back
             </h2>
-            <p style={{ margin: 0, color: '#64748b', fontSize: '14px' }}>
-              Sign in to your account
+            <p style={{ margin: 0, color: '#64748b', fontSize: '14px', lineHeight: 1.5 }}>
+              Sign in to access the inventory system
             </p>
           </div>
 
+          {/* ── Form ──────────────────────────────────────── */}
           <form onSubmit={handleSubmit} noValidate>
-            {/* Username */}
-            <div style={{ marginBottom: '18px' }}>
+
+            {/* Username field */}
+            <div style={{ marginBottom: '16px' }}>
               <label style={{
-                display: 'block',
-                marginBottom: '6px',
-                fontWeight: 600,
-                color: '#374151',
-                fontSize: '13px',
+                display: 'block', marginBottom: '7px',
+                fontSize: '12px', fontWeight: 700, color: '#374151',
+                letterSpacing: '0.05em', textTransform: 'uppercase',
               }}>
                 Username
               </label>
               <div style={{ position: 'relative' }}>
                 <span style={{
-                  position: 'absolute', left: '11px', top: '50%',
-                  transform: 'translateY(-50%)',
-                  color: '#9ca3af', display: 'flex', alignItems: 'center',
-                  pointerEvents: 'none',
+                  position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)',
+                  color: '#94a3b8', display: 'flex', alignItems: 'center', pointerEvents: 'none',
                 }}>
-                  <FiUser size={15} />
+                  <FiUser size={16} />
                 </span>
                 <input
                   type="text"
                   value={username}
-                  onChange={(e) => setUsername(e.target.value)}
+                  onChange={e => setUsername(e.target.value)}
                   placeholder="Enter your username"
                   required
                   autoFocus
                   autoComplete="username"
-                  style={{
-                    width: '100%',
-                    padding: '10px 12px 10px 36px',
-                    border: '1.5px solid #e5e7eb',
-                    borderRadius: '10px',
-                    fontSize: '14px',
-                    color: '#111827',
-                    background: '#f9fafb',
-                    transition: 'all 0.15s ease',
-                    outline: 'none',
-                  }}
-                  onFocus={e => { e.target.style.borderColor = '#2563eb'; e.target.style.background = 'white'; e.target.style.boxShadow = '0 0 0 3px rgba(37,99,235,0.1)'; }}
-                  onBlur={e => { e.target.style.borderColor = '#e5e7eb'; e.target.style.background = '#f9fafb'; e.target.style.boxShadow = 'none'; }}
+                  style={inputBase}
+                  onFocus={onFocusStyle}
+                  onBlur={onBlurStyle}
                 />
               </div>
             </div>
 
-            {/* Password */}
-            <div style={{ marginBottom: '20px' }}>
+            {/* Password field */}
+            <div style={{ marginBottom: '24px' }}>
               <label style={{
-                display: 'block',
-                marginBottom: '6px',
-                fontWeight: 600,
-                color: '#374151',
-                fontSize: '13px',
+                display: 'block', marginBottom: '7px',
+                fontSize: '12px', fontWeight: 700, color: '#374151',
+                letterSpacing: '0.05em', textTransform: 'uppercase',
               }}>
                 Password
               </label>
               <div style={{ position: 'relative' }}>
                 <span style={{
-                  position: 'absolute', left: '11px', top: '50%',
-                  transform: 'translateY(-50%)',
-                  color: '#9ca3af', display: 'flex', alignItems: 'center',
-                  pointerEvents: 'none',
+                  position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)',
+                  color: '#94a3b8', display: 'flex', alignItems: 'center', pointerEvents: 'none',
                 }}>
-                  <FiLock size={15} />
+                  <FiLock size={16} />
                 </span>
                 <input
                   type={showPassword ? 'text' : 'password'}
                   value={password}
-                  onChange={(e) => setPassword(e.target.value)}
+                  onChange={e => setPassword(e.target.value)}
                   placeholder="Enter your password"
                   required
                   autoComplete="current-password"
-                  style={{
-                    width: '100%',
-                    padding: '10px 40px 10px 36px',
-                    border: '1.5px solid #e5e7eb',
-                    borderRadius: '10px',
-                    fontSize: '14px',
-                    color: '#111827',
-                    background: '#f9fafb',
-                    transition: 'all 0.15s ease',
-                    outline: 'none',
-                  }}
-                  onFocus={e => { e.target.style.borderColor = '#2563eb'; e.target.style.background = 'white'; e.target.style.boxShadow = '0 0 0 3px rgba(37,99,235,0.1)'; }}
-                  onBlur={e => { e.target.style.borderColor = '#e5e7eb'; e.target.style.background = '#f9fafb'; e.target.style.boxShadow = 'none'; }}
+                  style={{ ...inputBase, paddingRight: '44px' }}
+                  onFocus={onFocusStyle}
+                  onBlur={onBlurStyle}
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
                   style={{
-                    position: 'absolute', right: '10px', top: '50%',
-                    transform: 'translateY(-50%)',
-                    background: 'none', border: 'none',
-                    cursor: 'pointer', color: '#9ca3af',
-                    display: 'flex', alignItems: 'center',
-                    padding: '4px',
-                    borderRadius: '6px',
+                    position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)',
+                    background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8',
+                    display: 'flex', alignItems: 'center', padding: '4px', borderRadius: '6px',
                     transition: 'color 0.15s',
                   }}
-                  onMouseEnter={e => e.currentTarget.style.color = '#374151'}
-                  onMouseLeave={e => e.currentTarget.style.color = '#9ca3af'}
+                  onMouseEnter={e => e.currentTarget.style.color = '#475569'}
+                  onMouseLeave={e => e.currentTarget.style.color = '#94a3b8'}
                   tabIndex={-1}
                   aria-label={showPassword ? 'Hide password' : 'Show password'}
                 >
@@ -258,98 +243,141 @@ function Login() {
               </div>
             </div>
 
-            {/* Error Message */}
+            {/* Error message */}
             {error && (
               <div style={{
-                display: 'flex',
-                alignItems: 'flex-start',
-                gap: '8px',
-                padding: '10px 14px',
-                background: 'rgba(239,68,68,0.07)',
-                border: '1px solid rgba(239,68,68,0.25)',
-                borderLeft: '3px solid #ef4444',
-                borderRadius: '8px',
-                marginBottom: '16px',
-                fontSize: '13px',
-                color: '#991b1b',
+                display: 'flex', alignItems: 'flex-start', gap: '10px',
+                padding: '12px 14px',
+                background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '10px',
+                marginBottom: '18px', fontSize: '13px', color: '#dc2626', lineHeight: 1.5,
               }}>
-                <FiAlertCircle size={15} style={{ flexShrink: 0, marginTop: '1px' }} />
+                <FiAlertCircle size={16} style={{ flexShrink: 0, marginTop: '1px' }} />
                 {error}
               </div>
             )}
 
-            {/* Submit Button */}
+            {/* Submit button */}
             <button
               type="submit"
               disabled={loading}
+              className="login-submit-btn"
               style={{
                 width: '100%',
-                padding: '11px',
-                background: loading ? '#93c5fd' : 'linear-gradient(135deg, #2563eb 0%, #1e40af 100%)',
-                color: 'white',
+                padding: '13px',
+                background: loading
+                  ? '#d1fae5'
+                  : 'linear-gradient(135deg, #059669 0%, #10b981 40%, #2563eb 100%)',
+                color: loading ? '#6b7280' : 'white',
                 border: 'none',
-                borderRadius: '10px',
-                fontSize: '14px',
+                borderRadius: '12px',
+                fontSize: '15px',
                 fontWeight: 700,
                 cursor: loading ? 'not-allowed' : 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '8px',
-                transition: 'all 0.18s ease',
-                boxShadow: loading ? 'none' : '0 4px 16px rgba(37,99,235,0.3)',
-                letterSpacing: '0.01em',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
+                boxShadow: loading ? 'none' : '0 4px 20px rgba(16,185,129,0.35)',
+                transition: 'all 0.2s ease',
+                letterSpacing: '0.02em',
               }}
-              onMouseEnter={e => { if (!loading) { e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.boxShadow = '0 6px 20px rgba(37,99,235,0.4)'; } }}
-              onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = loading ? 'none' : '0 4px 16px rgba(37,99,235,0.3)'; }}
+              onMouseEnter={e => {
+                if (!loading) {
+                  e.currentTarget.style.transform   = 'translateY(-1px)';
+                  e.currentTarget.style.boxShadow   = '0 8px 28px rgba(16,185,129,0.45)';
+                }
+              }}
+              onMouseLeave={e => {
+                e.currentTarget.style.transform = 'translateY(0)';
+                e.currentTarget.style.boxShadow = loading ? 'none' : '0 4px 20px rgba(16,185,129,0.35)';
+              }}
             >
               {loading ? (
                 <>
                   <div style={{
-                    width: '15px', height: '15px',
-                    border: '2px solid rgba(255,255,255,0.4)',
-                    borderTopColor: 'white',
+                    width: '16px', height: '16px',
+                    border: '2.5px solid rgba(107,114,128,0.3)',
+                    borderTopColor: '#6b7280',
                     borderRadius: '50%',
-                    animation: 'spin 0.65s linear infinite',
+                    animation: 'spin 0.7s linear infinite',
                   }} />
-                  {loginTimeout ? 'Still connecting...' : 'Signing in...'}
+                  {loginTimeout ? 'Still connecting…' : 'Signing in…'}
                 </>
               ) : (
                 <>
-                  <FiLogIn size={15} />
+                  <FiLogIn size={16} />
                   Sign In
                 </>
               )}
             </button>
 
-            {/* Timeout warning */}
+            {/* Slow connection warning */}
             {loginTimeout && (
               <div style={{
-                display: 'flex',
-                alignItems: 'flex-start',
-                gap: '8px',
+                display: 'flex', alignItems: 'flex-start', gap: '8px',
                 padding: '10px 14px',
-                background: 'rgba(245,158,11,0.08)',
-                border: '1px solid rgba(245,158,11,0.25)',
-                borderLeft: '3px solid #f59e0b',
-                borderRadius: '8px',
-                marginTop: '12px',
-                fontSize: '12px',
-                color: '#92400e',
+                background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '10px',
+                marginTop: '12px', fontSize: '12px', color: '#92400e', lineHeight: 1.5,
               }}>
                 <FiInfo size={14} style={{ flexShrink: 0, marginTop: '1px' }} />
-                Taking longer than usual — this may be due to server startup or network conditions.
+                Taking longer than usual — this may be due to server startup. Please wait…
               </div>
             )}
           </form>
         </div>
+
+        {/* ── Stats footer ────────────────────────────────── */}
+        <div style={{
+          borderTop: '1px solid #f1f5f9',
+          padding: '18px 40px 22px',
+          display: 'flex',
+          justifyContent: 'center',
+          gap: '0',
+        }}>
+          {[
+            { icon: <FiTruck size={14} />,     value: '28', label: 'Branches'   },
+            { icon: <FiPackage size={14} />,   value: '2',  label: 'Warehouses' },
+            { icon: <FiBarChart2 size={14} />, value: '∞',  label: 'Products'   },
+          ].map(({ icon, value, label }, i, arr) => (
+            <div
+              key={label}
+              style={{
+                flex: 1,
+                textAlign: 'center',
+                borderRight: i < arr.length - 1 ? '1px solid #f1f5f9' : 'none',
+                padding: '0 8px',
+              }}
+            >
+              <div style={{ color: '#94a3b8', marginBottom: '4px', display: 'flex', justifyContent: 'center' }}>
+                {icon}
+              </div>
+              <div style={{ fontSize: '18px', fontWeight: 800, color: '#0f172a', lineHeight: 1 }}>
+                {value}
+              </div>
+              <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '3px', letterSpacing: '0.05em', textTransform: 'uppercase' }}>
+                {label}
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
 
-      {/* Responsive styles via a style tag */}
+      {/* ── Keyframes & responsive ──────────────────────────── */}
       <style>{`
-        @keyframes spin { to { transform: rotate(360deg); } }
-        @media (max-width: 768px) {
-          .login-branding { display: none !important; }
+        @keyframes spin {
+          to { transform: rotate(360deg); }
+        }
+        @keyframes loginPulse {
+          0%   { transform: scale(1);    opacity: 0.5; }
+          100% { transform: scale(1.55); opacity: 0; }
+        }
+        .login-pulse-ring {
+          position: absolute;
+          inset: -6px;
+          border-radius: 26px;
+          border: 2px solid rgba(16,185,129,0.4);
+          animation: loginPulse 2s ease-out infinite;
+          pointer-events: none;
+        }
+        @media (max-width: 480px) {
+          .login-submit-btn { font-size: 14px !important; }
         }
       `}</style>
     </div>
