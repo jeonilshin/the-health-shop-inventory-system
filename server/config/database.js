@@ -28,30 +28,10 @@ pool.on('connect', () => {
 });
 
 /**
- * Run a query with automatic client release.
- * Usage: await query('SELECT $1::text', ['hello'])
- */
-const query = async (text, params) => {
-  const start = Date.now();
-  try {
-    const result = await pool.query(text, params);
-    const duration = Date.now() - start;
-    if (process.env.DB_LOG_QUERIES === 'true') {
-      console.log('[DB]', { duration: `${duration}ms`, rows: result.rowCount });
-    }
-    return result;
-  } catch (err) {
-    console.error('[DB] Query error:', err.message);
-    throw err;
-  }
-};
-
-/**
  * Get a client from the pool for transactions.
  * Always call client.release() in a finally block.
  */
 const getClient = () => pool.connect();
 
 module.exports = pool;
-module.exports.query = query;
 module.exports.getClient = getClient;
