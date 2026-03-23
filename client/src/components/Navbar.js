@@ -4,11 +4,11 @@ import { AuthContext } from '../context/AuthContext';
 import ChangePassword from './ChangePassword';
 import NotificationBell from './NotificationBell';
 import api from '../utils/api';
-import { 
-  FiHome, 
-  FiPackage, 
-  FiSend, 
-  FiFileText, 
+import {
+  FiHome,
+  FiPackage,
+  FiSend,
+  FiFileText,
   FiBarChart2,
   FiTruck,
   FiDollarSign,
@@ -20,151 +20,165 @@ import {
   FiShield,
   FiMenu,
   FiX,
-  FiRefreshCw
+  FiRefreshCw,
 } from 'react-icons/fi';
+
+/* Generate initials from a full name */
+function getInitials(name = '') {
+  return name
+    .split(' ')
+    .filter(Boolean)
+    .slice(0, 2)
+    .map(n => n[0].toUpperCase())
+    .join('');
+}
+
+/* Role → display label */
+function formatRole(role = '') {
+  return role.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+}
+
+/* Role → color for avatar background */
+function avatarColor(role = '') {
+  const map = {
+    admin: 'rgba(239,68,68,0.25)',
+    warehouse: 'rgba(59,130,246,0.25)',
+    branch_manager: 'rgba(16,185,129,0.25)',
+    branch_staff: 'rgba(245,158,11,0.25)',
+  };
+  return map[role] || 'rgba(255,255,255,0.2)';
+}
+
+const NAV_ITEMS = [
+  { to: '/',                icon: FiHome,        label: 'Dashboard',       roles: ['admin','warehouse','branch_manager','branch_staff'] },
+  { to: '/sales',           icon: FiDollarSign,  label: 'Sales',           roles: ['admin','warehouse','branch_manager','branch_staff'] },
+  { to: '/inventory',       icon: FiPackage,     label: 'Inventory',       roles: ['admin','warehouse','branch_manager','branch_staff'] },
+  { to: '/transfers',       icon: FiSend,        label: 'Transfers',       roles: ['admin','warehouse','branch_manager'] },
+  { to: '/reports',         icon: FiFileText,    label: 'Reports',         roles: ['admin','branch_manager','branch_staff'] },
+  { to: '/analytics',       icon: FiBarChart2,   label: 'Analytics',       roles: ['admin','branch_manager','branch_staff'] },
+  { to: '/deliveries',      icon: FiTruck,       label: 'Deliveries',      roles: ['admin','warehouse'] },
+  { to: '/messages',        icon: FiMessageSquare, label: 'Messages',      roles: ['admin','warehouse','branch_manager','branch_staff'] },
+  { to: '/admin',           icon: FiSettings,    label: 'Admin',           roles: ['admin'] },
+  { to: '/audit',           icon: FiShield,      label: 'Audit Log',       roles: ['admin'] },
+  { to: '/unit-conversions',icon: FiRefreshCw,   label: 'Unit Conversions',roles: ['admin'] },
+];
 
 function Navbar() {
   const { user, logout } = useContext(AuthContext);
   const [showChangePassword, setShowChangePassword] = useState(false);
   const [locationName, setLocationName] = useState('');
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth >= 768);
   const [unreadMessages, setUnreadMessages] = useState(0);
   const location = useLocation();
 
   const fetchLocationName = useCallback(async () => {
     try {
-      const response = await api.get('/locations');
-      const location = response.data.find(loc => loc.id === user.location_id);
-      if (location) {
-        setLocationName(location.name);
-      }
-    } catch (error) {
-      // Error fetching location
-    }
+      const res = await api.get('/locations');
+      const loc = res.data.find(l => l.id === user.location_id);
+      if (loc) setLocationName(loc.name);
+    } catch { /* ignore */ }
   }, [user]);
 
   const fetchUnreadMessages = useCallback(async () => {
     try {
-      const response = await api.get('/messages/unread-count');
-      setUnreadMessages(response.data.count);
-    } catch (error) {
-      // Error fetching unread messages
-    }
+      const res = await api.get('/messages/unread-count');
+      setUnreadMessages(res.data.count);
+    } catch { /* ignore */ }
   }, []);
 
   useEffect(() => {
-    if (user?.location_id) {
-      fetchLocationName();
-    }
+    if (user?.location_id) fetchLocationName();
     fetchUnreadMessages();
-    
-    // Poll for unread messages every 10 seconds
-    const interval = setInterval(fetchUnreadMessages, 10000);
+    const interval = setInterval(fetchUnreadMessages, 15000);
     return () => clearInterval(interval);
   }, [user, fetchLocationName, fetchUnreadMessages]);
 
-  // Close sidebar on mobile when route changes
+  // Close sidebar on mobile when navigating
   useEffect(() => {
-    if (window.innerWidth < 768) {
-      setSidebarOpen(false);
-    }
+    if (window.innerWidth < 768) setSidebarOpen(false);
   }, [location]);
 
-  const navItems = [
-    { to: '/', icon: FiHome, label: 'Dashboard', roles: ['admin', 'warehouse', 'branch_manager', 'branch_staff'] },
-    { to: '/sales', icon: FiDollarSign, label: 'Sales', roles: ['admin', 'warehouse', 'branch_manager', 'branch_staff'] },
-    { to: '/inventory', icon: FiPackage, label: 'Inventory', roles: ['admin', 'warehouse', 'branch_manager', 'branch_staff'] },
-    { to: '/transfers', icon: FiSend, label: 'Transfers', roles: ['admin', 'warehouse', 'branch_manager'] },
-    { to: '/reports', icon: FiFileText, label: 'Reports', roles: ['admin', 'branch_manager', 'branch_staff'] },
-    { to: '/analytics', icon: FiBarChart2, label: 'Analytics', roles: ['admin', 'branch_manager', 'branch_staff'] },
-    { to: '/deliveries', icon: FiTruck, label: 'Deliveries', roles: ['admin', 'warehouse'] },
-    { to: '/messages', icon: FiMessageSquare, label: 'Messages', roles: ['admin', 'warehouse', 'branch_manager', 'branch_staff'] },
-    { to: '/admin', icon: FiSettings, label: 'Admin', roles: ['admin'] },
-    { to: '/audit', icon: FiShield, label: 'Audit Log', roles: ['admin'] },
-    { to: '/unit-conversions', icon: FiRefreshCw, label: 'Unit Conversions', roles: ['admin'] },
-  ];
-
-  const filteredNavItems = navItems.filter(item => item.roles.includes(user?.role));
+  const filteredItems = NAV_ITEMS.filter(item => item.roles.includes(user?.role));
+  const initials = getInitials(user?.full_name);
 
   return (
     <>
-      {/* Top Header */}
+      {/* ── Top Header ── */}
       <div className="top-header">
-        <button className="sidebar-toggle" onClick={() => setSidebarOpen(!sidebarOpen)}>
-          {sidebarOpen ? <FiX size={20} /> : <FiMenu size={20} />}
+        <button
+          className="sidebar-toggle"
+          onClick={() => setSidebarOpen(o => !o)}
+          aria-label={sidebarOpen ? 'Close menu' : 'Open menu'}
+        >
+          {sidebarOpen ? <FiX size={19} /> : <FiMenu size={19} />}
         </button>
-        
+
         <div className="header-logo">
-          <FiActivity size={24} />
+          <div className="header-logo-icon">
+            <FiActivity size={20} color="white" />
+          </div>
           <div>
             <div className="header-title">
               The Health Shop
-              <span style={{ 
-                marginLeft: '8px', 
-                fontSize: '11px', 
-                fontWeight: '500', 
-                color: 'rgba(255, 255, 255, 0.7)',
-                backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                padding: '2px 6px',
-                borderRadius: '4px'
-              }}>
-                v0.0.7
-              </span>
+              <span className="header-version">v0.0.7</span>
             </div>
             <div className="header-subtitle">Inventory System</div>
           </div>
         </div>
 
         <div className="header-actions">
+          {/* User info (desktop only — hidden via CSS on mobile) */}
           <div className="user-info">
             <div className="user-name">{user?.full_name}</div>
             <div className="user-role">
-              {user?.role.replace('_', ' ').toUpperCase()}
-              {locationName && <> • {locationName}</>}
+              {formatRole(user?.role)}
+              {locationName && <> · {locationName}</>}
             </div>
           </div>
+
+          {/* Avatar */}
+          <div
+            className="user-avatar"
+            title={`${user?.full_name} — ${formatRole(user?.role)}`}
+            style={{ background: avatarColor(user?.role) }}
+          >
+            {initials || '?'}
+          </div>
+
           <NotificationBell />
-          <button 
+
+          <button
             className="header-btn"
             onClick={() => setShowChangePassword(true)}
             title="Change Password"
           >
-            <FiKey size={18} />
+            <FiKey size={17} />
           </button>
-          <button 
-            className="header-btn"
+
+          <button
+            className="header-btn danger"
             onClick={logout}
             title="Logout"
           >
-            <FiLogOut size={18} />
+            <FiLogOut size={17} />
           </button>
         </div>
       </div>
 
-      {/* Sidebar */}
-      <aside className={`sidebar ${sidebarOpen ? 'open' : 'closed'}`}>
+      {/* ── Sidebar ── */}
+      <aside className={`sidebar ${sidebarOpen ? 'open' : 'closed'}`} aria-label="Main navigation">
         <nav className="sidebar-nav">
-          {filteredNavItems.map((item) => (
+          {filteredItems.map((item) => (
             <NavLink
               key={item.to}
               to={item.to}
-              className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}
+              className={({ isActive }) => `sidebar-link${isActive ? ' active' : ''}`}
               end={item.to === '/'}
             >
-              <item.icon size={20} />
+              <item.icon size={18} />
               <span>{item.label}</span>
               {item.to === '/messages' && unreadMessages > 0 && (
-                <span style={{
-                  marginLeft: 'auto',
-                  backgroundColor: '#ef4444',
-                  color: 'white',
-                  borderRadius: '10px',
-                  padding: '2px 8px',
-                  fontSize: '11px',
-                  fontWeight: '600',
-                  minWidth: '20px',
-                  textAlign: 'center'
-                }}>
+                <span className="sidebar-link-badge">
                   {unreadMessages > 99 ? '99+' : unreadMessages}
                 </span>
               )}
@@ -173,9 +187,9 @@ function Navbar() {
         </nav>
       </aside>
 
-      {/* Overlay for mobile */}
+      {/* ── Mobile overlay ── */}
       {sidebarOpen && (
-        <div className="sidebar-overlay" onClick={() => setSidebarOpen(false)} />
+        <div className="sidebar-overlay" onClick={() => setSidebarOpen(false)} aria-hidden />
       )}
 
       {showChangePassword && (
