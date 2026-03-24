@@ -13,12 +13,14 @@ CREATE TABLE IF NOT EXISTS delivery_discrepancies (
   note                 TEXT          NOT NULL,   -- always required
   branch_location_id   INTEGER       NOT NULL REFERENCES locations(id),
   warehouse_location_id INTEGER      NOT NULL REFERENCES locations(id),
-  status               VARCHAR(20)   NOT NULL DEFAULT 'pending',   -- 'pending' | 'approved' | 'rejected'
+  status               VARCHAR(20)   NOT NULL DEFAULT 'pending',   -- 'pending' | 'approved' | 'rejected' | 'completed'
   reported_by          INTEGER       NOT NULL REFERENCES users(id),
   reported_at          TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
   resolved_by          INTEGER       REFERENCES users(id),
   resolved_at          TIMESTAMP,
   admin_note           TEXT,
+  created_at           TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at           TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT chk_discrepancy_status CHECK (status IN ('pending', 'approved', 'rejected', 'completed')),
   CONSTRAINT chk_discrepancy_type   CHECK (type   IN ('shortage', 'return'))
 );

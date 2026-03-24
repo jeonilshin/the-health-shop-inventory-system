@@ -1,4 +1,11 @@
--- Add 'completed' status to delivery_discrepancies table
+-- Add 'completed' status and timestamp columns to delivery_discrepancies table
+
+-- Add created_at and updated_at columns if they don't exist
+ALTER TABLE delivery_discrepancies 
+ADD COLUMN IF NOT EXISTS created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP;
+
+ALTER TABLE delivery_discrepancies 
+ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP;
 
 -- Drop the old constraint
 ALTER TABLE delivery_discrepancies 

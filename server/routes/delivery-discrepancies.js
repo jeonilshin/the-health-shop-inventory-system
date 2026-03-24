@@ -276,6 +276,8 @@ router.put('/:id/add-to-inventory', auth, authorize('admin'), async (req, res) =
     // Handle based on type
     if (disc.type === 'shortage') {
       // SHORTAGE: Add missing quantity to warehouse (branch already has correct amount)
+      console.log(`[SHORTAGE] Adding ${adjustQty} ${disc.unit} of "${disc.item_description}" to warehouse ${disc.warehouse_location_id}`);
+      
       const batchId = `DISC-SHORTAGE-${disc.id}-${Date.now()}`;
       await client.query(
         `INSERT INTO inventory
@@ -288,26 +290,45 @@ router.put('/:id/add-to-inventory', auth, authorize('admin'), async (req, res) =
           disc.item_description,
           disc.unit,
           adjustQty,
-          disc.unit_cost,
+          disc.unit_cost || 0,
           batchId
         ]
       );
+      
+      console.log(`[SHORTAGE] Successfully added to warehouse inventory`);
 
     } else {
       // RETURN: Deduct from branch and add to warehouse
+      console.log(`[RETURN] Looking for item in branch ${disc.branch_location_id}: "${disc.item_description}" (${disc.unit})`);
+      
       const branchInv = await client.query(
-        `SELECT id, quantity
+        `SELECT id, quantity, description, unit
          FROM inventory
-         WHERE location_id = $1 AND description = $2 AND unit = $3
+         WHERE location_id = $1 
+         AND LOWER(TRIM(description)) = LOWER(TRIM($2))
+         AND LOWER(TRIM(unit)) = LOWER(TRIM($3))
          ORDER BY quantity DESC
          LIMIT 1`,
         [disc.branch_location_id, disc.item_description, disc.unit]
       );
 
+      console.log(`[RETURN] Found ${branchInv.rows.length} matching items in branch inventory`);
+      if (branchInv.rows.length > 0) {
+        console.log(`[RETURN] Item found: ${branchInv.rows[0].description} (${branchInv.rows[0].unit}) - Qty: ${branchInv.rows[0].quantity}`);
+      }
+
       if (branchInv.rows.length === 0) {
         await client.query('ROLLBACK');
+        
+        // Debug: Show what's actually in the branch inventory
+        const debugInv = await client.query(
+          `SELECT description, unit, quantity FROM inventory WHERE location_id = $1 LIMIT 10`,
+          [disc.branch_location_id]
+        );
+        console.log('[RETURN] Branch inventory items:', debugInv.rows);
+        
         return res.status(400).json({
-          error: `"${disc.item_description}" not found in branch inventory`
+          error: `"${disc.item_description}" (${disc.unit}) not found in branch inventory. Please check the item exists in the branch.`
         });
       }
 
@@ -318,6 +339,8 @@ router.put('/:id/add-to-inventory', auth, authorize('admin'), async (req, res) =
         });
       }
 
+      console.log(`[RETURN] Deducting ${adjustQty} from branch inventory ID ${branchInv.rows[0].id}`);
+      
       // Deduct from branch
       await client.query(
         `UPDATE inventory
@@ -326,6 +349,8 @@ router.put('/:id/add-to-inventory', auth, authorize('admin'), async (req, res) =
         [adjustQty, branchInv.rows[0].id]
       );
 
+      console.log(`[RETURN] Adding ${adjustQty} to warehouse ${disc.warehouse_location_id}`);
+      
       // Add to warehouse
       const batchId = `DISC-RETURN-${disc.id}-${Date.now()}`;
       await client.query(
@@ -339,10 +364,12 @@ router.put('/:id/add-to-inventory', auth, authorize('admin'), async (req, res) =
           disc.item_description,
           disc.unit,
           adjustQty,
-          disc.unit_cost,
+          disc.unit_cost || 0,
           batchId
         ]
       );
+      
+      console.log(`[RETURN] Successfully completed return process`);
     }
 
     // Mark as completed
