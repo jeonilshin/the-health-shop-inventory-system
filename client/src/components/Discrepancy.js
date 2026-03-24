@@ -3,7 +3,7 @@ import api from '../utils/api';
 import { AuthContext } from '../context/AuthContext';
 import { formatQuantity } from '../utils/formatNumber';
 import {
-  FiRefreshCw, FiAlertTriangle, FiPackage, FiCalendar, FiFilter, FiCheckCircle, FiX
+  FiRefreshCw, FiAlertTriangle, FiPackage, FiCalendar, FiFilter, FiCheckCircle, FiX, FiPlus
 } from 'react-icons/fi';
 
 function Discrepancy() {
@@ -54,6 +54,30 @@ function Discrepancy() {
       fetchDiscrepancies();
     } catch (err) {
       alert(err.response?.data?.error || 'Error rejecting request');
+    }
+  };
+
+  const handleAddToInventory = async (disc) => {
+    const adjustQty = disc.type === 'shortage'
+      ? parseFloat(disc.expected_quantity) - parseFloat(disc.received_quantity)
+      : parseFloat(disc.received_quantity);
+
+    if (!window.confirm(`Add ${adjustQty} ${disc.unit} of "${disc.item_description}" to your inventory?`)) return;
+    
+    try {
+      await api.post('/inventory', {
+        location_id: user.location_id,
+        description: disc.item_description,
+        unit: disc.unit,
+        quantity: adjustQty,
+        unit_cost: disc.unit_cost || 0,
+        suggested_selling_price: disc.unit_cost || 0,
+        notes: `Added from ${disc.type} #${disc.id} - ${disc.branch_name}`
+      });
+      alert(`Successfully added ${adjustQty} ${disc.unit} to your inventory!`);
+      fetchDiscrepancies();
+    } catch (err) {
+      alert(err.response?.data?.error || 'Error adding to inventory');
     }
   };
 
@@ -400,7 +424,7 @@ function Discrepancy() {
                           )
                         ) : (
                           // Status badge for non-pending or non-admin
-                          <>
+                          <div>
                             {getStatusBadge(disc.status)}
                             {disc.admin_note && (
                               <div style={{
@@ -412,7 +436,28 @@ function Discrepancy() {
                                 Admin: {disc.admin_note}
                               </div>
                             )}
-                          </>
+                            {/* Add to Inventory button for approved returns (warehouse/admin only) */}
+                            {disc.status === 'approved' && (user.role === 'admin' || user.role === 'warehouse') && (
+                              <button
+                                className="btn"
+                                style={{
+                                  marginTop: '8px',
+                                  padding: '4px 10px',
+                                  fontSize: '12px',
+                                  background: '#dbeafe',
+                                  color: '#1e40af',
+                                  border: '1px solid #3b82f6',
+                                  whiteSpace: 'nowrap',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '4px'
+                                }}
+                                onClick={() => handleAddToInventory(disc)}
+                              >
+                                <FiPlus size={12} /> Add to My Inventory
+                              </button>
+                            )}
+                          </div>
                         )}
                       </div>
                     </div>
