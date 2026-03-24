@@ -16,6 +16,10 @@ function Discrepancy() {
 
   useEffect(() => {
     fetchDiscrepancies();
+    // Auto-refresh every 5 seconds for real-time updates
+    const interval = setInterval(fetchDiscrepancies, 5000);
+    return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const fetchDiscrepancies = async () => {

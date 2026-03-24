@@ -13,8 +13,8 @@ export function NotificationProvider({ children }) {
   useEffect(() => {
     if (user) {
       fetchNotifications();
-      // Poll for new notifications every 10 seconds (more frequent)
-      const interval = setInterval(fetchNotifications, 10000);
+      // Poll for new notifications every 5 seconds for real-time updates
+      const interval = setInterval(fetchNotifications, 5000);
       return () => clearInterval(interval);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps

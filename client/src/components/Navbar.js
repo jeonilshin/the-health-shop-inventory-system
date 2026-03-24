@@ -96,7 +96,8 @@ function Navbar() {
   useEffect(() => {
     if (user?.location_id) fetchLocationName();
     fetchCounts();
-    const interval = setInterval(fetchCounts, 15000);
+    // Poll counts every 5 seconds for real-time updates
+    const interval = setInterval(fetchCounts, 5000);
     return () => clearInterval(interval);
   }, [user, fetchLocationName, fetchCounts]);
 
