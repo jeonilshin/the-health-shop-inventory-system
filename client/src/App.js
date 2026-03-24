@@ -30,11 +30,18 @@ function App() {
       
       if (token && userData) {
         try {
-          // Verify token is still valid
-          await api.get('/auth/verify');
-          setUser(JSON.parse(userData));
+          const parsedUser = JSON.parse(userData);
+          setUser(parsedUser);
+          
+          // Verify token in background (don't block UI)
+          api.get('/auth/verify').catch(() => {
+            // Token invalid, clear storage and redirect
+            localStorage.removeItem('token');
+            localStorage.removeItem('user');
+            setUser(null);
+          });
         } catch (error) {
-          // Token invalid, clear storage
+          // Invalid stored data, clear storage
           localStorage.removeItem('token');
           localStorage.removeItem('user');
           setUser(null);

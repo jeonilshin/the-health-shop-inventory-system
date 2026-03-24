@@ -84,8 +84,8 @@ function rateLimit({ windowMs = 60000, max = 100, keyFn = (req) => req.ip } = {}
   };
 }
 
-// Strict rate limit for auth endpoints: 20 attempts per 15 minutes per IP
-const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 20 });
+// Strict rate limit for auth endpoints: 100 attempts per 15 minutes per IP
+const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 100 });
 
 // Standard limiter for all other API routes: 300/min
 const apiLimiter = rateLimit({ windowMs: 60 * 1000, max: 300 });
