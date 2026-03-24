@@ -3,7 +3,7 @@ import api from '../utils/api';
 import { AuthContext } from '../context/AuthContext';
 import { formatQuantity } from '../utils/formatNumber';
 import {
-  FiRefreshCw, FiAlertTriangle, FiPackage, FiCalendar, FiFilter
+  FiRefreshCw, FiAlertTriangle, FiPackage, FiCalendar, FiFilter, FiCheckCircle, FiX
 } from 'react-icons/fi';
 
 function Discrepancy() {
@@ -12,6 +12,7 @@ function Discrepancy() {
   const [loading, setLoading] = useState(true);
   const [filterType, setFilterType] = useState('all'); // 'all', 'shortage', 'return'
   const [filterStatus, setFilterStatus] = useState('all'); // 'all', 'pending', 'approved', 'rejected'
+  const [rejectState, setRejectState] = useState({ id: null, note: '' });
 
   useEffect(() => {
     fetchDiscrepancies();
@@ -26,6 +27,33 @@ function Discrepancy() {
       console.error('Error fetching discrepancies:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleApprove = async (id) => {
+    if (!window.confirm('Approve this request? Inventory will be automatically adjusted.')) return;
+    try {
+      const res = await api.put(`/delivery-discrepancies/${id}/approve`);
+      alert(res.data.message);
+      fetchDiscrepancies();
+    } catch (err) {
+      alert(err.response?.data?.error || 'Error approving request');
+    }
+  };
+
+  const handleRejectSubmit = async () => {
+    if (!rejectState.note.trim()) {
+      alert('Please enter a rejection reason.');
+      return;
+    }
+    try {
+      await api.put(`/delivery-discrepancies/${rejectState.id}/reject`, {
+        admin_note: rejectState.note.trim()
+      });
+      setRejectState({ id: null, note: '' });
+      fetchDiscrepancies();
+    } catch (err) {
+      alert(err.response?.data?.error || 'Error rejecting request');
     }
   };
 
@@ -314,18 +342,77 @@ function Discrepancy() {
                         </div>
                       </div>
 
-                      {/* Status */}
+                      {/* Status / Actions */}
                       <div style={{ textAlign: 'right' }}>
-                        {getStatusBadge(disc.status)}
-                        {disc.admin_note && (
-                          <div style={{
-                            fontSize: '11px',
-                            color: '#6b7280',
-                            marginTop: '6px',
-                            fontStyle: 'italic'
-                          }}>
-                            Admin: {disc.admin_note}
-                          </div>
+                        {disc.status === 'pending' && user.role === 'admin' ? (
+                          // Admin actions for pending items
+                          rejectState.id === disc.id ? (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', minWidth: '200px' }}>
+                              <textarea
+                                rows={2}
+                                placeholder="Rejection reason (required)"
+                                value={rejectState.note}
+                                onChange={e => setRejectState(s => ({ ...s, note: e.target.value }))}
+                                style={{
+                                  width: '100%', padding: '6px 8px', fontSize: '12px',
+                                  border: '1px solid #d1d5db', borderRadius: '6px',
+                                  resize: 'none', fontFamily: 'inherit', boxSizing: 'border-box'
+                                }}
+                              />
+                              <div style={{ display: 'flex', gap: '6px' }}>
+                                <button
+                                  className="btn"
+                                  style={{ flex: 1, padding: '4px 8px', fontSize: '12px', background: '#ef4444', color: '#fff', border: 'none' }}
+                                  onClick={handleRejectSubmit}
+                                >
+                                  Confirm Reject
+                                </button>
+                                <button
+                                  className="btn"
+                                  style={{ padding: '4px 8px', fontSize: '12px' }}
+                                  onClick={() => setRejectState({ id: null, note: '' })}
+                                >
+                                  <FiX size={12} />
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end', flexWrap: 'nowrap' }}>
+                              <button
+                                className="btn btn-success"
+                                style={{ padding: '4px 10px', fontSize: '12px', whiteSpace: 'nowrap' }}
+                                onClick={() => handleApprove(disc.id)}
+                              >
+                                <FiCheckCircle size={12} /> Approve
+                              </button>
+                              <button
+                                className="btn"
+                                style={{
+                                  padding: '4px 10px', fontSize: '12px',
+                                  background: '#fee2e2', color: '#b91c1c',
+                                  border: '1px solid #fca5a5', whiteSpace: 'nowrap'
+                                }}
+                                onClick={() => setRejectState({ id: disc.id, note: '' })}
+                              >
+                                <FiX size={12} /> Reject
+                              </button>
+                            </div>
+                          )
+                        ) : (
+                          // Status badge for non-pending or non-admin
+                          <>
+                            {getStatusBadge(disc.status)}
+                            {disc.admin_note && (
+                              <div style={{
+                                fontSize: '11px',
+                                color: '#6b7280',
+                                marginTop: '6px',
+                                fontStyle: 'italic'
+                              }}>
+                                Admin: {disc.admin_note}
+                              </div>
+                            )}
+                          </>
                         )}
                       </div>
                     </div>

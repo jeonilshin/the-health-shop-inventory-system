@@ -10,6 +10,20 @@ router.get('/', auth, async (req, res) => {
   try {
     const { status } = req.query;
     
+    // First, auto-sync any deliveries that are out of sync with their transfer status
+    await pool.query(`
+      UPDATE deliveries d
+      SET 
+        status = 'delivered',
+        delivered_date = COALESCE(d.delivered_date, t.delivered_at, CURRENT_TIMESTAMP),
+        updated_at = CURRENT_TIMESTAMP
+      FROM transfers t
+      WHERE d.transfer_id = t.id
+        AND t.status = 'delivered'
+        AND d.status IN ('in_transit', 'admin_confirmed', 'awaiting_admin')
+        AND d.transfer_id IS NOT NULL
+    `);
+    
     let query = `
       SELECT d.*, 
         fl.name as from_location_name,
