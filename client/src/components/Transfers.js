@@ -435,9 +435,8 @@ function Transfers() {
   };
 
   const canDeliver = (transfer) => {
-    return (user.role === 'admin' || user.role === 'branch_manager') && 
-           transfer.status === 'in_transit' &&
-           (user.role === 'admin' || transfer.to_location_id === user.location_id);
+    return user.role === 'admin' && 
+           transfer.status === 'in_transit';
   };
 
   const canUnreceive = (transfer) => {
