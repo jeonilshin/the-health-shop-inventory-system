@@ -473,9 +473,12 @@ router.post('/:id/accept', auth, authorize('admin', 'branch_manager'), async (re
       return res.status(403).json({ error: 'Access denied to this delivery' });
     }
 
-    if (deliveryData.status !== 'admin_confirmed') {
+    // Check delivery status - must be admin_confirmed or in_transit
+    if (deliveryData.status !== 'admin_confirmed' && deliveryData.status !== 'in_transit') {
       await client.query('ROLLBACK');
-      return res.status(400).json({ error: 'Delivery must be confirmed by admin before acceptance' });
+      return res.status(400).json({ 
+        error: `Cannot accept delivery with status "${deliveryData.status}". Delivery must be confirmed by admin first.` 
+      });
     }
 
     // Add items to destination inventory
