@@ -23,6 +23,7 @@ function Deliveries() {
   // ── modals / inline reject ──
   const [discModal, setDiscModal]     = useState({ open: false, type: null, delivery: null });
   const [rejectState, setRejectState] = useState({ id: null, note: '' });
+  const [loading, setLoading]         = useState(false);
 
   // ── history visibility ──
   const [showDiscHistory, setShowDiscHistory] = useState(false);
@@ -88,11 +89,15 @@ function Deliveries() {
   const handleBranchAccept = async (id) => {
     if (!window.confirm('Accept this delivery? Items will be added to your inventory.')) return;
     try {
-      await api.post(`/deliveries/${id}/accept`);
-      alert('Delivery accepted! Items have been added to your inventory.');
-      fetchAll();
+      setLoading(true);
+      const response = await api.post(`/deliveries/${id}/accept`);
+      alert(response.data.message || 'Delivery accepted! Items have been added to your inventory.');
+      // Force a fresh fetch
+      await fetchAll();
     } catch (error) {
       alert(error.response?.data?.error || 'Error accepting delivery');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -414,7 +419,12 @@ function Deliveries() {
             <tbody>
               {incomingDeliveries.map((delivery) => (
                 <tr key={delivery.id}>
-                  <td>{new Date(delivery.delivery_date || delivery.created_at).toLocaleDateString()}</td>
+                  <td>
+                    {new Date(delivery.delivery_date || delivery.created_at).toLocaleDateString()}
+                    <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+                      ID: {delivery.id}
+                    </div>
+                  </td>
                   <td>{delivery.from_location_name}</td>
                   <td>
                     {delivery.items && delivery.items.map((item, idx) => (
