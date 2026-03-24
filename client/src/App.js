@@ -7,6 +7,7 @@ import Transfers from './components/Transfers';
 import Reports from './components/Reports';
 import Analytics from './components/Analytics';
 import Deliveries from './components/Deliveries';
+import Discrepancy from './components/Discrepancy';
 import Admin from './components/Admin';
 import AuditLog from './components/AuditLog';
 import Messages from './components/Messages';
@@ -114,6 +115,7 @@ function App() {
               } 
             />
             <Route path="/deliveries" element={user ? <Deliveries /> : <Navigate to="/login" />} />
+            <Route path="/discrepancy" element={user ? <Discrepancy /> : <Navigate to="/login" />} />
             <Route path="/sales" element={user ? <Sales /> : <Navigate to="/login" />} />
             <Route path="/messages" element={user ? <Messages /> : <Navigate to="/login" />} />
             <Route path="/admin" element={user?.role === 'admin' ? <Admin /> : <Navigate to="/" />} />

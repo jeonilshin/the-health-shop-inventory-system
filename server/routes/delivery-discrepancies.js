@@ -199,8 +199,8 @@ router.put('/:id/approve', auth, authorize('admin'), async (req, res) => {
     }
 
     // ── Determine how many units move back to warehouse ──
-    // shortage: expected - received (the missing qty)
-    // return:   received_quantity (the amount to send back)
+    // shortage: expected - received (the missing qty) - ONLY remove from warehouse, NOT from branch
+    // return:   received_quantity (the amount to send back) - remove from branch, add to warehouse
     const adjustQty = disc.type === 'shortage'
       ? parseFloat(disc.expected_quantity) - parseFloat(disc.received_quantity)
       : parseFloat(disc.received_quantity);
@@ -210,54 +210,85 @@ router.put('/:id/approve', auth, authorize('admin'), async (req, res) => {
       return res.status(400).json({ error: 'Adjustment quantity must be positive' });
     }
 
-    // ── 1. Verify & deduct from branch inventory ──
-    const branchInv = await client.query(
-      `SELECT id, quantity
-       FROM inventory
-       WHERE location_id = $1 AND description = $2 AND unit = $3
-       ORDER BY quantity DESC
-       LIMIT 1`,
-      [disc.branch_location_id, disc.item_description, disc.unit]
-    );
+    // ── Handle based on type ──
+    if (disc.type === 'shortage') {
+      // SHORTAGE: Branch received less than expected
+      // - The branch already has the correct amount (received_quantity) in their inventory
+      // - We just need to add the missing amount back to warehouse
+      // - NO deduction from branch needed
+      
+      const batchId = `DISC-SHORTAGE-${disc.id}-${Date.now()}`;
+      await client.query(
+        `INSERT INTO inventory
+           (location_id, description, unit, quantity, unit_cost, cost_batch_id)
+         VALUES ($1,$2,$3,$4,$5,$6)
+         ON CONFLICT (location_id, description, unit, cost_batch_id)
+         DO UPDATE SET quantity = inventory.quantity + $4, updated_at = CURRENT_TIMESTAMP`,
+        [
+          disc.warehouse_location_id,
+          disc.item_description,
+          disc.unit,
+          adjustQty,
+          disc.unit_cost,
+          batchId
+        ]
+      );
 
-    if (branchInv.rows.length === 0) {
-      await client.query('ROLLBACK');
-      return res.status(400).json({
-        error: `"${disc.item_description}" not found in branch inventory`
-      });
+    } else {
+      // RETURN: Branch wants to send items back
+      // - Verify branch has the items
+      // - Deduct from branch
+      // - Add to warehouse
+      
+      const branchInv = await client.query(
+        `SELECT id, quantity
+         FROM inventory
+         WHERE location_id = $1 AND description = $2 AND unit = $3
+         ORDER BY quantity DESC
+         LIMIT 1`,
+        [disc.branch_location_id, disc.item_description, disc.unit]
+      );
+
+      if (branchInv.rows.length === 0) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({
+          error: `"${disc.item_description}" not found in branch inventory`
+        });
+      }
+
+      if (parseFloat(branchInv.rows[0].quantity) < adjustQty) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({
+          error: `Insufficient stock in branch. Available: ${branchInv.rows[0].quantity} ${disc.unit}, required: ${adjustQty}`
+        });
+      }
+
+      // Deduct from branch
+      await client.query(
+        `UPDATE inventory
+         SET quantity = quantity - $1, updated_at = CURRENT_TIMESTAMP
+         WHERE id = $2`,
+        [adjustQty, branchInv.rows[0].id]
+      );
+
+      // Add to warehouse
+      const batchId = `DISC-RETURN-${disc.id}-${Date.now()}`;
+      await client.query(
+        `INSERT INTO inventory
+           (location_id, description, unit, quantity, unit_cost, cost_batch_id)
+         VALUES ($1,$2,$3,$4,$5,$6)
+         ON CONFLICT (location_id, description, unit, cost_batch_id)
+         DO UPDATE SET quantity = inventory.quantity + $4, updated_at = CURRENT_TIMESTAMP`,
+        [
+          disc.warehouse_location_id,
+          disc.item_description,
+          disc.unit,
+          adjustQty,
+          disc.unit_cost,
+          batchId
+        ]
+      );
     }
-
-    if (parseFloat(branchInv.rows[0].quantity) < adjustQty) {
-      await client.query('ROLLBACK');
-      return res.status(400).json({
-        error: `Insufficient stock in branch. Available: ${branchInv.rows[0].quantity} ${disc.unit}, required: ${adjustQty}`
-      });
-    }
-
-    await client.query(
-      `UPDATE inventory
-       SET quantity = quantity - $1, updated_at = CURRENT_TIMESTAMP
-       WHERE id = $2`,
-      [adjustQty, branchInv.rows[0].id]
-    );
-
-    // ── 2. Return qty to warehouse ──
-    const batchId = `DISC-RETURN-${disc.id}-${Date.now()}`;
-    await client.query(
-      `INSERT INTO inventory
-         (location_id, description, unit, quantity, unit_cost, cost_batch_id)
-       VALUES ($1,$2,$3,$4,$5,$6)
-       ON CONFLICT (location_id, description, unit, cost_batch_id)
-       DO UPDATE SET quantity = inventory.quantity + $4, updated_at = CURRENT_TIMESTAMP`,
-      [
-        disc.warehouse_location_id,
-        disc.item_description,
-        disc.unit,
-        adjustQty,
-        disc.unit_cost,
-        batchId
-      ]
-    );
 
     // ── 3. Mark discrepancy approved ──
     const updated = await client.query(
@@ -282,7 +313,9 @@ router.put('/:id/approve', auth, authorize('admin'), async (req, res) => {
       newValues: updated.rows[0],
       ipAddress: req.ip,
       userAgent: req.get('user-agent'),
-      description: `Approved ${disc.type} for "${disc.item_description}": ${adjustQty} ${disc.unit} removed from branch and returned to warehouse`
+      description: disc.type === 'shortage'
+        ? `Approved shortage for "${disc.item_description}": ${adjustQty} ${disc.unit} added back to warehouse (branch inventory unchanged)`
+        : `Approved return for "${disc.item_description}": ${adjustQty} ${disc.unit} removed from branch and returned to warehouse`
     });
 
     // Notify branch
@@ -296,7 +329,9 @@ router.put('/:id/approve', auth, authorize('admin'), async (req, res) => {
     );
 
     res.json({
-      message: `${typeLabel} approved — ${adjustQty} ${disc.unit} of "${disc.item_description}" returned to warehouse`,
+      message: disc.type === 'shortage'
+        ? `Shortage approved — ${adjustQty} ${disc.unit} of "${disc.item_description}" added back to warehouse`
+        : `Return approved — ${adjustQty} ${disc.unit} of "${disc.item_description}" returned to warehouse`,
       discrepancy: updated.rows[0]
     });
   } catch (error) {

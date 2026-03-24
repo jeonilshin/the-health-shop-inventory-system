@@ -191,7 +191,7 @@ function DiscrepancyModal({ type, delivery, onClose, onSuccess }) {
           }}>
             <FiInfo size={16} style={{ flexShrink: 0, marginTop: '1px' }} />
             {isShortage
-              ? 'Admin will review and, if approved, automatically adjust inventory (remove shortage from branch, return to warehouse).'
+              ? 'Admin will review and, if approved, add the missing quantity back to the warehouse. Your branch inventory will remain unchanged.'
               : 'Admin must approve this request. Once approved, the specified quantity will be removed from your inventory and added back to the warehouse.'}
           </div>
 

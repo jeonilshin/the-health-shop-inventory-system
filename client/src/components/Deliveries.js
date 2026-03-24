@@ -265,7 +265,7 @@ function Deliveries() {
             padding: '10px 14px', marginBottom: '16px', fontSize: '13px', color: '#991b1b'
           }}>
             <FiInfo size={16} style={{ flexShrink: 0, marginTop: '1px' }} />
-            Approving will automatically remove the discrepancy quantity from the branch and return it to the warehouse.
+            Shortage: Adds missing quantity back to warehouse (branch inventory unchanged). Return: Removes from branch and adds to warehouse.
           </div>
 
           <div style={{ overflowX: 'auto' }}>
