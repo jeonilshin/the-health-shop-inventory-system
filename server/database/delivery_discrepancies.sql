@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS delivery_discrepancies (
   resolved_by          INTEGER       REFERENCES users(id),
   resolved_at          TIMESTAMP,
   admin_note           TEXT,
-  CONSTRAINT chk_discrepancy_status CHECK (status IN ('pending', 'approved', 'rejected')),
+  CONSTRAINT chk_discrepancy_status CHECK (status IN ('pending', 'approved', 'rejected', 'completed')),
   CONSTRAINT chk_discrepancy_type   CHECK (type   IN ('shortage', 'return'))
 );
 

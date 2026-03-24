@@ -11,7 +11,7 @@ function Discrepancy() {
   const [discrepancies, setDiscrepancies] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filterType, setFilterType] = useState('all'); // 'all', 'shortage', 'return'
-  const [filterStatus, setFilterStatus] = useState('all'); // 'all', 'pending', 'approved', 'rejected'
+  const [filterStatus, setFilterStatus] = useState('all'); // 'all', 'pending', 'approved', 'completed', 'rejected'
   const [rejectState, setRejectState] = useState({ id: null, note: '' });
 
   useEffect(() => {
@@ -31,7 +31,7 @@ function Discrepancy() {
   };
 
   const handleApprove = async (id) => {
-    if (!window.confirm('Approve this request? Inventory will be automatically adjusted.')) return;
+    if (!window.confirm('Approve this request? You will then need to add items to your inventory.')) return;
     try {
       const res = await api.put(`/delivery-discrepancies/${id}/approve`);
       alert(res.data.message);
@@ -62,19 +62,15 @@ function Discrepancy() {
       ? parseFloat(disc.expected_quantity) - parseFloat(disc.received_quantity)
       : parseFloat(disc.received_quantity);
 
-    if (!window.confirm(`Add ${adjustQty} ${disc.unit} of "${disc.item_description}" to your inventory?`)) return;
+    const confirmMsg = disc.type === 'shortage'
+      ? `Add ${adjustQty} ${disc.unit} of "${disc.item_description}" to warehouse inventory?`
+      : `Return ${adjustQty} ${disc.unit} of "${disc.item_description}" from branch to warehouse? This will remove items from branch inventory.`;
+
+    if (!window.confirm(confirmMsg)) return;
     
     try {
-      await api.post('/inventory', {
-        location_id: user.location_id,
-        description: disc.item_description,
-        unit: disc.unit,
-        quantity: adjustQty,
-        unit_cost: disc.unit_cost || 0,
-        suggested_selling_price: disc.unit_cost || 0,
-        notes: `Added from ${disc.type} #${disc.id} - ${disc.branch_name}`
-      });
-      alert(`Successfully added ${adjustQty} ${disc.unit} to your inventory!`);
+      const res = await api.put(`/delivery-discrepancies/${disc.id}/add-to-inventory`);
+      alert(res.data.message);
       fetchDiscrepancies();
     } catch (err) {
       alert(err.response?.data?.error || 'Error adding to inventory');
@@ -111,7 +107,8 @@ function Discrepancy() {
   const getStatusBadge = (status) => {
     const map = {
       pending:  { color: '#f59e0b', text: 'Pending' },
-      approved: { color: '#10b981', text: 'Approved' },
+      approved: { color: '#3b82f6', text: 'Approved' },
+      completed: { color: '#10b981', text: 'Added to Inventory' },
       rejected: { color: '#ef4444', text: 'Rejected' }
     };
     const b = map[status] || map.pending;
@@ -231,6 +228,7 @@ function Discrepancy() {
               <option value="all">All Status</option>
               <option value="pending">Pending</option>
               <option value="approved">Approved</option>
+              <option value="completed">Added to Inventory</option>
               <option value="rejected">Rejected</option>
             </select>
           </div>
@@ -436,25 +434,26 @@ function Discrepancy() {
                                 Admin: {disc.admin_note}
                               </div>
                             )}
-                            {/* Add to Inventory button for approved returns (warehouse/admin only) */}
-                            {disc.status === 'approved' && (user.role === 'admin' || user.role === 'warehouse') && (
+                            {/* Add to Inventory button for approved items (admin only) */}
+                            {disc.status === 'approved' && user.role === 'admin' && (
                               <button
                                 className="btn"
                                 style={{
                                   marginTop: '8px',
-                                  padding: '4px 10px',
-                                  fontSize: '12px',
-                                  background: '#dbeafe',
-                                  color: '#1e40af',
-                                  border: '1px solid #3b82f6',
+                                  padding: '6px 12px',
+                                  fontSize: '13px',
+                                  background: '#3b82f6',
+                                  color: 'white',
+                                  border: 'none',
                                   whiteSpace: 'nowrap',
                                   display: 'flex',
                                   alignItems: 'center',
-                                  gap: '4px'
+                                  gap: '6px',
+                                  fontWeight: 600
                                 }}
                                 onClick={() => handleAddToInventory(disc)}
                               >
-                                <FiPlus size={12} /> Add to My Inventory
+                                <FiPlus size={14} /> Add to My Inventory
                               </button>
                             )}
                           </div>

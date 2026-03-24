@@ -70,7 +70,12 @@ function Navbar() {
   const [showChangePassword, setShowChangePassword] = useState(false);
   const [locationName, setLocationName] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth >= 768);
-  const [unreadMessages, setUnreadMessages] = useState(0);
+  const [counts, setCounts] = useState({
+    messages: 0,
+    transfers: 0,
+    deliveries: 0,
+    discrepancies: 0
+  });
   const location = useLocation();
 
   const fetchLocationName = useCallback(async () => {
@@ -81,19 +86,19 @@ function Navbar() {
     } catch { /* ignore */ }
   }, [user]);
 
-  const fetchUnreadMessages = useCallback(async () => {
+  const fetchCounts = useCallback(async () => {
     try {
-      const res = await api.get('/messages/unread-count');
-      setUnreadMessages(res.data.count);
+      const res = await api.get('/counts');
+      setCounts(res.data);
     } catch { /* ignore */ }
   }, []);
 
   useEffect(() => {
     if (user?.location_id) fetchLocationName();
-    fetchUnreadMessages();
-    const interval = setInterval(fetchUnreadMessages, 15000);
+    fetchCounts();
+    const interval = setInterval(fetchCounts, 15000);
     return () => clearInterval(interval);
-  }, [user, fetchLocationName, fetchUnreadMessages]);
+  }, [user, fetchLocationName, fetchCounts]);
 
   // Close sidebar on mobile when navigating
   useEffect(() => {
@@ -170,22 +175,31 @@ function Navbar() {
       {/* ── Sidebar ── */}
       <aside className={`sidebar ${sidebarOpen ? 'open' : 'closed'}`} aria-label="Main navigation">
         <nav className="sidebar-nav">
-          {filteredItems.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              className={({ isActive }) => `sidebar-link${isActive ? ' active' : ''}`}
-              end={item.to === '/'}
-            >
-              <item.icon size={18} />
-              <span>{item.label}</span>
-              {item.to === '/messages' && unreadMessages > 0 && (
-                <span className="sidebar-link-badge">
-                  {unreadMessages > 99 ? '99+' : unreadMessages}
-                </span>
-              )}
-            </NavLink>
-          ))}
+          {filteredItems.map((item) => {
+            // Determine badge count for this item
+            let badgeCount = 0;
+            if (item.to === '/messages') badgeCount = counts.messages;
+            else if (item.to === '/transfers' && user.role === 'admin') badgeCount = counts.transfers;
+            else if (item.to === '/deliveries') badgeCount = counts.deliveries;
+            else if (item.to === '/discrepancy' && user.role === 'admin') badgeCount = counts.discrepancies;
+
+            return (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                className={({ isActive }) => `sidebar-link${isActive ? ' active' : ''}`}
+                end={item.to === '/'}
+              >
+                <item.icon size={18} />
+                <span>{item.label}</span>
+                {badgeCount > 0 && (
+                  <span className="sidebar-link-badge">
+                    {badgeCount > 99 ? '99+' : badgeCount}
+                  </span>
+                )}
+              </NavLink>
+            );
+          })}
         </nav>
       </aside>
 

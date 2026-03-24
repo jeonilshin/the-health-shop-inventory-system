@@ -172,12 +172,77 @@ router.post('/', auth, authorize('admin', 'branch_manager'), async (req, res) =>
 });
 
 // ── PUT /:id/approve ───────────────────────────────────────────────────────
+// Admin approves the discrepancy - NO inventory movement yet
 router.put('/:id/approve', auth, authorize('admin'), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { admin_note } = req.body;
+
+    const discResult = await pool.query(
+      'SELECT * FROM delivery_discrepancies WHERE id = $1',
+      [id]
+    );
+
+    if (discResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Discrepancy not found' });
+    }
+
+    const disc = discResult.rows[0];
+
+    if (disc.status !== 'pending') {
+      return res.status(400).json({ error: 'Discrepancy has already been resolved' });
+    }
+
+    // Just mark as approved - NO inventory movement
+    const updated = await pool.query(
+      `UPDATE delivery_discrepancies
+       SET status = 'approved',
+           resolved_by = $1,
+           resolved_at = CURRENT_TIMESTAMP,
+           admin_note  = $2
+       WHERE id = $3
+       RETURNING *`,
+      [req.user.id, admin_note?.trim() || null, id]
+    );
+
+    await logAudit({
+      userId: req.user.id,
+      username: req.user.username,
+      action: 'DISCREPANCY_APPROVE',
+      tableName: 'delivery_discrepancies',
+      recordId: id,
+      newValues: updated.rows[0],
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+      description: `Approved ${disc.type} for "${disc.item_description}" - Awaiting inventory addition`
+    });
+
+    // Notify branch
+    const typeLabel = disc.type === 'shortage' ? 'Shortage report' : 'Return request';
+    await notifyLocation(
+      disc.branch_location_id,
+      'discrepancy_approved',
+      `${typeLabel} Approved`,
+      `Your ${disc.type} request for "${disc.item_description}" has been approved by admin.`,
+      '/discrepancy'
+    );
+
+    res.json({
+      message: 'Discrepancy approved. Click "Add to my inventory" to complete the process.',
+      discrepancy: updated.rows[0]
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ── PUT /:id/add-to-inventory ──────────────────────────────────────────────
+// Admin adds the approved discrepancy items to warehouse inventory
+router.put('/:id/add-to-inventory', auth, authorize('admin'), async (req, res) => {
   const client = await pool.connect();
 
   try {
     const { id } = req.params;
-    const { admin_note } = req.body;
 
     await client.query('BEGIN');
 
@@ -193,14 +258,12 @@ router.put('/:id/approve', auth, authorize('admin'), async (req, res) => {
 
     const disc = discResult.rows[0];
 
-    if (disc.status !== 'pending') {
+    if (disc.status !== 'approved') {
       await client.query('ROLLBACK');
-      return res.status(400).json({ error: 'Discrepancy has already been resolved' });
+      return res.status(400).json({ error: 'Discrepancy must be approved first' });
     }
 
-    // ── Determine how many units move back to warehouse ──
-    // shortage: expected - received (the missing qty) - ONLY remove from warehouse, NOT from branch
-    // return:   received_quantity (the amount to send back) - remove from branch, add to warehouse
+    // Calculate adjustment quantity
     const adjustQty = disc.type === 'shortage'
       ? parseFloat(disc.expected_quantity) - parseFloat(disc.received_quantity)
       : parseFloat(disc.received_quantity);
@@ -210,13 +273,9 @@ router.put('/:id/approve', auth, authorize('admin'), async (req, res) => {
       return res.status(400).json({ error: 'Adjustment quantity must be positive' });
     }
 
-    // ── Handle based on type ──
+    // Handle based on type
     if (disc.type === 'shortage') {
-      // SHORTAGE: Branch received less than expected
-      // - The branch already has the correct amount (received_quantity) in their inventory
-      // - We just need to add the missing amount back to warehouse
-      // - NO deduction from branch needed
-      
+      // SHORTAGE: Add missing quantity to warehouse (branch already has correct amount)
       const batchId = `DISC-SHORTAGE-${disc.id}-${Date.now()}`;
       await client.query(
         `INSERT INTO inventory
@@ -235,11 +294,7 @@ router.put('/:id/approve', auth, authorize('admin'), async (req, res) => {
       );
 
     } else {
-      // RETURN: Branch wants to send items back
-      // - Verify branch has the items
-      // - Deduct from branch
-      // - Add to warehouse
-      
+      // RETURN: Deduct from branch and add to warehouse
       const branchInv = await client.query(
         `SELECT id, quantity
          FROM inventory
@@ -290,16 +345,14 @@ router.put('/:id/approve', auth, authorize('admin'), async (req, res) => {
       );
     }
 
-    // ── 3. Mark discrepancy approved ──
+    // Mark as completed
     const updated = await client.query(
       `UPDATE delivery_discrepancies
-       SET status = 'approved',
-           resolved_by = $1,
-           resolved_at = CURRENT_TIMESTAMP,
-           admin_note  = $2
-       WHERE id = $3
+       SET status = 'completed',
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = $1
        RETURNING *`,
-      [req.user.id, admin_note?.trim() || null, id]
+      [id]
     );
 
     await client.query('COMMIT');
@@ -307,31 +360,31 @@ router.put('/:id/approve', auth, authorize('admin'), async (req, res) => {
     await logAudit({
       userId: req.user.id,
       username: req.user.username,
-      action: 'DISCREPANCY_APPROVE',
+      action: 'DISCREPANCY_COMPLETE',
       tableName: 'delivery_discrepancies',
       recordId: id,
       newValues: updated.rows[0],
       ipAddress: req.ip,
       userAgent: req.get('user-agent'),
       description: disc.type === 'shortage'
-        ? `Approved shortage for "${disc.item_description}": ${adjustQty} ${disc.unit} added back to warehouse (branch inventory unchanged)`
-        : `Approved return for "${disc.item_description}": ${adjustQty} ${disc.unit} removed from branch and returned to warehouse`
+        ? `Added ${adjustQty} ${disc.unit} of "${disc.item_description}" to warehouse inventory (shortage)`
+        : `Returned ${adjustQty} ${disc.unit} of "${disc.item_description}" from branch to warehouse`
     });
 
     // Notify branch
-    const typeLabel = disc.type === 'shortage' ? 'Shortage report' : 'Return request';
+    const typeLabel = disc.type === 'shortage' ? 'Shortage' : 'Return';
     await notifyLocation(
       disc.branch_location_id,
-      'discrepancy_approved',
-      `${typeLabel} Approved`,
-      `Your ${disc.type} request for "${disc.item_description}" has been approved. ${adjustQty} ${disc.unit} adjusted.`,
-      '/deliveries'
+      'discrepancy_completed',
+      `${typeLabel} Completed`,
+      `${typeLabel} for "${disc.item_description}" has been completed. ${disc.type === 'return' ? 'Items removed from your inventory.' : ''}`,
+      '/discrepancy'
     );
 
     res.json({
       message: disc.type === 'shortage'
-        ? `Shortage approved — ${adjustQty} ${disc.unit} of "${disc.item_description}" added back to warehouse`
-        : `Return approved — ${adjustQty} ${disc.unit} of "${disc.item_description}" returned to warehouse`,
+        ? `Added ${adjustQty} ${disc.unit} of "${disc.item_description}" to warehouse inventory`
+        : `Returned ${adjustQty} ${disc.unit} of "${disc.item_description}" to warehouse. Removed from branch.`,
       discrepancy: updated.rows[0]
     });
   } catch (error) {
