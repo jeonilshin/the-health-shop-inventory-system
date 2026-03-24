@@ -23,7 +23,6 @@ function Deliveries() {
   // ── modals / inline reject ──
   const [discModal, setDiscModal]     = useState({ open: false, type: null, delivery: null });
   const [rejectState, setRejectState] = useState({ id: null, note: '' });
-  const [loading, setLoading]         = useState(false);
 
   // ── history visibility ──
   const [showDiscHistory, setShowDiscHistory] = useState(false);
@@ -89,15 +88,12 @@ function Deliveries() {
   const handleBranchAccept = async (id) => {
     if (!window.confirm('Accept this delivery? Items will be added to your inventory.')) return;
     try {
-      setLoading(true);
       const response = await api.post(`/deliveries/${id}/accept`);
       alert(response.data.message || 'Delivery accepted! Items have been added to your inventory.');
       // Force a fresh fetch
       await fetchAll();
     } catch (error) {
       alert(error.response?.data?.error || 'Error accepting delivery');
-    } finally {
-      setLoading(false);
     }
   };
 
