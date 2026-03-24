@@ -519,8 +519,9 @@ router.post('/:id/ship', auth, authorize('admin', 'warehouse'), async (req, res)
   }
 });
 
-// Confirm delivery (branch manager confirms arrival - ADDS inventory)
-// NOTE: This is now handled through the Deliveries page acceptance flow
+// Confirm delivery (branch manager confirms arrival)
+// NOTE: This endpoint is DEPRECATED - Use /deliveries/:id/accept instead
+// This is kept for backward compatibility but should check if delivery exists first
 router.post('/:id/deliver', auth, authorize('admin', 'branch_manager'), async (req, res) => {
   const client = await pool.connect();
   
@@ -550,6 +551,22 @@ router.post('/:id/deliver', auth, authorize('admin', 'branch_manager'), async (r
     if (req.user.role === 'branch_manager' && req.user.location_id != transferData.to_location_id) {
       await client.query('ROLLBACK');
       return res.status(403).json({ error: 'Access denied to destination location' });
+    }
+
+    // Check if there's a linked delivery - if so, redirect to use delivery acceptance
+    const deliveryCheck = await client.query(
+      'SELECT id, status FROM deliveries WHERE transfer_id = $1',
+      [id]
+    );
+
+    if (deliveryCheck.rows.length > 0) {
+      const delivery = deliveryCheck.rows[0];
+      await client.query('ROLLBACK');
+      return res.status(400).json({ 
+        error: 'This transfer has a linked delivery. Please use the Deliveries page to accept it.',
+        deliveryId: delivery.id,
+        deliveryStatus: delivery.status
+      });
     }
 
     // Get the source inventory item to copy batch_number and expiry_date

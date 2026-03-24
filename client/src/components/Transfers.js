@@ -365,7 +365,12 @@ function Transfers() {
       await fetchTransfers();
       alert('Transfer received! Inventory has been added to your location.');
     } catch (error) {
-      alert(error.response?.data?.error || 'Error confirming receipt');
+      const errorMsg = error.response?.data?.error || 'Error confirming receipt';
+      if (errorMsg.includes('Deliveries page')) {
+        alert(errorMsg + '\n\nPlease go to the Deliveries page to accept this transfer.');
+      } else {
+        alert(errorMsg);
+      }
     }
   };
 
