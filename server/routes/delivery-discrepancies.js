@@ -301,22 +301,19 @@ router.put('/:id/add-to-inventory', auth, authorize('admin'), async (req, res) =
       // RETURN: Deduct from branch and add to warehouse
       console.log(`[RETURN] Looking for item in branch ${disc.branch_location_id}: "${disc.item_description}" (${disc.unit})`);
       
+      // Get ALL batches of this item in the branch (not just one)
       const branchInv = await client.query(
-        `SELECT id, quantity, description, unit
+        `SELECT id, quantity, description, unit, cost_batch_id
          FROM inventory
          WHERE location_id = $1 
          AND LOWER(TRIM(description)) = LOWER(TRIM($2))
          AND LOWER(TRIM(unit)) = LOWER(TRIM($3))
-         ORDER BY quantity DESC
-         LIMIT 1`,
+         ORDER BY created_at ASC`,  // FIFO - oldest first
         [disc.branch_location_id, disc.item_description, disc.unit]
       );
 
-      console.log(`[RETURN] Found ${branchInv.rows.length} matching items in branch inventory`);
-      if (branchInv.rows.length > 0) {
-        console.log(`[RETURN] Item found: ${branchInv.rows[0].description} (${branchInv.rows[0].unit}) - Qty: ${branchInv.rows[0].quantity}`);
-      }
-
+      console.log(`[RETURN] Found ${branchInv.rows.length} batch(es) in branch inventory`);
+      
       if (branchInv.rows.length === 0) {
         await client.query('ROLLBACK');
         
@@ -332,24 +329,49 @@ router.put('/:id/add-to-inventory', auth, authorize('admin'), async (req, res) =
         });
       }
 
-      if (parseFloat(branchInv.rows[0].quantity) < adjustQty) {
+      // Calculate total available across all batches
+      const totalAvailable = branchInv.rows.reduce((sum, batch) => sum + parseFloat(batch.quantity), 0);
+      console.log(`[RETURN] Total available across all batches: ${totalAvailable} ${disc.unit}`);
+
+      if (totalAvailable < adjustQty) {
         await client.query('ROLLBACK');
         return res.status(400).json({
-          error: `Insufficient stock in branch. Available: ${branchInv.rows[0].quantity} ${disc.unit}, required: ${adjustQty}`
+          error: `Insufficient stock in branch. Available: ${totalAvailable} ${disc.unit}, required: ${adjustQty}`
         });
       }
 
-      console.log(`[RETURN] Deducting ${adjustQty} from branch inventory ID ${branchInv.rows[0].id}`);
-      
-      // Deduct from branch
-      await client.query(
-        `UPDATE inventory
-         SET quantity = quantity - $1, updated_at = CURRENT_TIMESTAMP
-         WHERE id = $2`,
-        [adjustQty, branchInv.rows[0].id]
-      );
+      // Deduct from batches using FIFO (First In First Out)
+      let remainingToDeduct = adjustQty;
+      for (const batch of branchInv.rows) {
+        if (remainingToDeduct <= 0) break;
+        
+        const batchQty = parseFloat(batch.quantity);
+        const deductFromThisBatch = Math.min(batchQty, remainingToDeduct);
+        
+        console.log(`[RETURN] Deducting ${deductFromThisBatch} from batch ${batch.cost_batch_id} (has ${batchQty})`);
+        
+        if (deductFromThisBatch >= batchQty) {
+          // Remove entire batch
+          await client.query(
+            `DELETE FROM inventory WHERE id = $1`,
+            [batch.id]
+          );
+          console.log(`[RETURN] Deleted entire batch ${batch.cost_batch_id}`);
+        } else {
+          // Partial deduction
+          await client.query(
+            `UPDATE inventory
+             SET quantity = quantity - $1, updated_at = CURRENT_TIMESTAMP
+             WHERE id = $2`,
+            [deductFromThisBatch, batch.id]
+          );
+          console.log(`[RETURN] Reduced batch ${batch.cost_batch_id} by ${deductFromThisBatch}`);
+        }
+        
+        remainingToDeduct -= deductFromThisBatch;
+      }
 
-      console.log(`[RETURN] Adding ${adjustQty} to warehouse ${disc.warehouse_location_id}`);
+      console.log(`[RETURN] Successfully deducted ${adjustQty} from branch. Adding to warehouse ${disc.warehouse_location_id}`);
       
       // Add to warehouse
       const batchId = `DISC-RETURN-${disc.id}-${Date.now()}`;
@@ -369,7 +391,7 @@ router.put('/:id/add-to-inventory', auth, authorize('admin'), async (req, res) =
         ]
       );
       
-      console.log(`[RETURN] Successfully completed return process`);
+      console.log(`[RETURN] Successfully completed return process - ${adjustQty} ${disc.unit} moved from branch to warehouse`);
     }
 
     // Mark as completed
