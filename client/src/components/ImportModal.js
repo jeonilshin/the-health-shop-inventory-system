@@ -259,6 +259,13 @@ function ImportModal({ isOpen, onClose, onImportComplete }) {
 
       const message = `Import complete: ${totalImported} new, ${totalUpdated} updated${totalTransferred > 0 ? `, ${totalTransferred} transferred` : ''}${invalidData.length > 0 ? `, ${invalidData.length} skipped (invalid)` : ''}`;
       
+      // Collect conversion details from batch responses
+      let totalConversions = 0;
+      const allConversions = [];
+      
+      // Note: Conversions are created in the first batch, so we need to track them
+      // For now, we'll just show a generic message if conversions were detected
+      
       if (allErrors.length > 0) {
         // Show in console with full details
         console.error('❌ IMPORT ERRORS (' + allErrors.length + ' total):', allErrors);
@@ -272,7 +279,7 @@ function ImportModal({ isOpen, onClose, onImportComplete }) {
         
         showToast().warning('Partial Success', `${message}. ${allErrors.length} errors occurred.`);
       } else {
-        showToast().success('Success', message);
+        showToast().success('Success', message + '\n\nCheck console for unit conversion details.');
       }
 
       // Reset form
@@ -458,12 +465,14 @@ function ImportModal({ isOpen, onClose, onImportComplete }) {
                   Expected columns (case-insensitive):
                 </p>
                 <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', margin: '0 0 4px 0' }}>
-                  BRAND, Number (optional), THE HEALTHSHOP PRODUCTS or PRODUCT DESCRIPTION, UoM, Ave Unit Cost (optional), Selling Price (optional), QTY (optional), Expiry Date (optional)
+                  BRAND, Number (optional), THE HEALTHSHOP PRODUCTS or PRODUCT DESCRIPTION, UoM, CONTENT (optional), Ave Unit Cost (optional), Selling Price (optional), QTY (optional), Expiry Date (optional)
                 </p>
                 <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', margin: 0, fontStyle: 'italic' }}>
                   • Required: Brand, Description, Unit<br/>
-                  • Optional: Number, Unit Cost (defaults to 0), Selling Price (defaults to 0), QTY (defaults to 0), Expiry Date<br/>
+                  • Optional: Number, Content, Unit Cost (defaults to 0), Selling Price (defaults to 0), QTY (defaults to 0), Expiry Date<br/>
                   • Batch numbers: If Number exists → BRAND-Number (CH-001). If not → auto-generated (CH-001, CH-002, etc.)<br/>
+                  • Unit Conversions: If CONTENT has a value (e.g., 10), it creates automatic conversion (e.g., 1 BOT = 10 PC)<br/>
+                  • Products with same name but different units will be linked as conversion partners<br/>
                   • Category rows (description only, no brand/unit) will be detected<br/>
                   • Title rows automatically skipped
                 </p>
@@ -620,6 +629,7 @@ function ImportModal({ isOpen, onClose, onImportComplete }) {
                       <th>Batch #</th>
                       <th>Description</th>
                       <th>Unit</th>
+                      <th>Content</th>
                       <th>Qty</th>
                       <th>Unit Cost</th>
                       <th>Selling Price</th>
@@ -673,6 +683,20 @@ function ImportModal({ isOpen, onClose, onImportComplete }) {
                           </td>
                           <td>{item.description || <span style={{ color: 'var(--danger)' }}>❌ Missing</span>}</td>
                           <td>{item.unit || <span style={{ color: 'var(--danger)' }}>❌ Missing</span>}</td>
+                          <td>
+                            {item.content ? (
+                              <span style={{ 
+                                fontWeight: '600', 
+                                color: 'var(--primary)',
+                                background: 'rgba(37, 99, 235, 0.1)',
+                                padding: '2px 8px',
+                                borderRadius: 'var(--radius)',
+                                fontSize: '12px'
+                              }}>
+                                {item.content}
+                              </span>
+                            ) : '-'}
+                          </td>
                           <td>{item.quantity}</td>
                           <td>₱{item.unit_cost.toFixed(2)}</td>
                           <td>₱{item.suggested_selling_price.toFixed(2)}</td>

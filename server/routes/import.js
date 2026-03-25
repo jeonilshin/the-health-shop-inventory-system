@@ -111,6 +111,9 @@ router.post('/preview', auth, authorize('admin', 'warehouse'), upload.single('fi
       ]).toString().replace(/,/g, '');
       const quantity = parseFloat(quantityStr) || 0;
 
+      const contentStr = getColumnValue(['CONTENT', 'Content']).toString().trim();
+      const content = contentStr ? parseFloat(contentStr.replace(/,/g, '')) || null : null;
+
       const expiryDateStr = getColumnValue([
         'EXPIRY DATE',
         'Expiry Date',
@@ -185,16 +188,12 @@ router.post('/preview', auth, authorize('admin', 'warehouse'), upload.single('fi
         suggested_selling_price: sellingPrice,
         quantity: quantity,
         expiry_date: expiryDate,
+        content: content,
         is_category: isCategory && !isGrandTotal,
         is_grand_total: isGrandTotal,
         category_type: categoryType,
         main_category: mainCategory,
-        sub_category: subCategory,
-        original: {
-          brand,
-          number,
-          content: getColumnValue(['CONTENT', 'Content'])
-        }
+        sub_category: subCategory
       };
     }).filter(item => {
       // Filter out completely empty rows and GRAND TOTAL
@@ -300,6 +299,7 @@ router.post('/import', auth, authorize('admin', 'warehouse'), async (req, res) =
     let skipped = 0;
     let transferred = 0;
     const errors = [];
+    const conversionsCreated = [];
     
     // Default to 'update' if not specified
     const handleDuplicates = duplicateAction || 'update';
@@ -316,6 +316,63 @@ router.post('/import', auth, authorize('admin', 'warehouse'), async (req, res) =
     const brandCounters = {};
     
     console.log(`📦 Starting import of ${data.length} items...`);
+
+    // First pass: Detect unit conversion pairs
+    const conversionPairs = new Map(); // key: base_description, value: { baseUnit, convertedUnit, content }
+    
+    for (const item of data) {
+      if (item.is_category || !item.description || !item.unit) continue;
+      
+      // Check if this item has content (conversion factor)
+      if (item.content && item.content > 0) {
+        // This is the smaller unit (e.g., PC with content 10)
+        // Find the base unit (e.g., BOT) by looking for same description without content
+        const baseDescription = item.description.replace(/\s*(PC|PACK|PIECE|PCS)$/i, '').trim();
+        
+        // Store this as a potential conversion
+        if (!conversionPairs.has(baseDescription)) {
+          conversionPairs.set(baseDescription, []);
+        }
+        
+        conversionPairs.get(baseDescription).push({
+          convertedUnit: item.unit,
+          content: item.content,
+          fullDescription: item.description
+        });
+      }
+    }
+    
+    // Second pass: Match base units with converted units and create conversions
+    for (const item of data) {
+      if (item.is_category || !item.description || !item.unit) continue;
+      
+      // Check if this is a base unit (no content or content is 0)
+      if (!item.content || item.content === 0) {
+        const baseDescription = item.description.trim();
+        
+        // Look for matching converted units
+        const matches = conversionPairs.get(baseDescription);
+        if (matches && matches.length > 0) {
+          for (const match of matches) {
+            try {
+              // Create or update unit conversion
+              await pool.query(
+                `INSERT INTO unit_conversions (product_description, base_unit, converted_unit, conversion_factor)
+                 VALUES ($1, $2, $3, $4)
+                 ON CONFLICT (product_description, base_unit, converted_unit)
+                 DO UPDATE SET conversion_factor = $4, updated_at = CURRENT_TIMESTAMP`,
+                [baseDescription, item.unit, match.convertedUnit, match.content]
+              );
+              const conversionMsg = `${baseDescription}: 1 ${item.unit} = ${match.content} ${match.convertedUnit}`;
+              console.log(`🔗 Created conversion: ${conversionMsg}`);
+              conversionsCreated.push(conversionMsg);
+            } catch (convError) {
+              console.error(`⚠️ Failed to create conversion for ${baseDescription}:`, convError.message);
+            }
+          }
+        }
+      }
+    }
 
     // Process each item individually to avoid transaction rollback issues
     for (const item of data) {
@@ -656,6 +713,10 @@ router.post('/import', auth, authorize('admin', 'warehouse'), async (req, res) =
     }
     
     console.log(`✅ Import complete: ${imported} imported, ${updated} updated, ${skipped} skipped, ${transferred} transferred`);
+    if (conversionsCreated.length > 0) {
+      console.log(`🔗 Conversions created: ${conversionsCreated.length}`);
+      conversionsCreated.forEach(conv => console.log(`  - ${conv}`));
+    }
     if (errors.length > 0) {
       console.log(`⚠️ Errors: ${errors.length}`);
       errors.forEach(err => console.log(`  - ${err}`));
@@ -673,12 +734,13 @@ router.post('/import', auth, authorize('admin', 'warehouse'), async (req, res) =
         updated: updated,
         skipped: skipped, 
         transferred: transferred,
+        conversions: conversionsCreated.length,
         errors: errors.length,
         location: locationId 
       },
       ipAddress: req.ip,
       userAgent: req.get('user-agent'),
-      description: `Imported ${imported} items, updated ${updated}, skipped ${skipped}, transferred ${transferred}, ${errors.length} errors`
+      description: `Imported ${imported} items, updated ${updated}, skipped ${skipped}, transferred ${transferred}, ${conversionsCreated.length} conversions, ${errors.length} errors`
     });
 
     if (errors.length > 0) {
@@ -689,6 +751,8 @@ router.post('/import', auth, authorize('admin', 'warehouse'), async (req, res) =
         updated,
         skipped,
         transferred,
+        conversions: conversionsCreated.length,
+        conversionDetails: conversionsCreated,
         errors: errors.slice(0, 5), // Show first 5 errors
         totalErrors: errors.length,
         fullErrorList: errors // Full list for console
@@ -697,11 +761,13 @@ router.post('/import', auth, authorize('admin', 'warehouse'), async (req, res) =
 
     res.json({
       success: true,
-      message: `✅ Import successful! ${imported} imported, ${updated} updated, ${skipped} skipped, ${transferred} transferred`,
+      message: `✅ Import successful! ${imported} imported, ${updated} updated, ${skipped} skipped, ${transferred} transferred${conversionsCreated.length > 0 ? `, ${conversionsCreated.length} conversions created` : ''}`,
       imported,
       updated,
       skipped,
-      transferred
+      transferred,
+      conversions: conversionsCreated.length,
+      conversionDetails: conversionsCreated
     });
 
   } catch (error) {

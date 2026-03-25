@@ -1,0 +1,283 @@
+# Unit Conversion Import - Visual Guide
+
+## 📊 Excel Import Format
+
+### Before (Old Way - Content Ignored)
+```
+┌───────┬──────────────────────┬─────┬─────────┬──────────┬───────────────┬─────┐
+│ BRAND │ THE HEALTHSHOP       │ UoM │ CONTENT │ Ave Unit │ Selling Price │ QTY │
+│       │ PRODUCTS             │     │         │ Cost     │               │     │
+├───────┼──────────────────────┼─────┼─────────┼──────────┼───────────────┼─────┤
+│ CH    │ CHIMPEOUS MAN 10S    │ BOT │         │ 70.00    │ 500.00        │ 5   │
+│ CH    │ CHIMPEOUS MAN 10S PC │ PC  │ 10      │ 7.00     │ 50.00         │ 50  │
+└───────┴──────────────────────┴─────┴─────────┴──────────┴───────────────┴─────┘
+                                         ↑
+                                    IGNORED ❌
+```
+
+### After (New Way - Content Creates Conversions)
+```
+┌───────┬──────────────────────┬─────┬─────────┬──────────┬───────────────┬─────┐
+│ BRAND │ THE HEALTHSHOP       │ UoM │ CONTENT │ Ave Unit │ Selling Price │ QTY │
+│       │ PRODUCTS             │     │         │ Cost     │               │     │
+├───────┼──────────────────────┼─────┼─────────┼──────────┼───────────────┼─────┤
+│ CH    │ CHIMPEOUS MAN 10S    │ BOT │         │ 70.00    │ 500.00        │ 5   │ ← Base Unit
+│ CH    │ CHIMPEOUS MAN 10S PC │ PC  │ 10      │ 7.00     │ 50.00         │ 50  │ ← Converted Unit
+└───────┴──────────────────────┴─────┴─────────┴──────────┴───────────────┴─────┘
+                                         ↑
+                                    USED! ✅
+                                    
+                    Automatically Creates:
+                    ┌─────────────────────────────┐
+                    │  1 BOT = 10 PC              │
+                    │  Product: CHIMPEOUS MAN 10S │
+                    └─────────────────────────────┘
+```
+
+## 🔄 How It Works
+
+### Step 1: Import Detection
+```
+Import File Processing...
+
+Row 1: CHIMPEOUS MAN 10S (BOT) - CONTENT: empty
+       → Identified as BASE UNIT 📦
+
+Row 2: CHIMPEOUS MAN 10S PC (PC) - CONTENT: 10
+       → Identified as CONVERTED UNIT 🔢
+       → Conversion Factor: 10
+```
+
+### Step 2: Automatic Pairing
+```
+Matching Products by Name...
+
+Base Product:      "CHIMPEOUS MAN 10S"
+Converted Product: "CHIMPEOUS MAN 10S PC"
+                    └─ Remove "PC" → "CHIMPEOUS MAN 10S" ✓ MATCH!
+
+Creating Conversion:
+  Product: CHIMPEOUS MAN 10S
+  Base Unit: BOT
+  Converted Unit: PC
+  Factor: 10
+```
+
+### Step 3: Database Storage
+```
+┌─────────────────────────────────────────────────────────────┐
+│ unit_conversions table                                      │
+├────┬──────────────────────┬───────────┬────────────┬────────┤
+│ id │ product_description  │ base_unit │ conv_unit  │ factor │
+├────┼──────────────────────┼───────────┼────────────┼────────┤
+│ 1  │ CHIMPEOUS MAN 10S    │ BOT       │ PC         │ 10     │
+└────┴──────────────────────┴───────────┴────────────┴────────┘
+
+┌─────────────────────────────────────────────────────────────┐
+│ inventory table                                             │
+├────┬──────────────────────┬──────┬─────┬──────┬────────┬────┤
+│ id │ description          │ unit │ qty │ cost │ price  │loc │
+├────┼──────────────────────┼──────┼─────┼──────┼────────┼────┤
+│ 1  │ CHIMPEOUS MAN 10S    │ BOT  │ 5   │70.00 │ 500.00 │ 1  │
+│ 2  │ CHIMPEOUS MAN 10S PC │ PC   │ 50  │ 7.00 │  50.00 │ 1  │
+└────┴──────────────────────┴──────┴─────┴──────�────────┴────┘
+```
+
+## 💡 Real-World Examples
+
+### Example 1: Medicine Bottles
+```
+Excel Data:
+┌────┬─────────────────┬─────┬─────────┬──────┬───────┬─────┐
+│ BR │ PRODUCT         │ UoM │ CONTENT │ COST │ PRICE │ QTY │
+├────┼─────────────────┼─────┼─────────┼──────┼───────┼─────┤
+│ MD │ PARACETAMOL 500 │ BOT │         │ 45   │ 350   │ 10  │
+│ MD │ PARACETAMOL 500 │ PC  │ 20      │ 2.25 │ 17.50 │ 200 │
+└────┴─────────────────┴─────┴─────────┴──────┴───────┴─────┘
+
+Result:
+  ✓ 1 BOTTLE = 20 PIECES
+  ✓ Sell 1 BOT → Deducts 20 PC from inventory
+  ✓ Transfer 1 BOT → Receives 20 PC at destination
+```
+
+### Example 2: Boxed Products
+```
+Excel Data:
+┌────┬──────────────┬──────┬─────────┬──────┬───────┬─────┐
+│ BR │ PRODUCT      │ UoM  │ CONTENT │ COST │ PRICE │ QTY │
+├────┼──────────────┼──────┼─────────┼──────┼───────┼─────┤
+│ VT │ VITAMIN C    │ BOX  │         │ 240  │ 1800  │ 5   │
+│ VT │ VITAMIN C    │ PACK │ 12      │ 20   │ 150   │ 60  │
+└────┴──────────────┴──────┴─────────┴──────┴───────┴─────┘
+
+Result:
+  ✓ 1 BOX = 12 PACKS
+  ✓ Stock: 5 boxes = 60 packs total
+  ✓ Can sell in either unit
+```
+
+### Example 3: Multi-Level Conversion
+```
+Excel Data:
+┌────┬─────────────┬──────┬─────────┬──────┬───────┬─────┐
+│ BR │ PRODUCT     │ UoM  │ CONTENT │ COST │ PRICE │ QTY │
+├────┼─────────────┼──────┼─────────┼──────┼───────┼─────┤
+│ SP │ SUPPLEMENT  │ CASE │         │ 1200 │ 9000  │ 2   │
+│ SP │ SUPPLEMENT  │ BOX  │ 6       │ 200  │ 1500  │ 12  │
+│ SP │ SUPPLEMENT  │ PC   │ 24      │ 8.33 │ 62.50 │ 288 │
+└────┴─────────────┴──────┴─────────┴──────┴───────┴─────┘
+
+Result:
+  ✓ 1 CASE = 6 BOX
+  ✓ 1 BOX = 24 PC
+  ✓ Therefore: 1 CASE = 144 PC (6 × 24)
+```
+
+## 🎯 Key Rules
+
+### ✅ DO's
+```
+✓ Base unit: Leave CONTENT empty or 0
+✓ Converted unit: Put conversion factor in CONTENT
+✓ Use same product name for both units
+✓ Use clear unit abbreviations (BOT, PC, PACK, BOX)
+✓ Verify CONTENT values before import
+```
+
+### ❌ DON'Ts
+```
+✗ Don't put CONTENT in base unit row
+✗ Don't use different product names
+✗ Don't leave CONTENT empty for converted units
+✗ Don't use negative CONTENT values
+✗ Don't change CONTENT after import (creates new conversion)
+```
+
+## 📋 Import Preview Display
+
+### What You'll See
+```
+┌──────────────────────────────────────────────────────────────┐
+│ Preview (2 rows)                                             │
+├─────┬──────────┬──────────────────────┬─────┬─────────┬─────┤
+│ Row │ Batch #  │ Description          │ UoM │ Content │ Qty │
+├─────┼──────────┼──────────────────────┼─────┼─────────┼─────┤
+│ 2   │ CH-001   │ CHIMPEOUS MAN 10S    │ BOT │    -    │ 5   │
+│ 3   │ CH-002   │ CHIMPEOUS MAN 10S PC │ PC  │   [10]  │ 50  │ ← Highlighted
+└─────┴──────────┴──────────────────────┴─────┴─────────┴─────┘
+                                                   ↑
+                                          Shows conversion factor
+```
+
+## 🔍 Console Output During Import
+
+```
+📦 Starting import of 2 items...
+
+🔗 Created conversion: CHIMPEOUS MAN 10S - 1 BOT = 10 PC
+
+Processing: CHIMPEOUS MAN 10S (Brand: CH)
+✅ Batch CH-001 complete: 1 imported, 0 updated
+
+Processing: CHIMPEOUS MAN 10S PC (Brand: CH)
+✅ Batch CH-002 complete: 1 imported, 0 updated
+
+✅ Import complete: 2 imported, 0 updated, 0 skipped, 0 transferred
+```
+
+## 🛠️ Troubleshooting
+
+### Problem: Conversion Not Created
+```
+❌ Issue:
+   Row 1: PRODUCT A (BOT) - CONTENT: 5
+   Row 2: PRODUCT A PC (PC) - CONTENT: 10
+
+✅ Solution:
+   Row 1: PRODUCT A (BOT) - CONTENT: [empty]
+   Row 2: PRODUCT A PC (PC) - CONTENT: 10
+   
+   Base unit should have NO content!
+```
+
+### Problem: Wrong Conversion Factor
+```
+❌ Issue:
+   Created: 1 BOT = 5 PC
+   Expected: 1 BOT = 10 PC
+
+✅ Solution:
+   1. Update CONTENT to 10 in Excel
+   2. Re-import the file
+   3. System will update conversion to 10
+```
+
+### Problem: Products Not Matching
+```
+❌ Issue:
+   Row 1: CHIMPEOUS MAN 10S (BOT)
+   Row 2: CHIMPEOUS MAN 10 PC (PC)
+                        ↑ Missing "S"
+
+✅ Solution:
+   Row 1: CHIMPEOUS MAN 10S (BOT)
+   Row 2: CHIMPEOUS MAN 10S PC (PC)
+   
+   Names must match exactly!
+```
+
+## 📊 Benefits Summary
+
+```
+┌─────────────────────────────────────────────────────────┐
+│ BEFORE (Content Ignored)                                │
+├─────────────────────────────────────────────────────────┤
+│ • Manual conversion setup required                      │
+│ • Separate products, no relationship                    │
+│ • Error-prone calculations                              │
+│ • Time-consuming management                             │
+└─────────────────────────────────────────────────────────┘
+
+                         ↓ UPGRADE ↓
+
+┌─────────────────────────────────────────────────────────┐
+│ AFTER (Content Creates Conversions)                     │
+├─────────────────────────────────────────────────────────┤
+│ ✓ Automatic conversion creation                         │
+│ ✓ Products linked as partners                           │
+│ ✓ Accurate automatic calculations                       │
+│ ✓ Zero manual setup needed                              │
+│ ✓ Consistent across all operations                      │
+└─────────────────────────────────────────────────────────┘
+```
+
+## 🎓 Quick Start Guide
+
+1. **Prepare Excel File**
+   - Add CONTENT column
+   - Base unit: Leave CONTENT empty
+   - Converted unit: Put conversion factor
+
+2. **Import File**
+   - Select file in Import Modal
+   - Click Preview
+   - Check CONTENT column is highlighted
+
+3. **Verify Conversions**
+   - Check console for "🔗 Created conversion" messages
+   - Go to Admin → Unit Conversions
+   - Verify conversion appears in list
+
+4. **Test It**
+   - Try selling in different units
+   - Check inventory deduction
+   - Verify calculations are correct
+
+## 📞 Support
+
+If you encounter issues:
+1. Check console for error messages
+2. Verify Excel format matches examples
+3. Review UNIT_CONVERSION_IMPORT.md for details
+4. Check unit_conversions table in database
