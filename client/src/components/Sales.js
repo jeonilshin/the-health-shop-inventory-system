@@ -143,7 +143,6 @@ function Sales() {
       custom_discount_percent: '',
       discount_reason: ''
     });
-    setCostBatches([]);
   };
 
   const handleDelete = async (id) => {
