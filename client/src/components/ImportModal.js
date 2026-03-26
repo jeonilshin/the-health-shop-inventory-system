@@ -2,6 +2,8 @@ import React, { useState, useCallback } from 'react';
 import { useToast } from '../context/ToastContext';
 import api from '../utils/api';
 import * as XLSX from 'xlsx';
+import SimpleAutocomplete from './SimpleAutocomplete';
+import { FiEdit2, FiCheck, FiX, FiSearch } from 'react-icons/fi';
 
 function ImportModal({ isOpen, onClose, onImportComplete }) {
   const showToast = useToast();
@@ -24,6 +26,10 @@ function ImportModal({ isOpen, onClose, onImportComplete }) {
   const [showErrors, setShowErrors] = useState(false);
   const [showNewItems, setShowNewItems] = useState(false);
   const [importMode, setImportMode] = useState('both'); // 'both', 'existing', 'new'
+  const [editingNewItemIndex, setEditingNewItemIndex] = useState(null);
+  const [newItemSearchText, setNewItemSearchText] = useState('');
+  const [existingInventory, setExistingInventory] = useState([]);
+  const [newItemMappings, setNewItemMappings] = useState({}); // { itemIndex: { description, unit } }
 
   const fetchLocations = useCallback(async () => {
     try {
@@ -137,6 +143,14 @@ function ImportModal({ isOpen, onClose, onImportComplete }) {
         showToast().info('Duplicates Found', `${duplicates} product(s) already exist in inventory. Review them before importing.`);
       }
 
+      // Fetch existing inventory for search functionality
+      try {
+        const inventoryResponse = await api.get(`/inventory/location/${selectedLocation}`);
+        setExistingInventory(inventoryResponse.data);
+      } catch (invError) {
+        console.error('Error fetching inventory for search:', invError);
+      }
+
       setPreviewData(response.data);
     } catch (error) {
       showToast().error('Error', error.response?.data?.error || 'Failed to preview file');
@@ -172,6 +186,22 @@ function ImportModal({ isOpen, onClose, onImportComplete }) {
     let validData = previewData.preview.filter(item => 
       !item.is_category && item.brand && item.description && item.unit
     );
+
+    // Apply new item mappings (replace description/unit with matched existing items)
+    validData = validData.map((item, idx) => {
+      const mapping = newItemMappings[idx];
+      if (mapping) {
+        console.log(`🔄 Mapping: "${item.description}" (${item.unit}) → "${mapping.description}" (${mapping.unit})`);
+        return {
+          ...item,
+          description: mapping.description,
+          unit: mapping.unit,
+          _originalDescription: item.description,
+          _originalUnit: item.unit
+        };
+      }
+      return item;
+    });
 
     // Apply import mode filter
     if (importMode === 'existing') {
@@ -815,38 +845,156 @@ function ImportModal({ isOpen, onClose, onImportComplete }) {
                   </button>
                 </div>
                 {showNewItems && (
-                  <div style={{ padding: '16px 20px', maxHeight: '300px', overflowY: 'auto' }}>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  <div style={{ padding: '16px 20px' }}>
+                    <div style={{ 
+                      padding: '12px', 
+                      background: 'rgba(59, 130, 246, 0.1)', 
+                      borderRadius: 'var(--radius)', 
+                      marginBottom: '16px',
+                      fontSize: '0.875rem',
+                      border: '1px solid rgba(59, 130, 246, 0.2)'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                        <FiSearch size={16} color="var(--primary)" />
+                        <strong>Search for Existing Items</strong>
+                      </div>
+                      <p style={{ margin: '4px 0 0 24px', color: 'var(--text-muted)' }}>
+                        Click the <FiEdit2 size={12} /> icon to search and match new items with existing inventory (useful for fixing typos or spelling variations)
+                      </p>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '400px', overflowY: 'auto' }}>
                       {previewData.preview
-                        .filter(item => !item.is_category && item.brand && item.description && item.unit && !duplicateDetails.some(d => d.description === item.description && d.unit === item.unit))
-                        .map((item, idx) => (
-                          <div
-                            key={idx}
-                            style={{
-                              padding: '12px',
-                              background: 'rgba(16, 185, 129, 0.05)',
-                              border: '1px solid rgba(16, 185, 129, 0.2)',
-                              borderRadius: 'var(--radius)',
-                              display: 'grid',
-                              gridTemplateColumns: '120px 1fr 80px 100px 120px',
-                              gap: '12px',
-                              alignItems: 'center',
-                              fontSize: '0.875rem'
-                            }}
-                          >
-                            <div style={{ fontWeight: '600', fontFamily: 'monospace', color: 'var(--success)' }}>
-                              {item.batch_number && item.batch_number.endsWith('-AUTO') ? (
-                                <span>{item.brand}-###</span>
+                        .map((item, originalIdx) => ({ item, originalIdx }))
+                        .filter(({ item }) => !item.is_category && item.brand && item.description && item.unit && !duplicateDetails.some(d => d.description === item.description && d.unit === item.unit))
+                        .map(({ item, originalIdx }) => {
+                          const mapping = newItemMappings[originalIdx];
+                          const isEditing = editingNewItemIndex === originalIdx;
+                          
+                          return (
+                            <div
+                              key={originalIdx}
+                              style={{
+                                padding: '12px',
+                                background: mapping ? 'rgba(59, 130, 246, 0.05)' : 'rgba(16, 185, 129, 0.05)',
+                                border: mapping ? '1px solid rgba(59, 130, 246, 0.3)' : '1px solid rgba(16, 185, 129, 0.2)',
+                                borderRadius: 'var(--radius)',
+                                fontSize: '0.875rem'
+                              }}
+                            >
+                              {isEditing ? (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <FiSearch size={16} color="var(--primary)" />
+                                    <strong>Search for existing item:</strong>
+                                  </div>
+                                  <SimpleAutocomplete
+                                    items={existingInventory}
+                                    value={newItemSearchText}
+                                    onChange={(value) => setNewItemSearchText(value)}
+                                    onSelect={(selectedItem) => {
+                                      setNewItemMappings({
+                                        ...newItemMappings,
+                                        [originalIdx]: {
+                                          description: selectedItem.description,
+                                          unit: selectedItem.unit
+                                        }
+                                      });
+                                      setEditingNewItemIndex(null);
+                                      setNewItemSearchText('');
+                                      showToast().success('Matched', `"${item.description}" will be imported as "${selectedItem.description}"`);
+                                    }}
+                                    displayField="description"
+                                    placeholder="Search existing inventory..."
+                                  />
+                                  <div style={{ display: 'flex', gap: '8px' }}>
+                                    <button
+                                      className="btn btn-secondary"
+                                      onClick={() => {
+                                        setEditingNewItemIndex(null);
+                                        setNewItemSearchText('');
+                                      }}
+                                      style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}
+                                    >
+                                      <FiX size={14} /> Cancel
+                                    </button>
+                                  </div>
+                                </div>
                               ) : (
-                                item.batch_number
+                                <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr 80px 100px 120px 40px', gap: '12px', alignItems: 'center' }}>
+                                  <div style={{ fontWeight: '600', fontFamily: 'monospace', color: mapping ? 'var(--primary)' : 'var(--success)' }}>
+                                    {item.batch_number && item.batch_number.endsWith('-AUTO') ? (
+                                      <span>{item.brand}-###</span>
+                                    ) : (
+                                      item.batch_number
+                                    )}
+                                  </div>
+                                  <div>
+                                    {mapping ? (
+                                      <div>
+                                        <div style={{ fontSize: '11px', color: 'var(--text-muted)', textDecoration: 'line-through' }}>
+                                          {item.description}
+                                        </div>
+                                        <div style={{ fontWeight: '600', color: 'var(--primary)' }}>
+                                          → {mapping.description}
+                                        </div>
+                                      </div>
+                                    ) : (
+                                      <div style={{ fontWeight: '600' }}>{item.description}</div>
+                                    )}
+                                  </div>
+                                  <div style={{ color: 'var(--text-muted)' }}>
+                                    {mapping ? mapping.unit : item.unit}
+                                  </div>
+                                  <div>Qty: <span style={{ fontWeight: '600' }}>{item.quantity}</span></div>
+                                  <div>₱{item.unit_cost.toFixed(2)}</div>
+                                  <div style={{ display: 'flex', gap: '4px' }}>
+                                    {mapping ? (
+                                      <button
+                                        onClick={() => {
+                                          const newMappings = { ...newItemMappings };
+                                          delete newMappings[originalIdx];
+                                          setNewItemMappings(newMappings);
+                                          showToast().info('Removed', 'Mapping removed');
+                                        }}
+                                        style={{
+                                          background: 'rgba(239, 68, 68, 0.1)',
+                                          border: '1px solid rgba(239, 68, 68, 0.3)',
+                                          color: 'var(--danger)',
+                                          padding: '4px 8px',
+                                          borderRadius: 'var(--radius)',
+                                          cursor: 'pointer',
+                                          fontSize: '12px'
+                                        }}
+                                        title="Remove mapping"
+                                      >
+                                        <FiX size={14} />
+                                      </button>
+                                    ) : (
+                                      <button
+                                        onClick={() => {
+                                          setEditingNewItemIndex(originalIdx);
+                                          setNewItemSearchText(item.description);
+                                        }}
+                                        style={{
+                                          background: 'rgba(59, 130, 246, 0.1)',
+                                          border: '1px solid rgba(59, 130, 246, 0.3)',
+                                          color: 'var(--primary)',
+                                          padding: '4px 8px',
+                                          borderRadius: 'var(--radius)',
+                                          cursor: 'pointer',
+                                          fontSize: '12px'
+                                        }}
+                                        title="Search for existing item"
+                                      >
+                                        <FiEdit2 size={14} />
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
                               )}
                             </div>
-                            <div style={{ fontWeight: '600' }}>{item.description}</div>
-                            <div style={{ color: 'var(--text-muted)' }}>{item.unit}</div>
-                            <div>Qty: <span style={{ fontWeight: '600' }}>{item.quantity}</span></div>
-                            <div>₱{item.unit_cost.toFixed(2)}</div>
-                          </div>
-                        ))}
+                          );
+                        })}
                     </div>
                   </div>
                 )}

@@ -1,13 +1,15 @@
 import React, { useState, useEffect, useContext } from 'react';
 import api from '../utils/api';
 import { AuthContext } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
 import { formatQuantity, formatPrice } from '../utils/formatNumber';
-import { FiPackage, FiPlus, FiDownload, FiSearch, FiAlertCircle, FiTrash2, FiUpload, FiEdit2, FiClock, FiStar, FiDollarSign, FiGitBranch, FiX, FiCheck, FiGrid, FiList } from 'react-icons/fi';
+import { FiPackage, FiPlus, FiDownload, FiSearch, FiAlertCircle, FiTrash2, FiUpload, FiEdit2, FiClock, FiStar, FiDollarSign, FiGitBranch, FiX, FiCheck, FiGrid, FiList, FiLock } from 'react-icons/fi';
 import SimpleAutocomplete from './SimpleAutocomplete';
 import ImportModal from './ImportModal';
 
 function Inventory() {
   const { user } = useContext(AuthContext);
+  const { showToast } = useToast();
   const [locations, setLocations] = useState([]);
   const [selectedLocation, setSelectedLocation] = useState('');
   const [inventory, setInventory] = useState([]);
@@ -47,6 +49,7 @@ function Inventory() {
     fromItemUnit: '',
     fromItemQty: 0
   });
+  const [isConversionAutoDetected, setIsConversionAutoDetected] = useState(false);
   const [formData, setFormData] = useState({
     items: [{
       description: '',
@@ -716,6 +719,7 @@ function Inventory() {
         fromItemUnit: '',
         fromItemQty: 0
       });
+      setIsConversionAutoDetected(false);
       fetchInventory();
     } catch (error) {
       alert(error.response?.data?.error || 'Error converting units');
@@ -2747,7 +2751,11 @@ function Inventory() {
 
       {/* Unit Conversion Modal */}
       {showConversionModal && (
-        <div className="modal-overlay" onClick={() => setShowConversionModal(false)}>
+        <div className="modal-overlay" onClick={() => {
+          setShowConversionModal(false);
+          setConversionData({ fromItemId: '', toItemId: '', unitsPerBox: '', boxesToConvert: '', fromSearchText: '', toSearchText: '', fromItemDescription: '', fromItemUnit: '', fromItemQty: 0 });
+          setIsConversionAutoDetected(false);
+        }}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '600px' }}>
             <div style={{ 
               padding: '20px 24px', 
@@ -2762,7 +2770,11 @@ function Inventory() {
                 🔄 Convert Units
               </h2>
               <button
-                onClick={() => setShowConversionModal(false)}
+                onClick={() => {
+                  setShowConversionModal(false);
+                  setConversionData({ fromItemId: '', toItemId: '', unitsPerBox: '', boxesToConvert: '', fromSearchText: '', toSearchText: '', fromItemDescription: '', fromItemUnit: '', fromItemQty: 0 });
+                  setIsConversionAutoDetected(false);
+                }}
                 style={{ 
                   background: 'rgba(255, 255, 255, 0.2)', 
                   border: 'none', 
@@ -2790,7 +2802,7 @@ function Inventory() {
                   onChange={(value) => {
                     setConversionData({...conversionData, fromSearchText: value});
                   }}
-                  onSelect={(selectedItem) => {
+                  onSelect={async (selectedItem) => {
                     const qty = selectedItem.totalQuantity || selectedItem.quantity || 0;
                     // If item has multiple cost batches, select the first one with available quantity
                     let itemIdToUse = selectedItem.id;
@@ -2800,14 +2812,53 @@ function Inventory() {
                         itemIdToUse = batchWithQty.id;
                       }
                     }
+                    
+                    // Set basic data first
                     setConversionData({
                       ...conversionData, 
                       fromItemId: itemIdToUse,
                       fromItemDescription: selectedItem.description,
                       fromItemUnit: selectedItem.unit,
                       fromItemQty: qty,
-                      fromSearchText: `${selectedItem.description} - ${selectedItem.unit} (Qty: ${formatQuantity(qty)})`
+                      fromSearchText: `${selectedItem.description} - ${selectedItem.unit} (Qty: ${formatQuantity(qty)})`,
+                      toItemId: '',
+                      toSearchText: '',
+                      unitsPerBox: ''
                     });
+                    setIsConversionAutoDetected(false);
+                    
+                    // Check if conversion already exists for this product
+                    try {
+                      const response = await api.get(`/unit-conversions/product/${encodeURIComponent(selectedItem.description)}`);
+                      if (response.data && response.data.length > 0) {
+                        // Found existing conversion
+                        const existingConv = response.data[0];
+                        
+                        // Find the matching "To Item" (PC version) in inventory
+                        const toItem = filteredInventory.find(item => 
+                          item.description === selectedItem.description && 
+                          ['PC', 'pc', 'PCS', 'pcs'].includes(item.unit)
+                        );
+                        
+                        if (toItem) {
+                          setConversionData({
+                            ...conversionData,
+                            fromItemId: itemIdToUse,
+                            fromItemDescription: selectedItem.description,
+                            fromItemUnit: selectedItem.unit,
+                            fromItemQty: qty,
+                            fromSearchText: `${selectedItem.description} - ${selectedItem.unit} (Qty: ${formatQuantity(qty)})`,
+                            toItemId: toItem.id,
+                            toSearchText: `${toItem.description} - ${toItem.unit} (Qty: ${formatQuantity(toItem.quantity)})`,
+                            unitsPerBox: existingConv.conversion_factor
+                          });
+                          setIsConversionAutoDetected(true);
+                          showToast(`Auto-detected: 1 ${existingConv.base_unit} = ${existingConv.conversion_factor} ${existingConv.converted_unit}`, 'info');
+                        }
+                      }
+                    } catch (error) {
+                      console.error('Error checking for existing conversion:', error);
+                    }
                   }}
                   displayField="description"
                   placeholder="Search for BOX/BOT items..."
@@ -2852,17 +2903,48 @@ function Inventory() {
 
               <div className="form-group">
                 <label>Units per Box/Bottle *</label>
-                <input
-                  type="number"
-                  step="1"
-                  min="1"
-                  value={conversionData.unitsPerBox}
-                  onChange={(e) => setConversionData({...conversionData, unitsPerBox: e.target.value})}
-                  placeholder="e.g., 100 (1 BOX = 100 PC)"
-                  required
-                />
+                <div style={{ position: 'relative' }}>
+                  <input
+                    type="number"
+                    step="1"
+                    min="1"
+                    value={conversionData.unitsPerBox}
+                    onChange={(e) => {
+                      if (!isConversionAutoDetected) {
+                        setConversionData({...conversionData, unitsPerBox: e.target.value});
+                      }
+                    }}
+                    placeholder="e.g., 100 (1 BOX = 100 PC)"
+                    required
+                    readOnly={isConversionAutoDetected}
+                    style={{
+                      background: isConversionAutoDetected ? 'rgba(16, 185, 129, 0.1)' : 'var(--bg-primary)',
+                      cursor: isConversionAutoDetected ? 'not-allowed' : 'text',
+                      paddingRight: isConversionAutoDetected ? '40px' : '12px'
+                    }}
+                  />
+                  {isConversionAutoDetected && (
+                    <FiLock 
+                      size={16} 
+                      style={{ 
+                        position: 'absolute', 
+                        right: '12px', 
+                        top: '50%', 
+                        transform: 'translateY(-50%)',
+                        color: 'var(--success)',
+                        pointerEvents: 'none'
+                      }} 
+                    />
+                  )}
+                </div>
                 <small style={{ color: 'var(--text-muted)', fontSize: '12px' }}>
-                  How many pieces are in one box/bottle?
+                  {isConversionAutoDetected ? (
+                    <span style={{ color: 'var(--success)', fontWeight: '600' }}>
+                      ✓ Auto-detected from unit conversion database
+                    </span>
+                  ) : (
+                    'How many pieces are in one box/bottle?'
+                  )}
                 </small>
               </div>
 
@@ -2901,7 +2983,8 @@ function Inventory() {
                   className="btn btn-secondary" 
                   onClick={() => {
                     setShowConversionModal(false);
-                    setConversionData({ fromItemId: '', toItemId: '', unitsPerBox: '', boxesToConvert: '', fromSearchText: '', toSearchText: '' });
+                    setConversionData({ fromItemId: '', toItemId: '', unitsPerBox: '', boxesToConvert: '', fromSearchText: '', toSearchText: '', fromItemDescription: '', fromItemUnit: '', fromItemQty: 0 });
+                    setIsConversionAutoDetected(false);
                   }}
                   style={{ flex: 1 }}
                 >
