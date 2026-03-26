@@ -259,13 +259,6 @@ function ImportModal({ isOpen, onClose, onImportComplete }) {
 
       const message = `Import complete: ${totalImported} new, ${totalUpdated} updated${totalTransferred > 0 ? `, ${totalTransferred} transferred` : ''}${invalidData.length > 0 ? `, ${invalidData.length} skipped (invalid)` : ''}`;
       
-      // Collect conversion details from batch responses
-      let totalConversions = 0;
-      const allConversions = [];
-      
-      // Note: Conversions are created in the first batch, so we need to track them
-      // For now, we'll just show a generic message if conversions were detected
-      
       if (allErrors.length > 0) {
         // Show in console with full details
         console.error('❌ IMPORT ERRORS (' + allErrors.length + ' total):', allErrors);

@@ -9,7 +9,6 @@ function Sales() {
   const { user } = useContext(AuthContext);
   const [locations, setLocations] = useState([]);
   const [sales, setSales] = useState([]);
-  const [costBatches, setCostBatches] = useState([]);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [editData, setEditData] = useState({});
@@ -90,7 +89,6 @@ function Sales() {
     });
     
     // No need to fetch cost batches anymore - we'll use FIFO automatically
-    setCostBatches([]);
   };
 
   const handleSubmit = async (e) => {
