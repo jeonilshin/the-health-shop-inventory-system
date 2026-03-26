@@ -294,6 +294,17 @@ router.post('/import', auth, authorize('admin', 'warehouse'), async (req, res) =
       return res.status(400).json({ error: 'Location ID is required' });
     }
 
+    // Filter out any undefined, null, or invalid items from the data array
+    const validData = data.filter(item => item && typeof item === 'object');
+    
+    if (validData.length === 0) {
+      return res.status(400).json({ error: 'No valid items to import' });
+    }
+    
+    if (validData.length < data.length) {
+      console.warn(`⚠️ Filtered out ${data.length - validData.length} invalid items from import batch`);
+    }
+
     let imported = 0;
     let updated = 0;
     let skipped = 0;
@@ -315,12 +326,15 @@ router.post('/import', auth, authorize('admin', 'warehouse'), async (req, res) =
     // Track batch numbers by brand for auto-increment
     const brandCounters = {};
     
-    console.log(`📦 Starting import of ${data.length} items...`);
+    console.log(`📦 Starting import of ${validData.length} items...`);
 
     // First pass: Detect unit conversion pairs
     const conversionPairs = new Map(); // key: base_description, value: { baseUnit, convertedUnit, content }
     
-    for (const item of data) {
+    for (const item of validData) {
+      // Skip undefined or null items (extra safety check)
+      if (!item) continue;
+      
       if (item.is_category || !item.description || !item.unit) continue;
       
       // Check if this item has content (conversion factor)
@@ -343,7 +357,10 @@ router.post('/import', auth, authorize('admin', 'warehouse'), async (req, res) =
     }
     
     // Second pass: Match base units with converted units and create conversions
-    for (const item of data) {
+    for (const item of validData) {
+      // Skip undefined or null items (extra safety check)
+      if (!item) continue;
+      
       if (item.is_category || !item.description || !item.unit) continue;
       
       // Check if this is a base unit (no content or content is 0)
@@ -375,7 +392,13 @@ router.post('/import', auth, authorize('admin', 'warehouse'), async (req, res) =
     }
 
     // Process each item individually to avoid transaction rollback issues
-    for (const item of data) {
+    for (const item of validData) {
+      // Skip undefined or null items (extra safety check)
+      if (!item) {
+        console.warn('⚠️ Skipping undefined/null item in batch');
+        continue;
+      }
+      
       // Skip category rows
       if (item.is_category) {
         continue;
@@ -387,7 +410,7 @@ router.post('/import', auth, authorize('admin', 'warehouse'), async (req, res) =
         const missing = [];
         if (!item.description) missing.push('description');
         if (!item.unit) missing.push('unit');
-        errors.push(`Row ${data.indexOf(item) + 1}: Missing required fields (${missing.join(', ')})`);
+        errors.push(`Row ${validData.indexOf(item) + 1}: Missing required fields (${missing.join(', ')})`);
         skipped++;
         continue;
       }

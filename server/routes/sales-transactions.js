@@ -58,7 +58,7 @@ router.post('/', auth, authorize('admin', 'warehouse', 'branch_manager', 'branch
   
   try {
     const {
-      transaction_date, location_id, item_description, item_unit, cost_batch_id,
+      transaction_date, location_id, item_description, item_unit,
       quantity_sold, unit_price, payment_method, customer_name, notes,
       discount_type, custom_discount_percent, discount_reason
     } = req.body;
@@ -69,31 +69,6 @@ router.post('/', auth, authorize('admin', 'warehouse', 'branch_manager', 'branch
     }
     
     await client.query('BEGIN');
-    
-    // If cost_batch_id is provided, validate and update specific batch
-    let inventoryUpdateQuery;
-    let inventoryParams;
-    
-    if (cost_batch_id) {
-      // Update specific cost batch
-      inventoryUpdateQuery = `
-        UPDATE inventory 
-        SET quantity = quantity - $1, updated_at = CURRENT_TIMESTAMP 
-        WHERE location_id = $2 AND description = $3 AND unit = $4 AND cost_batch_id = $5 AND quantity >= $1
-        RETURNING *
-      `;
-      inventoryParams = [quantity_sold, location_id, item_description, item_unit, cost_batch_id];
-    } else {
-      // Update any available inventory (legacy behavior)
-      inventoryUpdateQuery = `
-        UPDATE inventory 
-        SET quantity = quantity - $1, updated_at = CURRENT_TIMESTAMP 
-        WHERE location_id = $2 AND description = $3 AND unit = $4 AND quantity >= $1
-        LIMIT 1
-        RETURNING *
-      `;
-      inventoryParams = [quantity_sold, location_id, item_description, item_unit];
-    }
     
     // Calculate discount using proper Philippine formula
     let discount_percent = 0;
@@ -158,8 +133,8 @@ router.post('/', auth, authorize('admin', 'warehouse', 'branch_manager', 'branch
       ]
     );
     
-    // Deduct from inventory using FIFO (First In First Out) or from available batches
-    // First, get all batches for this item ordered by creation date
+    // Deduct from inventory using FIFO (First In First Out)
+    // Get all batches for this item ordered by creation date (oldest first)
     const batchesResult = await client.query(
       `SELECT * FROM inventory 
        WHERE location_id = $1 AND description = $2 AND unit = $3 AND quantity > 0
@@ -168,25 +143,29 @@ router.post('/', auth, authorize('admin', 'warehouse', 'branch_manager', 'branch
     );
     
     if (batchesResult.rows.length === 0) {
-      throw new Error('Item not found in inventory or insufficient stock');
+      throw new Error('Item not found in inventory or out of stock');
     }
     
-    // Calculate total available quantity
+    // Calculate total available quantity across all batches
     const totalAvailable = batchesResult.rows.reduce((sum, batch) => sum + parseFloat(batch.quantity), 0);
     
     if (totalAvailable < parseFloat(quantity_sold)) {
       throw new Error(`Insufficient inventory. Available: ${totalAvailable}, Requested: ${quantity_sold}`);
     }
     
-    // Deduct from batches using FIFO
+    // Deduct from batches using FIFO (oldest batches first)
     let remainingToDeduct = parseFloat(quantity_sold);
     const updatedBatches = [];
+    
+    console.log(`📦 FIFO Sale: Deducting ${quantity_sold} ${item_unit} of ${item_description}`);
     
     for (const batch of batchesResult.rows) {
       if (remainingToDeduct <= 0) break;
       
       const batchQty = parseFloat(batch.quantity);
       const deductFromThisBatch = Math.min(batchQty, remainingToDeduct);
+      
+      console.log(`  - Batch ${batch.batch_number}: Deducting ${deductFromThisBatch} (had ${batchQty}, will have ${batchQty - deductFromThisBatch})`);
       
       const updateResult = await client.query(
         `UPDATE inventory 
@@ -196,9 +175,16 @@ router.post('/', auth, authorize('admin', 'warehouse', 'branch_manager', 'branch
         [deductFromThisBatch, batch.id]
       );
       
-      updatedBatches.push(updateResult.rows[0]);
+      updatedBatches.push({
+        batch_number: batch.batch_number,
+        deducted: deductFromThisBatch,
+        remaining: updateResult.rows[0].quantity
+      });
+      
       remainingToDeduct -= deductFromThisBatch;
     }
+    
+    console.log(`✅ FIFO Sale Complete: Deducted from ${updatedBatches.length} batch(es)`);
     
     await client.query('COMMIT');
     
@@ -212,12 +198,12 @@ router.post('/', auth, authorize('admin', 'warehouse', 'branch_manager', 'branch
       newValues: saleResult.rows[0],
       ipAddress: req.ip,
       userAgent: req.get('user-agent'),
-      description: `Sold ${quantity_sold} ${item_unit} of ${item_description}${discount_percent > 0 ? ` with ${discount_percent}% discount` : ''}`
+      description: `Sold ${quantity_sold} ${item_unit} of ${item_description}${discount_percent > 0 ? ` with ${discount_percent}% discount` : ''} (FIFO: ${updatedBatches.length} batches)`
     });
     
     res.status(201).json({
       sale: saleResult.rows[0],
-      inventory: updatedBatches[0] // Return first updated batch
+      batches_used: updatedBatches
     });
   } catch (error) {
     await client.query('ROLLBACK');

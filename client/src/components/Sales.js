@@ -86,17 +86,11 @@ function Sales() {
       item_description: item.description,
       item_unit: item.unit,
       unit_price: item.suggested_selling_price || item.unit_cost,
-      cost_batch_id: ''
+      cost_batch_id: '' // No longer needed
     });
     
-    // Fetch cost batches for this item
-    try {
-      const response = await api.get(`/inventory/cost-batches/${formData.location_id}/${encodeURIComponent(item.description)}/${encodeURIComponent(item.unit)}`);
-      setCostBatches(response.data);
-    } catch (error) {
-      console.error('Error fetching cost batches:', error);
-      setCostBatches([]);
-    }
+    // No need to fetch cost batches anymore - we'll use FIFO automatically
+    setCostBatches([]);
   };
 
   const handleSubmit = async (e) => {
@@ -493,52 +487,7 @@ function Sales() {
               </div>
             </div>
 
-            {/* Cost Batch Selection */}
-            {costBatches.length > 0 && (
-              <div className="form-group">
-                <label>Select Cost Batch *</label>
-                <select
-                  value={formData.cost_batch_id}
-                  onChange={(e) => {
-                    const selectedBatch = costBatches.find(b => b.cost_batch_id === e.target.value);
-                    setFormData({
-                      ...formData,
-                      cost_batch_id: e.target.value,
-                      unit_price: selectedBatch ? selectedBatch.suggested_selling_price || selectedBatch.unit_cost : formData.unit_price
-                    });
-                  }}
-                  required
-                  style={{ 
-                    background: costBatches.some(b => b.is_new_cost) ? 'rgba(245, 158, 11, 0.1)' : 'white',
-                    border: costBatches.some(b => b.is_new_cost) ? '2px solid var(--warning)' : '1px solid var(--border)'
-                  }}
-                >
-                  <option value="">Choose which batch to sell from...</option>
-                  {costBatches.map((batch) => (
-                    <option key={batch.cost_batch_id} value={batch.cost_batch_id}>
-                      {user.role === 'admin' && `Cost: ₱${formatPrice(batch.unit_cost)} | `}
-                      Price: ₱{formatPrice(batch.suggested_selling_price || 0)} | 
-                      Qty: {formatQuantity(batch.quantity)} | 
-                      Batch: {batch.batch_number || 'N/A'}
-                      {batch.is_new_cost ? ' (NEW BATCH)' : ''}
-                    </option>
-                  ))}
-                </select>
-                {costBatches.some(b => b.is_new_cost) && (
-                  <div style={{ 
-                    marginTop: '8px', 
-                    padding: '8px', 
-                    background: 'rgba(245, 158, 11, 0.1)', 
-                    borderRadius: 'var(--radius)',
-                    fontSize: '12px',
-                    color: 'var(--warning)',
-                    fontWeight: '600'
-                  }}>
-                    🌳 This item has multiple cost batches. Choose carefully!
-                  </div>
-                )}
-              </div>
-            )}
+            {/* Cost Batch Selection - REMOVED */}
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginBottom: '16px' }}>
               <div className="form-group" style={{ marginBottom: 0 }}>
@@ -571,17 +520,7 @@ function Sales() {
                   onChange={(e) => setFormData({...formData, quantity_sold: e.target.value})} 
                   required 
                   min="1"
-                  max={(() => {
-                    if (!formData.cost_batch_id) return undefined;
-                    const selectedBatch = costBatches.find(b => b.cost_batch_id === formData.cost_batch_id);
-                    return selectedBatch ? selectedBatch.quantity : undefined;
-                  })()}
-                  placeholder={(() => {
-                    if (!formData.cost_batch_id) return 'Select batch first';
-                    const selectedBatch = costBatches.find(b => b.cost_batch_id === formData.cost_batch_id);
-                    return selectedBatch ? `Max: ${selectedBatch.quantity}` : '';
-                  })()}
-                  disabled={!formData.cost_batch_id && costBatches.length > 0}
+                  placeholder="Enter quantity"
                   onWheel={(e) => e.target.blur()}
                 />
               </div>
