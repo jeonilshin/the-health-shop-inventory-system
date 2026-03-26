@@ -421,32 +421,39 @@ router.post('/import', auth, authorize('admin', 'warehouse'), async (req, res) =
         console.log(`📝 Set quantity to 0 for ${item.description} (was empty or invalid)`);
       }
 
-      // If unit_cost is 0 or empty, try to use previous batch's cost
+      // Check for existing items to get prices if not provided
+      let existingItem = null;
+      const existingQuery = await pool.query(
+        `SELECT unit_cost, suggested_selling_price FROM inventory 
+         WHERE location_id = $1 AND description = $2 AND unit = $3 
+         ORDER BY created_at DESC LIMIT 1`,
+        [locationId, item.description, item.unit]
+      );
+      
+      if (existingQuery.rows.length > 0) {
+        existingItem = existingQuery.rows[0];
+      }
+
+      // If unit_cost is 0 or empty, use existing item's cost or default to 0
       if (!item.unit_cost || item.unit_cost === '' || isNaN(item.unit_cost) || item.unit_cost < 0 || parseFloat(item.unit_cost) === 0) {
-        // Check for existing items with this description and unit
-        const previousBatch = await pool.query(
-          `SELECT unit_cost, suggested_selling_price FROM inventory 
-           WHERE location_id = $1 AND description = $2 AND unit = $3 
-           ORDER BY created_at DESC LIMIT 1`,
-          [locationId, item.description, item.unit]
-        );
-        
-        if (previousBatch.rows.length > 0) {
-          item.unit_cost = previousBatch.rows[0].unit_cost;
-          if (!item.suggested_selling_price || parseFloat(item.suggested_selling_price) === 0) {
-            item.suggested_selling_price = previousBatch.rows[0].suggested_selling_price;
-          }
-          console.log(`📝 Using previous batch cost for ${item.description}: ₱${item.unit_cost}`);
+        if (existingItem) {
+          item.unit_cost = existingItem.unit_cost;
+          console.log(`📝 Using existing cost for ${item.description}: ₱${item.unit_cost}`);
         } else {
           item.unit_cost = 0;
-          console.log(`📝 Set unit cost to 0 for ${item.description} (no previous batch found)`);
+          console.log(`📝 Set unit cost to 0 for ${item.description} (new item, no cost provided)`);
         }
       }
 
-      // Ensure selling_price defaults to 0 if not provided
-      if (!item.suggested_selling_price || item.suggested_selling_price === '' || isNaN(item.suggested_selling_price) || item.suggested_selling_price < 0) {
-        item.suggested_selling_price = 0;
-        console.log(`📝 Set selling price to 0 for ${item.description} (was empty or invalid)`);
+      // If selling_price is empty or 0, use existing item's price or default to 0
+      if (!item.suggested_selling_price || item.suggested_selling_price === '' || isNaN(item.suggested_selling_price) || item.suggested_selling_price < 0 || parseFloat(item.suggested_selling_price) === 0) {
+        if (existingItem) {
+          item.suggested_selling_price = existingItem.suggested_selling_price;
+          console.log(`📝 Using existing price for ${item.description}: ₱${item.suggested_selling_price}`);
+        } else {
+          item.suggested_selling_price = 0;
+          console.log(`📝 Set selling price to 0 for ${item.description} (new item, no price provided)`);
+        }
       }
 
       // Process each item in its own transaction

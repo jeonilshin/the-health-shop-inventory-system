@@ -23,6 +23,7 @@ function ImportModal({ isOpen, onClose, onImportComplete }) {
   const [updateOptions, setUpdateOptions] = useState({}); // { itemIndex: { updateQty: true, updatePrice: true } }
   const [showErrors, setShowErrors] = useState(false);
   const [showNewItems, setShowNewItems] = useState(false);
+  const [importMode, setImportMode] = useState('both'); // 'both', 'existing', 'new'
 
   const fetchLocations = useCallback(async () => {
     try {
@@ -168,9 +169,26 @@ function ImportModal({ isOpen, onClose, onImportComplete }) {
 
     // Filter out rows with critical errors (only brand, description, and unit are required)
     // Quantity, unit_cost, and selling_price can all be 0 or empty - they'll default to 0
-    const validData = previewData.preview.filter(item => 
+    let validData = previewData.preview.filter(item => 
       !item.is_category && item.brand && item.description && item.unit
     );
+
+    // Apply import mode filter
+    if (importMode === 'existing') {
+      // Only import items that already exist (duplicates)
+      validData = validData.filter(item => 
+        duplicateDetails.some(d => d.description === item.description && d.unit === item.unit)
+      );
+      console.log(`📊 Import mode: EXISTING ONLY - Filtered to ${validData.length} existing items`);
+    } else if (importMode === 'new') {
+      // Only import items that don't exist (new items)
+      validData = validData.filter(item => 
+        !duplicateDetails.some(d => d.description === item.description && d.unit === item.unit)
+      );
+      console.log(`📊 Import mode: NEW ONLY - Filtered to ${validData.length} new items`);
+    } else {
+      console.log(`📊 Import mode: BOTH - Importing ${validData.length} items (existing + new)`);
+    }
 
     const invalidData = previewData.preview.filter(item => 
       !item.is_category && (!item.brand || !item.description || !item.unit)
@@ -396,6 +414,50 @@ function ImportModal({ isOpen, onClose, onImportComplete }) {
                     : 'Create automatic transfer after import'}
                 </small>
               </div>
+            </div>
+
+            {/* Import Mode Selection */}
+            <div className="form-group" style={{ marginBottom: '16px' }}>
+              <label style={{ fontWeight: '600', marginBottom: '8px', display: 'block' }}>
+                Import Mode
+              </label>
+              <select
+                value={importMode}
+                onChange={(e) => setImportMode(e.target.value)}
+                className="form-control"
+                style={{ 
+                  background: importMode !== 'both' ? 'rgba(37, 99, 235, 0.05)' : 'white',
+                  border: importMode !== 'both' ? '2px solid var(--primary)' : '1px solid var(--border)'
+                }}
+              >
+                <option value="both">📦 Import All Items (Existing + New)</option>
+                <option value="existing">🔄 Update Existing Items Only</option>
+                <option value="new">✨ Import New Items Only</option>
+              </select>
+              <small style={{ color: 'var(--text-muted)', fontSize: '0.75rem', marginTop: '4px', display: 'block' }}>
+                {importMode === 'both' && '• Import all items from the file (default)'}
+                {importMode === 'existing' && '• Only update items that already exist in inventory (skip new items)'}
+                {importMode === 'new' && '• Only import items that don\'t exist yet (skip existing items)'}
+              </small>
+              {previewData && duplicateCount > 0 && (
+                <div style={{ 
+                  marginTop: '8px', 
+                  padding: '8px 12px', 
+                  background: importMode === 'existing' ? 'rgba(37, 99, 235, 0.1)' : 
+                              importMode === 'new' ? 'rgba(16, 185, 129, 0.1)' : 
+                              'rgba(245, 158, 11, 0.1)',
+                  borderRadius: 'var(--radius)',
+                  fontSize: '0.75rem',
+                  fontWeight: '600',
+                  color: importMode === 'existing' ? 'var(--primary)' : 
+                         importMode === 'new' ? 'var(--success)' : 
+                         'var(--warning)'
+                }}>
+                  {importMode === 'both' && `📊 Will import: ${previewData.preview.filter(i => !i.is_category && i.brand && i.description && i.unit).length} items (${duplicateCount} existing + ${previewData.preview.filter(i => !i.is_category && i.brand && i.description && i.unit).length - duplicateCount} new)`}
+                  {importMode === 'existing' && `🔄 Will update: ${duplicateCount} existing items`}
+                  {importMode === 'new' && `✨ Will import: ${previewData.preview.filter(i => !i.is_category && i.brand && i.description && i.unit).length - duplicateCount} new items`}
+                </div>
+              )}
             </div>
 
             {/* File Upload */}
