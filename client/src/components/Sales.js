@@ -4,6 +4,7 @@ import { AuthContext } from '../context/AuthContext';
 import { formatPrice, formatQuantity } from '../utils/formatNumber';
 import AutocompleteSearch from './AutocompleteSearch';
 import { FiShoppingCart, FiPlus, FiTrash2, FiDollarSign, FiCalendar, FiEdit2, FiX, FiCheck } from 'react-icons/fi';
+import ConfirmModal from './ConfirmModal';
 
 function Sales() {
   const { user } = useContext(AuthContext);
@@ -12,6 +13,9 @@ function Sales() {
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [editData, setEditData] = useState({});
+  const [showConfirm1, setShowConfirm1] = useState(false);
+  const [showConfirm2, setShowConfirm2] = useState(false);
+  const [confirmLoading, setConfirmLoading] = useState(false);
   
   // Calculate date 7 days ago
   const getSevenDaysAgo = () => {
@@ -91,39 +95,28 @@ function Sales() {
     // No need to fetch cost batches anymore - we'll use FIFO automatically
   };
 
-  const handleSubmit = async (e) => {
+  const handleSubmit = (e) => {
     e.preventDefault();
+    setShowConfirm1(true);
+  };
+
+  const executeSale = async () => {
+    setConfirmLoading(true);
     try {
-      // Debug: Log the form data being sent
       console.log('Submitting sale with data:', formData);
-      
-      // Calculate the expected total for debugging
-      const grossAmount = (parseFloat(formData.quantity_sold) || 0) * (parseFloat(formData.unit_price) || 0);
-      let expectedTotal = grossAmount;
-      
-      if (formData.discount_type === 'pwd' || formData.discount_type === 'senior') {
-        const netOfVat = grossAmount / 1.12;
-        const discountAmount = netOfVat * 0.20;
-        expectedTotal = Math.round(grossAmount - discountAmount);
-      } else if (formData.discount_type === 'custom' && formData.custom_discount_percent) {
-        const discountAmount = grossAmount * (parseFloat(formData.custom_discount_percent) / 100);
-        expectedTotal = Math.round(grossAmount - discountAmount);
-      }
-      
-      console.log('Expected total calculation:', {
-        grossAmount,
-        discountType: formData.discount_type,
-        expectedTotal
-      });
-      
       await api.post('/sales-transactions', formData);
-      alert('Sale recorded successfully!');
+      setShowConfirm2(false);
+      setShowConfirm1(false);
       setShowForm(false);
       resetForm();
       fetchSales();
+      alert('Sale recorded successfully!');
     } catch (error) {
       console.error('Sale submission error:', error.response?.data || error);
+      setShowConfirm2(false);
       alert(error.response?.data?.error || 'Error recording sale');
+    } finally {
+      setConfirmLoading(false);
     }
   };
 
@@ -952,6 +945,69 @@ function Sales() {
           </tbody>
         </table>
       </div>
+
+      {/* Step 1: Review sale details */}
+      {(() => {
+        const grossAmount = (parseFloat(formData.quantity_sold) || 0) * (parseFloat(formData.unit_price) || 0);
+        let discountAmount = 0;
+        let finalTotal = grossAmount;
+        if (formData.discount_type === 'pwd' || formData.discount_type === 'senior') {
+          discountAmount = (grossAmount / 1.12) * 0.20;
+          finalTotal = Math.round(grossAmount - discountAmount);
+        } else if (formData.discount_type === 'custom' && formData.custom_discount_percent) {
+          discountAmount = grossAmount * (parseFloat(formData.custom_discount_percent) / 100);
+          finalTotal = Math.round(grossAmount - discountAmount);
+        }
+        const locationName = locations.find(l => l.id === parseInt(formData.location_id))?.name || '';
+        const discountLabel = formData.discount_type === 'pwd' ? 'PWD (20%)' :
+          formData.discount_type === 'senior' ? 'Senior (20%)' :
+          formData.discount_type === 'custom' ? `Custom (${formData.custom_discount_percent}%)` : 'None';
+
+        return (
+          <ConfirmModal
+            isOpen={showConfirm1}
+            onClose={() => setShowConfirm1(false)}
+            onConfirm={() => { setShowConfirm1(false); setShowConfirm2(true); }}
+            title="Review Sale Details"
+            message={
+              <>
+                <strong>{formData.item_description}</strong>
+                {locationName && <><br /><span style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>Branch: {locationName}</span></>}
+                <br /><br />
+                Qty: <strong>{formData.quantity_sold} {formData.item_unit}</strong>
+                <br />
+                Unit Price: <strong>₱{formatPrice(parseFloat(formData.unit_price) || 0)}</strong>
+                <br />
+                Discount: <strong>{discountLabel}</strong>
+                {discountAmount > 0 && <> (-₱{formatPrice(discountAmount)})</>}
+                <br /><br />
+                <span style={{ fontSize: '16px' }}>
+                  Total Due: <strong style={{ color: 'var(--success)' }}>₱{formatPrice(finalTotal)}</strong>
+                </span>
+                <br />
+                Payment: <strong>{formData.payment_method.replace('_', ' ').toUpperCase()}</strong>
+                {formData.customer_name && <><br />Customer: <strong>{formData.customer_name}</strong></>}
+              </>
+            }
+            confirmText="Looks correct, proceed"
+            cancelText="Go back & edit"
+            type="warning"
+          />
+        );
+      })()}
+
+      {/* Step 2: Final confirmation */}
+      <ConfirmModal
+        isOpen={showConfirm2}
+        onClose={() => { setShowConfirm2(false); setShowConfirm1(true); }}
+        onConfirm={executeSale}
+        title="Final Confirmation"
+        message="This will permanently record the sale and deduct the quantity from inventory. Are you absolutely sure? Any errors after recording are your responsibility."
+        confirmText="Yes, Record Sale"
+        cancelText="No, go back"
+        type="danger"
+        loading={confirmLoading}
+      />
     </div>
   );
 }
