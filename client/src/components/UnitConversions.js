@@ -18,10 +18,45 @@ function UnitConversions() {
     conversion_factor: ''
   });
 
+  const [detectedConversion, setDetectedConversion] = useState(null);
+
   useEffect(() => {
     fetchConversions();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Auto-detect conversion when product is selected
+  const handleProductSelect = async (item) => {
+    setFormData({ 
+      ...formData, 
+      product_description: item.description,
+      base_unit: item.unit,
+      converted_unit: '',
+      conversion_factor: ''
+    });
+    
+    // Check if conversion already exists for this product
+    try {
+      const response = await api.get(`/unit-conversions/product/${encodeURIComponent(item.description)}`);
+      if (response.data && response.data.length > 0) {
+        // Found existing conversion(s)
+        const existingConv = response.data[0]; // Use first conversion
+        setDetectedConversion(existingConv);
+        setFormData({
+          product_description: item.description,
+          base_unit: existingConv.base_unit,
+          converted_unit: existingConv.converted_unit,
+          conversion_factor: existingConv.conversion_factor
+        });
+        showToast(`Auto-detected conversion: 1 ${existingConv.base_unit} = ${existingConv.conversion_factor} ${existingConv.converted_unit}`, 'info');
+      } else {
+        setDetectedConversion(null);
+      }
+    } catch (error) {
+      console.error('Error checking for existing conversion:', error);
+      setDetectedConversion(null);
+    }
+  };
 
   const fetchConversions = async () => {
     try {
@@ -93,6 +128,7 @@ function UnitConversions() {
     });
     setEditingId(null);
     setShowForm(false);
+    setDetectedConversion(null);
   };
 
   // Group conversions by product
@@ -135,23 +171,29 @@ function UnitConversions() {
                 ) : (
                   <AutocompleteSearch
                     placeholder="Search for product..."
-                    onSelect={(item) => setFormData({ 
-                      ...formData, 
-                      product_description: item.description,
-                      base_unit: item.unit
-                    })}
+                    onSelect={handleProductSelect}
                   />
                 )}
                 {!editingId && formData.product_description && (
                   <div style={{ 
                     marginTop: '8px', 
                     padding: '8px', 
-                    backgroundColor: 'rgba(59, 130, 246, 0.1)', 
+                    backgroundColor: detectedConversion ? 'rgba(16, 185, 129, 0.1)' : 'rgba(59, 130, 246, 0.1)', 
                     borderRadius: 'var(--radius)',
                     fontSize: '13px',
-                    color: 'var(--primary)'
+                    color: detectedConversion ? 'var(--success)' : 'var(--primary)',
+                    border: detectedConversion ? '1px solid rgba(16, 185, 129, 0.3)' : 'none'
                   }}>
-                    Selected: {formData.product_description}
+                    {detectedConversion ? (
+                      <>
+                        ✓ Auto-detected: {formData.product_description}
+                        <div style={{ fontSize: '11px', marginTop: '4px', fontWeight: '600' }}>
+                          Conversion: 1 {detectedConversion.base_unit} = {detectedConversion.conversion_factor} {detectedConversion.converted_unit}
+                        </div>
+                      </>
+                    ) : (
+                      `Selected: ${formData.product_description}`
+                    )}
                   </div>
                 )}
               </div>
@@ -181,7 +223,7 @@ function UnitConversions() {
               </div>
 
               <div className="form-group">
-                <label>Conversion Factor *</label>
+                <label>Conversion Factor * {detectedConversion && <span style={{ color: 'var(--success)', fontSize: '12px' }}>(Auto-filled)</span>}</label>
                 <input
                   type="number"
                   step="0.01"
@@ -189,9 +231,16 @@ function UnitConversions() {
                   onChange={(e) => setFormData({ ...formData, conversion_factor: e.target.value })}
                   required
                   placeholder="e.g., 50"
+                  readOnly={detectedConversion !== null}
+                  style={{ 
+                    backgroundColor: detectedConversion ? 'rgba(16, 185, 129, 0.1)' : 'white',
+                    border: detectedConversion ? '2px solid var(--success)' : '1px solid var(--border)',
+                    cursor: detectedConversion ? 'not-allowed' : 'text'
+                  }}
                 />
                 <small style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>
                   1 {formData.base_unit || 'base unit'} = {formData.conversion_factor || '?'} {formData.converted_unit || 'converted units'}
+                  {detectedConversion && <span style={{ color: 'var(--success)', fontWeight: '600', marginLeft: '8px' }}>🔒 Locked from import</span>}
                 </small>
               </div>
             </div>
