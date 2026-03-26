@@ -3,7 +3,7 @@ import { useToast } from '../context/ToastContext';
 import api from '../utils/api';
 import * as XLSX from 'xlsx';
 import SimpleAutocomplete from './SimpleAutocomplete';
-import { FiEdit2, FiCheck, FiX, FiSearch } from 'react-icons/fi';
+import { FiEdit2, FiX, FiSearch } from 'react-icons/fi';
 
 function ImportModal({ isOpen, onClose, onImportComplete }) {
   const showToast = useToast();
