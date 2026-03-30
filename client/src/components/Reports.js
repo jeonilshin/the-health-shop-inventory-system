@@ -17,6 +17,8 @@ function Reports() {
     endDate: ''
   });
 
+  const [salesAutoFetching, setSalesAutoFetching] = useState(false);
+
   // Track which auto-calculated fields have been manually edited
   const [manualOverrides, setManualOverrides] = useState({
     gross_sales: false,
@@ -198,6 +200,45 @@ function Reports() {
     formData.other_disbursements, formData.actual_cash_deposited, formData.cash_overage_shortage,
     manualOverrides
   ]);
+
+  // Auto-populate cash/maya/gcash fields from recorded sales transactions
+  useEffect(() => {
+    if (!showForm || !formData.report_date || !formData.location_id) return;
+
+    const fetchSalesTotals = async () => {
+      setSalesAutoFetching(true);
+      try {
+        const params = new URLSearchParams();
+        params.append('startDate', formData.report_date);
+        params.append('endDate', formData.report_date);
+        params.append('locationId', formData.location_id);
+        const res = await api.get(`/sales-transactions?${params.toString()}`);
+        const txns = res.data;
+
+        let cashTotal = 0, mayaTotal = 0, gcashTotal = 0;
+        txns.forEach(txn => {
+          const amt = parseFloat(txn.total_amount || 0);
+          if (txn.payment_method === 'cash') cashTotal += amt;
+          else if (txn.payment_method === 'maya') mayaTotal += amt;
+          else if (txn.payment_method === 'gcash') gcashTotal += amt;
+        });
+
+        setFormData(prev => ({
+          ...prev,
+          cash_sales_external: cashTotal.toFixed(2),
+          maya_pos_qr: mayaTotal.toFixed(2),
+          gcash_qr: gcashTotal.toFixed(2),
+        }));
+      } catch (err) {
+        console.error('Error auto-fetching sales totals:', err);
+      } finally {
+        setSalesAutoFetching(false);
+      }
+    };
+
+    fetchSalesTotals();
+  // eslint-disable-next-line
+  }, [formData.report_date, formData.location_id, showForm]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -447,7 +488,13 @@ function Reports() {
                   <input type="text" value={formatNumberInput(formData.cash_beginning)} onChange={(e) => handleCurrencyChange('cash_beginning', e.target.value)} placeholder="0.00" />
                 </div>
                 <div className="form-group" style={{ marginBottom: 0 }}>
-                  <label>Cash Sales External</label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    Cash Sales External
+                    {salesAutoFetching
+                      ? <span style={{ fontSize: '10px', color: '#9ca3af' }}>fetching…</span>
+                      : <span style={{ fontSize: '10px', background: '#dbeafe', color: '#1d4ed8', borderRadius: '4px', padding: '1px 5px' }}>auto from sales</span>
+                    }
+                  </label>
                   <input type="text" value={formatNumberInput(formData.cash_sales_external)} onChange={(e) => handleCurrencyChange('cash_sales_external', e.target.value)} placeholder="0.00" />
                 </div>
                 <div className="form-group" style={{ marginBottom: 0 }}>
@@ -516,11 +563,23 @@ function Reports() {
               <h4 style={{ marginTop: 0, color: 'var(--primary)' }}>B. CREDIT SALES</h4>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}>
                 <div className="form-group" style={{ marginBottom: 0 }}>
-                  <label>Maya POS/QR</label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    Maya POS/QR
+                    {salesAutoFetching
+                      ? <span style={{ fontSize: '10px', color: '#9ca3af' }}>fetching…</span>
+                      : <span style={{ fontSize: '10px', background: '#dbeafe', color: '#1d4ed8', borderRadius: '4px', padding: '1px 5px' }}>auto from sales</span>
+                    }
+                  </label>
                   <input type="text" value={formatNumberInput(formData.maya_pos_qr)} onChange={(e) => handleCurrencyChange('maya_pos_qr', e.target.value)} placeholder="0.00" />
                 </div>
                 <div className="form-group" style={{ marginBottom: 0 }}>
-                  <label>GCash QR</label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    GCash QR
+                    {salesAutoFetching
+                      ? <span style={{ fontSize: '10px', color: '#9ca3af' }}>fetching…</span>
+                      : <span style={{ fontSize: '10px', background: '#dbeafe', color: '#1d4ed8', borderRadius: '4px', padding: '1px 5px' }}>auto from sales</span>
+                    }
+                  </label>
                   <input type="text" value={formatNumberInput(formData.gcash_qr)} onChange={(e) => handleCurrencyChange('gcash_qr', e.target.value)} placeholder="0.00" />
                 </div>
                 <div className="form-group" style={{ marginBottom: 0 }}>
