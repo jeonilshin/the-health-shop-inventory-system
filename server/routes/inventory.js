@@ -374,17 +374,24 @@ router.post('/convert-units', auth, authorize('admin', 'branch_manager', 'branch
       [piecesToAdd, toItemId]
     );
     
-    // Log audit
-    await logAudit({
+    // Log audit with conversion details for undo capability
+    const auditResult = await logAudit({
       userId: req.user.id,
       username: req.user.username,
       action: 'UNIT_CONVERSION',
       tableName: 'inventory',
       recordId: fromItemId,
-      oldValues: { from: fromItem, to: toItem },
+      oldValues: { 
+        from: { id: fromItem.id, quantity: fromItem.quantity, description: fromItem.description, unit: fromItem.unit },
+        to: { id: toItem.id, quantity: toItem.quantity, description: toItem.description, unit: toItem.unit }
+      },
       newValues: { 
         converted: `${boxesToConvert} ${fromItem.unit} → ${piecesToAdd} ${toItem.unit}`,
-        unitsPerBox 
+        unitsPerBox,
+        fromItemId,
+        toItemId,
+        boxesToConvert,
+        piecesToAdd
       },
       ipAddress: req.ip,
       userAgent: req.get('user-agent'),
@@ -398,7 +405,8 @@ router.post('/convert-units', auth, authorize('admin', 'branch_manager', 'branch
       converted: {
         from: `${boxesToConvert} ${fromItem.unit}`,
         to: `${piecesToAdd} ${toItem.unit}`
-      }
+      },
+      auditId: auditResult?.id
     });
   } catch (error) {
     await client.query('ROLLBACK');
@@ -418,7 +426,7 @@ router.get('/conversion-history/:locationId', auth, authorize('admin', 'branch_m
       return res.status(403).json({ error: 'Access denied to this location' });
     }
     
-    // Get conversion history from audit log
+    // Get conversion history from audit log (only last 24 hours for undo capability)
     const result = await pool.query(
       `SELECT 
         al.id,
@@ -430,9 +438,13 @@ router.get('/conversion-history/:locationId', auth, authorize('admin', 'branch_m
         al.new_values,
         al.description,
         al.created_at,
-        al.ip_address
+        al.ip_address,
+        CASE 
+          WHEN al.created_at > NOW() - INTERVAL '24 hours' AND al.action = 'UNIT_CONVERSION' THEN true
+          ELSE false
+        END as can_undo
       FROM audit_log al
-      WHERE al.action = 'UNIT_CONVERSION'
+      WHERE al.action IN ('UNIT_CONVERSION', 'UNDO_CONVERSION')
         AND al.table_name = 'inventory'
         AND al.record_id IN (
           SELECT id FROM inventory WHERE location_id = $1
@@ -445,6 +457,128 @@ router.get('/conversion-history/:locationId', auth, authorize('admin', 'branch_m
     res.json(result.rows);
   } catch (error) {
     res.status(500).json({ error: error.message });
+  }
+});
+
+// Undo a unit conversion (only within 24 hours)
+router.post('/undo-conversion/:auditId', auth, authorize('admin', 'branch_manager', 'branch_staff'), async (req, res) => {
+  const client = await pool.connect();
+  
+  try {
+    await client.query('BEGIN');
+    
+    // Get the audit log entry
+    const auditResult = await client.query(
+      `SELECT * FROM audit_log 
+       WHERE id = $1 AND action = 'UNIT_CONVERSION' AND table_name = 'inventory'`,
+      [req.params.auditId]
+    );
+    
+    if (auditResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Conversion record not found' });
+    }
+    
+    const audit = auditResult.rows[0];
+    
+    // Check if conversion is within 24 hours
+    const conversionTime = new Date(audit.created_at);
+    const now = new Date();
+    const hoursDiff = (now - conversionTime) / (1000 * 60 * 60);
+    
+    if (hoursDiff > 24) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Cannot undo conversions older than 24 hours' });
+    }
+    
+    // Check if already undone
+    const undoCheck = await client.query(
+      `SELECT * FROM audit_log 
+       WHERE action = 'UNDO_CONVERSION' AND new_values->>'original_audit_id' = $1`,
+      [req.params.auditId]
+    );
+    
+    if (undoCheck.rows.length > 0) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'This conversion has already been undone' });
+    }
+    
+    const fromItemId = audit.new_values.fromItemId;
+    const toItemId = audit.new_values.toItemId;
+    const boxesToConvert = parseFloat(audit.new_values.boxesToConvert);
+    const piecesToAdd = parseFloat(audit.new_values.piecesToAdd);
+    
+    // Get current items to verify they exist
+    const fromItemResult = await client.query('SELECT * FROM inventory WHERE id = $1', [fromItemId]);
+    const toItemResult = await client.query('SELECT * FROM inventory WHERE id = $1', [toItemId]);
+    
+    if (fromItemResult.rows.length === 0 || toItemResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'One or both items no longer exist' });
+    }
+    
+    const fromItem = fromItemResult.rows[0];
+    const toItem = toItemResult.rows[0];
+    
+    // Check if user has access to this location
+    if (req.user.role !== 'admin' && req.user.location_id != fromItem.location_id) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'Access denied to this location' });
+    }
+    
+    // Check if toItem has sufficient quantity to reverse
+    if (parseFloat(toItem.quantity) < piecesToAdd) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ 
+        error: `Cannot undo: Insufficient quantity in ${toItem.description}. Available: ${toItem.quantity}, Required: ${piecesToAdd}` 
+      });
+    }
+    
+    // Reverse the conversion
+    await client.query(
+      'UPDATE inventory SET quantity = quantity + $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+      [boxesToConvert, fromItemId]
+    );
+    
+    await client.query(
+      'UPDATE inventory SET quantity = quantity - $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+      [piecesToAdd, toItemId]
+    );
+    
+    // Log the undo action
+    await logAudit({
+      userId: req.user.id,
+      username: req.user.username,
+      action: 'UNDO_CONVERSION',
+      tableName: 'inventory',
+      recordId: fromItemId,
+      oldValues: { 
+        from: { id: fromItem.id, quantity: fromItem.quantity },
+        to: { id: toItem.id, quantity: toItem.quantity }
+      },
+      newValues: { 
+        original_audit_id: req.params.auditId,
+        reversed: `${piecesToAdd} ${toItem.unit} → ${boxesToConvert} ${fromItem.unit}`
+      },
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+      description: `Undid conversion: ${boxesToConvert} ${fromItem.unit} of ${fromItem.description} restored from ${piecesToAdd} ${toItem.unit}`
+    });
+    
+    await client.query('COMMIT');
+    
+    res.json({ 
+      message: 'Conversion undone successfully',
+      reversed: {
+        from: `${piecesToAdd} ${toItem.unit}`,
+        to: `${boxesToConvert} ${fromItem.unit}`
+      }
+    });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    res.status(500).json({ error: error.message });
+  } finally {
+    client.release();
   }
 });
 

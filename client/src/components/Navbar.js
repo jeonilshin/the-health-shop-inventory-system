@@ -62,7 +62,6 @@ const NAV_ITEMS = [
   { to: '/messages',        icon: FiMessageSquare, label: 'Messages',      roles: ['admin','warehouse','branch_manager','branch_staff'] },
   { to: '/admin',           icon: FiSettings,    label: 'Admin',           roles: ['admin'] },
   { to: '/audit',           icon: FiShield,      label: 'Audit Log',       roles: ['admin'] },
-  { to: '/unit-conversions',icon: FiRefreshCw,   label: 'Unit Conversions',roles: ['admin'] },
 ];
 
 function Navbar() {

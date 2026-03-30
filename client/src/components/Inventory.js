@@ -2827,37 +2827,76 @@ function Inventory() {
                     });
                     setIsConversionAutoDetected(false);
                     
-                    // Check if conversion already exists for this product
+                    // Smart auto-detection logic
+                    let toItem = null;
+                    let detectedUnitsPerBox = '';
+                    
+                    // Try to find matching PC item with same description
+                    toItem = filteredInventory.find(item => 
+                      item.description === selectedItem.description && 
+                      ['PC', 'pc', 'PCS', 'pcs'].includes(item.unit)
+                    );
+                    
+                    // If not found, try intelligent matching for items like "IMPEOUS MAN 10S" -> "IMPEOUS MAN 10S PC"
+                    if (!toItem) {
+                      // Look for items that start with the same description and end with PC/PCS
+                      toItem = filteredInventory.find(item => {
+                        const itemDesc = item.description.toLowerCase();
+                        const selectedDesc = selectedItem.description.toLowerCase();
+                        return (
+                          itemDesc.startsWith(selectedDesc) && 
+                          ['PC', 'pc', 'PCS', 'pcs'].includes(item.unit) &&
+                          (itemDesc === selectedDesc + ' pc' || itemDesc === selectedDesc + ' pcs' || itemDesc === selectedDesc)
+                        );
+                      });
+                    }
+                    
+                    // Extract number from description (e.g., "10S" or "10'S" means 10 pieces)
+                    const numberMatch = selectedItem.description.match(/(\d+)['']?S\b/i);
+                    if (numberMatch && toItem) {
+                      detectedUnitsPerBox = numberMatch[1];
+                    }
+                    
+                    // Check if conversion already exists in database
                     try {
                       const response = await api.get(`/unit-conversions/product/${encodeURIComponent(selectedItem.description)}`);
                       if (response.data && response.data.length > 0) {
-                        // Found existing conversion
                         const existingConv = response.data[0];
-                        
-                        // Find the matching "To Item" (PC version) in inventory
-                        const toItem = filteredInventory.find(item => 
-                          item.description === selectedItem.description && 
-                          ['PC', 'pc', 'PCS', 'pcs'].includes(item.unit)
-                        );
-                        
-                        if (toItem) {
-                          setConversionData({
-                            ...conversionData,
-                            fromItemId: itemIdToUse,
-                            fromItemDescription: selectedItem.description,
-                            fromItemUnit: selectedItem.unit,
-                            fromItemQty: qty,
-                            fromSearchText: `${selectedItem.description} - ${selectedItem.unit} (Qty: ${formatQuantity(qty)})`,
-                            toItemId: toItem.id,
-                            toSearchText: `${toItem.description} - ${toItem.unit} (Qty: ${formatQuantity(toItem.quantity)})`,
-                            unitsPerBox: existingConv.conversion_factor
-                          });
-                          setIsConversionAutoDetected(true);
-                          showToast(`Auto-detected: 1 ${existingConv.base_unit} = ${existingConv.conversion_factor} ${existingConv.converted_unit}`, 'info');
-                        }
+                        detectedUnitsPerBox = existingConv.conversion_factor;
                       }
                     } catch (error) {
-                      console.error('Error checking for existing conversion:', error);
+                      // Silently continue with pattern-based detection
+                    }
+                    
+                    // Apply auto-detection if we found a match
+                    if (toItem) {
+                      let toItemId = toItem.id;
+                      let toItemQty = toItem.totalQuantity || toItem.quantity || 0;
+                      
+                      // If toItem has multiple cost batches, use the first one
+                      if (toItem.costBatches && toItem.costBatches.length > 0) {
+                        toItemId = toItem.costBatches[0].id;
+                        toItemQty = toItem.costBatches.reduce((sum, b) => sum + parseFloat(b.quantity || 0), 0);
+                      }
+                      
+                      setConversionData({
+                        ...conversionData,
+                        fromItemId: itemIdToUse,
+                        fromItemDescription: selectedItem.description,
+                        fromItemUnit: selectedItem.unit,
+                        fromItemQty: qty,
+                        fromSearchText: `${selectedItem.description} - ${selectedItem.unit} (Qty: ${formatQuantity(qty)})`,
+                        toItemId: toItemId,
+                        toSearchText: `${toItem.description} - ${toItem.unit} (Qty: ${formatQuantity(toItemQty)})`,
+                        unitsPerBox: detectedUnitsPerBox
+                      });
+                      
+                      if (detectedUnitsPerBox) {
+                        setIsConversionAutoDetected(true);
+                        showToast(`Auto-detected: ${toItem.description} with ${detectedUnitsPerBox} units per ${selectedItem.unit}`, 'success');
+                      } else {
+                        showToast(`Found matching item: ${toItem.description}. Please enter units per ${selectedItem.unit}`, 'info');
+                      }
                     }
                   }}
                   displayField="description"
@@ -3046,6 +3085,9 @@ function Inventory() {
                 </div>
               ) : (
                 <div style={{ overflowX: 'auto' }}>
+                  <div className="alert alert-info" style={{ marginBottom: '16px', fontSize: '13px' }}>
+                    💡 You can undo conversions within 24 hours of creation
+                  </div>
                   <table style={{ width: '100%', fontSize: '14px' }}>
                     <thead>
                       <tr style={{ background: 'var(--bg-secondary)' }}>
@@ -3053,44 +3095,87 @@ function Inventory() {
                         <th style={{ padding: '12px 8px', textAlign: 'left' }}>User</th>
                         <th style={{ padding: '12px 8px', textAlign: 'left' }}>Conversion</th>
                         <th style={{ padding: '12px 8px', textAlign: 'left' }}>Description</th>
-                        <th style={{ padding: '12px 8px', textAlign: 'left' }}>IP Address</th>
+                        <th style={{ padding: '12px 8px', textAlign: 'center' }}>Action</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {conversionHistory.map((entry, index) => (
-                        <tr key={entry.id} style={{ borderBottom: '1px solid var(--border)' }}>
-                          <td style={{ padding: '12px 8px' }}>
-                            <div style={{ fontWeight: '600' }}>
-                              {new Date(entry.created_at).toLocaleDateString()}
-                            </div>
-                            <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                              {new Date(entry.created_at).toLocaleTimeString()}
-                            </div>
-                          </td>
-                          <td style={{ padding: '12px 8px', fontWeight: '600' }}>
-                            {entry.username}
-                          </td>
-                          <td style={{ padding: '12px 8px' }}>
-                            <div style={{ 
-                              padding: '4px 8px', 
-                              background: 'rgba(16, 185, 129, 0.1)', 
-                              borderRadius: 'var(--radius)',
-                              fontSize: '12px',
-                              fontWeight: '600',
-                              color: 'var(--success)',
-                              display: 'inline-block'
-                            }}>
-                              {entry.new_values?.converted || 'N/A'}
-                            </div>
-                          </td>
-                          <td style={{ padding: '12px 8px', fontSize: '13px' }}>
-                            {entry.description}
-                          </td>
-                          <td style={{ padding: '12px 8px', fontSize: '12px', color: 'var(--text-muted)' }}>
-                            {entry.ip_address}
-                          </td>
-                        </tr>
-                      ))}
+                      {conversionHistory.map((entry, index) => {
+                        const isUndone = entry.action === 'UNDO_CONVERSION';
+                        const canUndo = entry.can_undo && !isUndone;
+                        
+                        return (
+                          <tr key={entry.id} style={{ 
+                            borderBottom: '1px solid var(--border)',
+                            opacity: isUndone ? 0.6 : 1
+                          }}>
+                            <td style={{ padding: '12px 8px' }}>
+                              <div style={{ fontWeight: '600' }}>
+                                {new Date(entry.created_at).toLocaleDateString()}
+                              </div>
+                              <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                                {new Date(entry.created_at).toLocaleTimeString()}
+                              </div>
+                            </td>
+                            <td style={{ padding: '12px 8px', fontWeight: '600' }}>
+                              {entry.username}
+                            </td>
+                            <td style={{ padding: '12px 8px' }}>
+                              <div style={{ 
+                                padding: '4px 8px', 
+                                background: isUndone ? 'rgba(239, 68, 68, 0.1)' : 'rgba(16, 185, 129, 0.1)', 
+                                borderRadius: 'var(--radius)',
+                                fontSize: '12px',
+                                fontWeight: '600',
+                                color: isUndone ? '#ef4444' : 'var(--success)',
+                                display: 'inline-block'
+                              }}>
+                                {isUndone ? '↩️ ' : ''}
+                                {entry.new_values?.converted || entry.new_values?.reversed || 'N/A'}
+                              </div>
+                            </td>
+                            <td style={{ padding: '12px 8px', fontSize: '13px' }}>
+                              {entry.description}
+                            </td>
+                            <td style={{ padding: '12px 8px', textAlign: 'center' }}>
+                              {canUndo ? (
+                                <button
+                                  className="btn btn-sm"
+                                  onClick={async () => {
+                                    if (!window.confirm('Are you sure you want to undo this conversion?')) {
+                                      return;
+                                    }
+                                    try {
+                                      await api.post(`/inventory/undo-conversion/${entry.id}`);
+                                      showToast('Conversion undone successfully', 'success');
+                                      fetchConversionHistory();
+                                      fetchInventory();
+                                    } catch (error) {
+                                      showToast(error.response?.data?.error || 'Error undoing conversion', 'error');
+                                    }
+                                  }}
+                                  style={{ 
+                                    background: '#ef4444',
+                                    color: 'white',
+                                    fontSize: '12px',
+                                    padding: '4px 12px'
+                                  }}
+                                  title="Undo this conversion"
+                                >
+                                  ↩️ Undo
+                                </button>
+                              ) : isUndone ? (
+                                <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                                  Undone
+                                </span>
+                              ) : (
+                                <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                                  Expired
+                                </span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -3105,7 +3190,7 @@ function Inventory() {
                 color: 'var(--text-muted)'
               }}>
                 <strong>Note:</strong> This shows the last 100 unit conversions performed at this location. 
-                Each conversion is logged with the user, timestamp, and IP address for audit purposes.
+                Conversions can be undone within 24 hours. After 24 hours, the undo option expires automatically.
               </div>
             </div>
 
