@@ -3,7 +3,7 @@ import api from '../utils/api';
 import { AuthContext } from '../context/AuthContext';
 import { formatPrice, formatQuantity } from '../utils/formatNumber';
 import AutocompleteSearch from './AutocompleteSearch';
-import { FiShoppingCart, FiPlus, FiTrash2, FiDollarSign, FiCalendar, FiEdit2, FiX, FiCheck } from 'react-icons/fi';
+import { FiShoppingCart, FiPlus, FiTrash2, FiDollarSign, FiCalendar, FiEdit2, FiX, FiCheck, FiAlertTriangle, FiCheckCircle } from 'react-icons/fi';
 import ConfirmModal from './ConfirmModal';
 
 function Sales() {
@@ -16,6 +16,13 @@ function Sales() {
   const [showConfirm1, setShowConfirm1] = useState(false);
   const [showConfirm2, setShowConfirm2] = useState(false);
   const [confirmLoading, setConfirmLoading] = useState(false);
+
+  // ── cancellation state ──
+  const [cancelModal, setCancelModal] = useState({ open: false, sale: null });
+  const [cancelReason, setCancelReason] = useState('');
+  const [cancelLoading, setCancelLoading] = useState(false);
+  const [pendingCancellations, setPendingCancellations] = useState([]);
+  const [rejectCancelState, setRejectCancelState] = useState({ id: null, note: '' });
   
   // Calculate date 7 days ago
   const getSevenDaysAgo = () => {
@@ -49,12 +56,13 @@ function Sales() {
   useEffect(() => {
     fetchLocations();
     fetchSales();
-    
-    // Listen for tab visibility changes
+    if (user.role === 'admin') fetchPendingCancellations();
+
     const handleTabVisible = () => {
       fetchSales();
+      if (user.role === 'admin') fetchPendingCancellations();
     };
-    
+
     window.addEventListener('tab-visible', handleTabVisible);
     return () => window.removeEventListener('tab-visible', handleTabVisible);
     // eslint-disable-next-line
@@ -75,11 +83,67 @@ function Sales() {
       if (filters.startDate) params.append('startDate', filters.startDate);
       if (filters.endDate) params.append('endDate', filters.endDate);
       if (filters.locationId && filters.locationId !== 'all') params.append('locationId', filters.locationId);
-      
+
       const response = await api.get(`/sales-transactions?${params.toString()}`);
       setSales(response.data);
     } catch (error) {
       console.error('Error fetching sales:', error);
+    }
+  };
+
+  const fetchPendingCancellations = async () => {
+    try {
+      const res = await api.get('/sales-transactions/pending-cancellations');
+      setPendingCancellations(res.data);
+    } catch (error) {
+      console.error('Error fetching pending cancellations:', error);
+    }
+  };
+
+  const handleCancelSale = async () => {
+    if (!cancelReason.trim()) {
+      alert('Please provide a reason for cancelling this sale.');
+      return;
+    }
+    setCancelLoading(true);
+    try {
+      await api.post(`/sales-transactions/${cancelModal.sale.id}/cancel`, { reason: cancelReason.trim() });
+      setCancelModal({ open: false, sale: null });
+      setCancelReason('');
+      alert('Sale cancelled and inventory restored. Admin has been notified.');
+      fetchSales();
+    } catch (err) {
+      alert(err.response?.data?.error || 'Error cancelling sale');
+    } finally {
+      setCancelLoading(false);
+    }
+  };
+
+  const handleApproveCancellation = async (id) => {
+    if (!window.confirm('Approve this cancellation? The inventory was already restored.')) return;
+    try {
+      await api.put(`/sales-transactions/${id}/cancel/approve`);
+      fetchPendingCancellations();
+      fetchSales();
+    } catch (err) {
+      alert(err.response?.data?.error || 'Error approving cancellation');
+    }
+  };
+
+  const handleRejectCancellation = async () => {
+    if (!rejectCancelState.note.trim()) {
+      alert('Please enter a rejection reason.');
+      return;
+    }
+    try {
+      await api.put(`/sales-transactions/${rejectCancelState.id}/cancel/reject`, {
+        admin_note: rejectCancelState.note.trim()
+      });
+      setRejectCancelState({ id: null, note: '' });
+      fetchPendingCancellations();
+      fetchSales();
+    } catch (err) {
+      alert(err.response?.data?.error || 'Error rejecting cancellation');
     }
   };
 
@@ -283,6 +347,8 @@ function Sales() {
     printWindow.document.close();
   };
 
+  const isBranchUser = user.role === 'branch_manager' || user.role === 'branch_staff';
+
   return (
     <div className="container">
       {/* Header */}
@@ -327,6 +393,104 @@ function Sales() {
           </button>
         )}
       </div>
+
+      {/* ── Admin: Pending Sale Cancellation Requests ── */}
+      {user.role === 'admin' && pendingCancellations.length > 0 && (
+        <div className="card" style={{ borderLeft: '4px solid #ef4444', marginBottom: '24px' }}>
+          <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#ef4444', marginBottom: '16px' }}>
+            <FiAlertTriangle size={20} />
+            Pending Sale Cancellation Requests ({pendingCancellations.length})
+          </h3>
+          <p style={{ fontSize: '13px', color: '#6b7280', marginBottom: '16px', marginTop: 0 }}>
+            Inventory has already been restored for each of these. Approve to acknowledge, or reject to re-deduct inventory and reinstate the sale.
+          </p>
+          <div style={{ overflowX: 'auto' }}>
+            <table>
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Branch</th>
+                  <th>Item</th>
+                  <th>Qty</th>
+                  <th>Total</th>
+                  <th>Sold By</th>
+                  <th>Reason</th>
+                  <th>Requested By</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pendingCancellations.map(sale => (
+                  <tr key={sale.id}>
+                    <td style={{ fontSize: '13px' }}>{new Date(sale.transaction_date).toLocaleDateString()}</td>
+                    <td style={{ fontSize: '13px' }}>{sale.location_name}</td>
+                    <td>
+                      <div style={{ fontWeight: 600, fontSize: '13px' }}>{sale.item_description}</div>
+                      <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>{sale.item_unit}</div>
+                    </td>
+                    <td style={{ fontSize: '13px' }}>{formatQuantity(sale.quantity_sold)}</td>
+                    <td style={{ fontSize: '13px', fontWeight: 600 }}>₱{formatPrice(sale.total_amount)}</td>
+                    <td style={{ fontSize: '12px' }}>{sale.sold_by_name}</td>
+                    <td style={{ fontSize: '12px', color: '#6b7280', maxWidth: '160px' }}>{sale.cancellation_reason}</td>
+                    <td style={{ fontSize: '12px' }}>
+                      {sale.cancelled_by_name}
+                      <div style={{ fontSize: '11px', color: '#9ca3af' }}>
+                        {sale.cancelled_at ? new Date(sale.cancelled_at).toLocaleDateString() : ''}
+                      </div>
+                    </td>
+                    <td>
+                      {rejectCancelState.id === sale.id ? (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', minWidth: '200px' }}>
+                          <textarea
+                            rows={2}
+                            placeholder="Rejection reason (required)"
+                            value={rejectCancelState.note}
+                            onChange={e => setRejectCancelState(s => ({ ...s, note: e.target.value }))}
+                            style={{ width: '100%', padding: '6px 8px', fontSize: '12px', border: '1px solid #d1d5db', borderRadius: '6px', resize: 'none', fontFamily: 'inherit', boxSizing: 'border-box' }}
+                          />
+                          <div style={{ display: 'flex', gap: '6px' }}>
+                            <button
+                              className="btn"
+                              style={{ flex: 1, padding: '4px 8px', fontSize: '12px', background: '#ef4444', color: '#fff', border: 'none' }}
+                              onClick={handleRejectCancellation}
+                            >
+                              Confirm Reject
+                            </button>
+                            <button
+                              className="btn"
+                              style={{ padding: '4px 8px', fontSize: '12px' }}
+                              onClick={() => setRejectCancelState({ id: null, note: '' })}
+                            >
+                              <FiX size={12} />
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div style={{ display: 'flex', gap: '6px', flexWrap: 'nowrap' }}>
+                          <button
+                            className="btn btn-success"
+                            style={{ padding: '4px 10px', fontSize: '12px', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: '4px' }}
+                            onClick={() => handleApproveCancellation(sale.id)}
+                          >
+                            <FiCheckCircle size={12} /> Approve
+                          </button>
+                          <button
+                            className="btn"
+                            style={{ padding: '4px 10px', fontSize: '12px', background: '#fee2e2', color: '#b91c1c', border: '1px solid #fca5a5', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: '4px' }}
+                            onClick={() => setRejectCancelState({ id: sale.id, note: '' })}
+                          >
+                            <FiX size={12} /> Reject
+                          </button>
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* Summary Cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginBottom: '20px' }}>
@@ -780,13 +944,13 @@ function Sales() {
               <th>Total</th>
               <th>Payment</th>
               <th>Sold By</th>
-              {user.role === 'admin' && <th>Actions</th>}
+              {(user.role === 'admin' || isBranchUser) && <th>Actions</th>}
             </tr>
           </thead>
           <tbody>
             {sales.length === 0 ? (
               <tr>
-                <td colSpan={user.role === 'admin' ? "10" : "8"} style={{ textAlign: 'center', padding: '20px' }}>
+                <td colSpan={user.role === 'admin' ? "10" : isBranchUser ? "9" : "8"} style={{ textAlign: 'center', padding: '20px' }}>
                   No sales recorded for this period
                 </td>
               </tr>
@@ -893,49 +1057,55 @@ function Sales() {
                       )}
                     </td>
                     <td style={{ fontSize: '12px' }}>{sale.sold_by_name}</td>
-                    {user.role === 'admin' && (
+                    {(user.role === 'admin' || isBranchUser) && (
                       <td>
-                        <div style={{ display: 'flex', gap: '4px' }}>
-                          {isEditing ? (
-                            <>
-                              <button 
-                                className="btn btn-success" 
-                                style={{ padding: '6px 10px', fontSize: '12px' }}
-                                onClick={() => handleSaveEdit(sale.id)}
-                                title="Save"
-                              >
-                                <FiCheck size={14} />
-                              </button>
-                              <button 
-                                className="btn btn-secondary" 
-                                style={{ padding: '6px 10px', fontSize: '12px' }}
-                                onClick={handleCancelEdit}
-                                title="Cancel"
-                              >
-                                <FiX size={14} />
-                              </button>
-                            </>
-                          ) : (
-                            <>
-                              <button 
-                                className="btn btn-primary" 
-                                style={{ padding: '6px 10px', fontSize: '12px' }}
-                                onClick={() => handleEdit(sale)}
-                                title="Edit"
-                              >
-                                <FiEdit2 size={12} />
-                              </button>
-                              <button 
-                                className="btn btn-danger" 
-                                style={{ padding: '6px 10px', fontSize: '12px' }}
-                                onClick={() => handleDelete(sale.id)}
-                                title="Delete"
-                              >
-                                <FiTrash2 size={12} />
-                              </button>
-                            </>
-                          )}
-                        </div>
+                        {/* Admin: edit / delete / show cancelled badge */}
+                        {user.role === 'admin' && (
+                          <div style={{ display: 'flex', gap: '4px', flexDirection: 'column', alignItems: 'flex-start' }}>
+                            {sale.cancellation_status === 'approved' && (
+                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '2px 8px', borderRadius: '10px', fontSize: '11px', fontWeight: 600, background: '#fee2e2', color: '#b91c1c', marginBottom: '4px' }}>
+                                <FiX size={10} /> Cancelled
+                              </span>
+                            )}
+                            {sale.cancellation_status === 'rejected' && (
+                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '2px 8px', borderRadius: '10px', fontSize: '11px', fontWeight: 600, background: '#fef3c7', color: '#92400e', marginBottom: '4px' }}>
+                                Cancel Rejected
+                              </span>
+                            )}
+                            <div style={{ display: 'flex', gap: '4px' }}>
+                              {isEditing ? (
+                                <>
+                                  <button className="btn btn-success" style={{ padding: '6px 10px', fontSize: '12px' }} onClick={() => handleSaveEdit(sale.id)} title="Save">
+                                    <FiCheck size={14} />
+                                  </button>
+                                  <button className="btn btn-secondary" style={{ padding: '6px 10px', fontSize: '12px' }} onClick={handleCancelEdit} title="Cancel">
+                                    <FiX size={14} />
+                                  </button>
+                                </>
+                              ) : (
+                                <>
+                                  <button className="btn btn-primary" style={{ padding: '6px 10px', fontSize: '12px' }} onClick={() => handleEdit(sale)} title="Edit">
+                                    <FiEdit2 size={12} />
+                                  </button>
+                                  <button className="btn btn-danger" style={{ padding: '6px 10px', fontSize: '12px' }} onClick={() => handleDelete(sale.id)} title="Delete">
+                                    <FiTrash2 size={12} />
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Branch: request cancellation */}
+                        {isBranchUser && (
+                          <button
+                            className="btn"
+                            style={{ padding: '4px 10px', fontSize: '12px', background: '#fee2e2', color: '#b91c1c', border: '1px solid #fca5a5', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                            onClick={() => { setCancelModal({ open: true, sale }); setCancelReason(''); }}
+                          >
+                            <FiX size={11} /> Cancel Sale
+                          </button>
+                        )}
                       </td>
                     )}
                   </tr>
@@ -1008,6 +1178,71 @@ function Sales() {
         type="danger"
         loading={confirmLoading}
       />
+
+      {/* ── Cancel Sale Modal ── */}
+      {cancelModal.open && cancelModal.sale && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '16px' }}>
+          <div style={{ background: 'var(--bg-card, #fff)', borderRadius: '12px', width: '100%', maxWidth: '460px', boxShadow: '0 20px 60px rgba(0,0,0,0.25)', overflow: 'hidden' }}>
+            {/* Header */}
+            <div style={{ padding: '20px 24px 16px', borderBottom: '1px solid var(--border-color, #e5e7eb)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <FiAlertTriangle size={22} color="#ef4444" />
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700 }}>Cancel Sale Record</h3>
+                  <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-secondary, #6b7280)' }}>Inventory will be restored immediately</p>
+                </div>
+              </div>
+              <button onClick={() => setCancelModal({ open: false, sale: null })} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center' }}>
+                <FiX size={20} />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div style={{ padding: '20px 24px' }}>
+              {/* Sale summary */}
+              <div style={{ background: '#fee2e2', border: '1px solid #fca5a5', borderRadius: '8px', padding: '12px 16px', marginBottom: '16px' }}>
+                <div style={{ fontWeight: 700, fontSize: '14px', color: '#b91c1c' }}>{cancelModal.sale.item_description}</div>
+                <div style={{ fontSize: '13px', color: '#991b1b', marginTop: '4px' }}>
+                  {formatQuantity(cancelModal.sale.quantity_sold)} {cancelModal.sale.item_unit} &nbsp;·&nbsp; ₱{formatPrice(cancelModal.sale.total_amount)}
+                  &nbsp;·&nbsp; {new Date(cancelModal.sale.transaction_date).toLocaleDateString()}
+                </div>
+              </div>
+
+              <div style={{ background: '#fef3c7', border: '1px solid #f59e0b', borderRadius: '8px', padding: '10px 14px', marginBottom: '16px', fontSize: '13px', color: '#92400e' }}>
+                The sale will be cancelled and <strong>{formatQuantity(cancelModal.sale.quantity_sold)} {cancelModal.sale.item_unit}</strong> will be returned to inventory right away. Admin will be notified to acknowledge.
+              </div>
+
+              <div style={{ marginBottom: '8px' }}>
+                <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, marginBottom: '6px' }}>
+                  Reason for cancellation <span style={{ color: '#ef4444' }}>*</span>
+                </label>
+                <textarea
+                  rows={3}
+                  placeholder="Explain the error — e.g. wrong item entered, duplicate record, customer returned…"
+                  value={cancelReason}
+                  onChange={e => setCancelReason(e.target.value)}
+                  style={{ width: '100%', padding: '8px 12px', border: '1px solid var(--border-color, #d1d5db)', borderRadius: '8px', fontSize: '14px', resize: 'vertical', boxSizing: 'border-box', fontFamily: 'inherit', background: 'var(--bg-input, #fff)' }}
+                />
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div style={{ padding: '16px 24px', borderTop: '1px solid var(--border-color, #e5e7eb)', display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+              <button onClick={() => setCancelModal({ open: false, sale: null })} disabled={cancelLoading} className="btn" style={{ padding: '8px 20px' }}>
+                Keep Sale
+              </button>
+              <button
+                onClick={handleCancelSale}
+                disabled={cancelLoading || !cancelReason.trim()}
+                className="btn"
+                style={{ padding: '8px 20px', background: '#ef4444', color: '#fff', border: 'none', opacity: (cancelLoading || !cancelReason.trim()) ? 0.6 : 1 }}
+              >
+                {cancelLoading ? 'Cancelling…' : 'Cancel & Restore Inventory'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

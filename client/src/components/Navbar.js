@@ -183,6 +183,7 @@ function Navbar() {
             else if (item.to === '/transfers' && user.role === 'admin') badgeCount = counts.transfers;
             else if (item.to === '/deliveries') badgeCount = counts.deliveries;
             else if (item.to === '/discrepancy' && user.role === 'admin') badgeCount = counts.discrepancies;
+            else if (item.to === '/sales' && user.role === 'admin') badgeCount = counts.sale_cancellations;
 
             return (
               <NavLink

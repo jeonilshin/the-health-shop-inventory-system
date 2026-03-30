@@ -10,7 +10,8 @@ router.get('/', auth, async (req, res) => {
       messages: 0,
       transfers: 0,
       deliveries: 0,
-      discrepancies: 0
+      discrepancies: 0,
+      sale_cancellations: 0
     };
 
     // 1. Unread messages count
@@ -53,6 +54,14 @@ router.get('/', auth, async (req, res) => {
         `SELECT COUNT(*) FROM delivery_discrepancies WHERE status = 'pending'`
       );
       counts.discrepancies = parseInt(discrepanciesResult.rows[0].count);
+    }
+
+    // 5. Pending sale cancellation requests (admin only)
+    if (req.user.role === 'admin') {
+      const cancelResult = await pool.query(
+        `SELECT COUNT(*) FROM sales_transactions WHERE cancellation_status = 'pending'`
+      );
+      counts.sale_cancellations = parseInt(cancelResult.rows[0].count);
     }
 
     res.json(counts);
