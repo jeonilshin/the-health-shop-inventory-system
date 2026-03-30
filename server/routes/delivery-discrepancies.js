@@ -57,8 +57,8 @@ router.get('/pending-count', auth, authorize('admin'), async (req, res) => {
   }
 });
 
-// ── POST create discrepancy (shortage or return) ───────────────────────────
-router.post('/', auth, authorize('admin', 'branch_manager'), async (req, res) => {
+// ── POST create discrepancy (shortage, return, or damage) ──────────────────
+router.post('/', auth, authorize('admin', 'branch_manager', 'warehouse'), async (req, res) => {
   try {
     const {
       type,
@@ -79,8 +79,8 @@ router.post('/', auth, authorize('admin', 'branch_manager'), async (req, res) =>
       return res.status(400).json({ error: 'All fields are required including note' });
     }
 
-    if (!['shortage', 'return'].includes(type)) {
-      return res.status(400).json({ error: 'Type must be "shortage" or "return"' });
+    if (!['shortage', 'return', 'damage'].includes(type)) {
+      return res.status(400).json({ error: 'Type must be "shortage", "return", or "damage"' });
     }
 
     if (type === 'shortage') {
@@ -96,11 +96,16 @@ router.post('/', auth, authorize('admin', 'branch_manager'), async (req, res) =>
       return res.status(400).json({ error: 'Return quantity must be greater than zero' });
     }
 
+    if (type === 'damage' && parseFloat(expected_quantity) <= 0) {
+      return res.status(400).json({ error: 'Damage quantity must be greater than zero' });
+    }
+
     if (!warehouse_location_id) {
       return res.status(400).json({ error: 'warehouse_location_id is required' });
     }
 
-    const branchLocId = branch_location_id || req.user.location_id;
+    // branch_location_id is NULL for damage reports (warehouse only)
+    const branchLocId = type === 'damage' ? null : (branch_location_id || req.user.location_id);
 
     // ── For shortage: verify delivery exists and is delivered ──
     if (type === 'shortage') {
@@ -136,19 +141,22 @@ router.post('/', auth, authorize('admin', 'branch_manager'), async (req, res) =>
 
     const disc = result.rows[0];
 
-    // Fetch branch name for notification message
-    const branchInfo = await pool.query('SELECT name FROM locations WHERE id = $1', [branchLocId]);
-    const branchName = branchInfo.rows[0]?.name || 'Branch';
+    // Fetch location name for notification message
+    const reporterLocId = branchLocId || parseInt(warehouse_location_id);
+    const locInfo = await pool.query('SELECT name FROM locations WHERE id = $1', [reporterLocId]);
+    const locName = locInfo.rows[0]?.name || 'Location';
 
-    const typeLabel  = type === 'shortage' ? 'Shortage Report'  : 'Return Request';
+    const typeLabel  = type === 'shortage' ? 'Shortage Report' : type === 'return' ? 'Return Request' : 'Damage Report';
     const actionDesc = type === 'shortage'
       ? `Shortage: ${item_description} — expected ${expected_quantity}, received ${received_quantity} ${unit}`
-      : `Return Request: ${received_quantity} ${unit} of ${item_description} from ${branchName}`;
+      : type === 'return'
+      ? `Return Request: ${received_quantity} ${unit} of ${item_description} from ${locName}`
+      : `Damage Report: ${expected_quantity} ${unit} of ${item_description} damaged at ${locName}`;
 
     await logAudit({
       userId: req.user.id,
       username: req.user.username,
-      action: type === 'shortage' ? 'DISCREPANCY_REPORT' : 'RETURN_REQUEST',
+      action: type === 'shortage' ? 'DISCREPANCY_REPORT' : type === 'return' ? 'RETURN_REQUEST' : 'DAMAGE_REPORT',
       tableName: 'delivery_discrepancies',
       recordId: disc.id,
       newValues: disc,
@@ -159,10 +167,10 @@ router.post('/', auth, authorize('admin', 'branch_manager'), async (req, res) =>
 
     // Notify all admins
     await notifyAdmins(
-      type === 'shortage' ? 'shortage_report' : 'return_request',
-      `${typeLabel} Filed by ${branchName}`,
+      type === 'shortage' ? 'shortage_report' : type === 'return' ? 'return_request' : 'damage_report',
+      `${typeLabel} Filed by ${locName}`,
       `${item_description}: ${actionDesc}. Needs your review.`,
-      '/deliveries'
+      '/discrepancy'
     );
 
     res.status(201).json(disc);
@@ -214,21 +222,23 @@ router.put('/:id/approve', auth, authorize('admin'), async (req, res) => {
       newValues: updated.rows[0],
       ipAddress: req.ip,
       userAgent: req.get('user-agent'),
-      description: `Approved ${disc.type} for "${disc.item_description}" - Awaiting inventory addition`
+      description: `Approved ${disc.type} for "${disc.item_description}" - Awaiting inventory adjustment`
     });
 
-    // Notify branch
-    const typeLabel = disc.type === 'shortage' ? 'Shortage report' : 'Return request';
-    await notifyLocation(
-      disc.branch_location_id,
-      'discrepancy_approved',
-      `${typeLabel} Approved`,
-      `Your ${disc.type} request for "${disc.item_description}" has been approved by admin.`,
-      '/discrepancy'
-    );
+    // Notify branch (only if branch is involved)
+    if (disc.branch_location_id) {
+      const typeLabel = disc.type === 'shortage' ? 'Shortage report' : 'Return request';
+      await notifyLocation(
+        disc.branch_location_id,
+        'discrepancy_approved',
+        `${typeLabel} Approved`,
+        `Your ${disc.type} request for "${disc.item_description}" has been approved by admin.`,
+        '/discrepancy'
+      );
+    }
 
     res.json({
-      message: 'Discrepancy approved. Click "Add to my inventory" to complete the process.',
+      message: 'Discrepancy approved. Click the action button to complete the inventory adjustment.',
       discrepancy: updated.rows[0]
     });
   } catch (error) {
@@ -237,7 +247,7 @@ router.put('/:id/approve', auth, authorize('admin'), async (req, res) => {
 });
 
 // ── PUT /:id/add-to-inventory ──────────────────────────────────────────────
-// Admin adds the approved discrepancy items to warehouse inventory
+// Admin completes the approved discrepancy - adjusts inventory accordingly
 router.put('/:id/add-to-inventory', auth, authorize('admin'), async (req, res) => {
   const client = await pool.connect();
 
@@ -266,18 +276,19 @@ router.put('/:id/add-to-inventory', auth, authorize('admin'), async (req, res) =
     // Calculate adjustment quantity
     const adjustQty = disc.type === 'shortage'
       ? parseFloat(disc.expected_quantity) - parseFloat(disc.received_quantity)
-      : parseFloat(disc.received_quantity);
+      : parseFloat(disc.received_quantity); // return and damage use received_quantity
 
     if (adjustQty <= 0) {
       await client.query('ROLLBACK');
       return res.status(400).json({ error: 'Adjustment quantity must be positive' });
     }
 
-    // Handle based on type
+    // ── SHORTAGE ──────────────────────────────────────────────────────────
+    // Warehouse delivered 10, branch received 8 → shortage = 2
+    // Fix: add 2 back to warehouse AND deduct 2 from branch (branch was credited 10 on accept)
     if (disc.type === 'shortage') {
-      // SHORTAGE: Add missing quantity to warehouse (branch already has correct amount)
       console.log(`[SHORTAGE] Adding ${adjustQty} ${disc.unit} of "${disc.item_description}" to warehouse ${disc.warehouse_location_id}`);
-      
+
       const batchId = `DISC-SHORTAGE-${disc.id}-${Date.now()}`;
       await client.query(
         `INSERT INTO inventory
@@ -294,42 +305,85 @@ router.put('/:id/add-to-inventory', auth, authorize('admin'), async (req, res) =
           batchId
         ]
       );
-      
-      console.log(`[SHORTAGE] Successfully added to warehouse inventory`);
 
-    } else {
-      // RETURN: Deduct from branch and add to warehouse
+      // Deduct the shortage amount from branch inventory (branch was over-credited on delivery accept)
+      console.log(`[SHORTAGE] Deducting ${adjustQty} ${disc.unit} from branch ${disc.branch_location_id}`);
+
+      const branchInv = await client.query(
+        `SELECT id, quantity, cost_batch_id
+         FROM inventory
+         WHERE location_id = $1
+           AND LOWER(TRIM(description)) = LOWER(TRIM($2))
+           AND LOWER(TRIM(unit))        = LOWER(TRIM($3))
+         ORDER BY created_at ASC`,
+        [disc.branch_location_id, disc.item_description, disc.unit]
+      );
+
+      if (branchInv.rows.length === 0) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({
+          error: `Cannot adjust branch inventory: "${disc.item_description}" (${disc.unit}) not found in branch. The item may have already been fully consumed or removed.`
+        });
+      }
+
+      const totalBranchAvailable = branchInv.rows.reduce((sum, b) => sum + parseFloat(b.quantity), 0);
+      if (totalBranchAvailable < adjustQty) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({
+          error: `Insufficient stock in branch to correct. Available: ${totalBranchAvailable} ${disc.unit}, shortage amount: ${adjustQty}. Branch may have already sold or used those items.`
+        });
+      }
+
+      let branchRemaining = adjustQty;
+      for (const batch of branchInv.rows) {
+        if (branchRemaining <= 0) break;
+        const batchQty = parseFloat(batch.quantity);
+        const deduct = Math.min(batchQty, branchRemaining);
+        if (deduct >= batchQty) {
+          await client.query('DELETE FROM inventory WHERE id = $1', [batch.id]);
+        } else {
+          await client.query(
+            'UPDATE inventory SET quantity = quantity - $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+            [deduct, batch.id]
+          );
+        }
+        branchRemaining -= deduct;
+      }
+
+      console.log(`[SHORTAGE] Completed: ${adjustQty} returned to warehouse, deducted from branch`);
+
+    // ── RETURN ────────────────────────────────────────────────────────────
+    // Branch sends items back to warehouse
+    } else if (disc.type === 'return') {
       console.log(`[RETURN] Looking for item in branch ${disc.branch_location_id}: "${disc.item_description}" (${disc.unit})`);
-      
-      // Get ALL batches of this item in the branch (not just one)
+
+      // Get ALL batches of this item in the branch (FIFO)
       const branchInv = await client.query(
         `SELECT id, quantity, description, unit, cost_batch_id
          FROM inventory
-         WHERE location_id = $1 
-         AND LOWER(TRIM(description)) = LOWER(TRIM($2))
-         AND LOWER(TRIM(unit)) = LOWER(TRIM($3))
-         ORDER BY created_at ASC`,  // FIFO - oldest first
+         WHERE location_id = $1
+           AND LOWER(TRIM(description)) = LOWER(TRIM($2))
+           AND LOWER(TRIM(unit))        = LOWER(TRIM($3))
+         ORDER BY created_at ASC`,
         [disc.branch_location_id, disc.item_description, disc.unit]
       );
 
       console.log(`[RETURN] Found ${branchInv.rows.length} batch(es) in branch inventory`);
-      
+
       if (branchInv.rows.length === 0) {
         await client.query('ROLLBACK');
-        
-        // Debug: Show what's actually in the branch inventory
+
         const debugInv = await client.query(
-          `SELECT description, unit, quantity FROM inventory WHERE location_id = $1 LIMIT 10`,
+          'SELECT description, unit, quantity FROM inventory WHERE location_id = $1 LIMIT 10',
           [disc.branch_location_id]
         );
         console.log('[RETURN] Branch inventory items:', debugInv.rows);
-        
+
         return res.status(400).json({
           error: `"${disc.item_description}" (${disc.unit}) not found in branch inventory. Please check the item exists in the branch.`
         });
       }
 
-      // Calculate total available across all batches
       const totalAvailable = branchInv.rows.reduce((sum, batch) => sum + parseFloat(batch.quantity), 0);
       console.log(`[RETURN] Total available across all batches: ${totalAvailable} ${disc.unit}`);
 
@@ -340,39 +394,26 @@ router.put('/:id/add-to-inventory', auth, authorize('admin'), async (req, res) =
         });
       }
 
-      // Deduct from batches using FIFO (First In First Out)
+      // Deduct from batches using FIFO
       let remainingToDeduct = adjustQty;
       for (const batch of branchInv.rows) {
         if (remainingToDeduct <= 0) break;
-        
+
         const batchQty = parseFloat(batch.quantity);
         const deductFromThisBatch = Math.min(batchQty, remainingToDeduct);
-        
-        console.log(`[RETURN] Deducting ${deductFromThisBatch} from batch ${batch.cost_batch_id} (has ${batchQty})`);
-        
+
         if (deductFromThisBatch >= batchQty) {
-          // Remove entire batch
-          await client.query(
-            `DELETE FROM inventory WHERE id = $1`,
-            [batch.id]
-          );
-          console.log(`[RETURN] Deleted entire batch ${batch.cost_batch_id}`);
+          await client.query('DELETE FROM inventory WHERE id = $1', [batch.id]);
         } else {
-          // Partial deduction
           await client.query(
-            `UPDATE inventory
-             SET quantity = quantity - $1, updated_at = CURRENT_TIMESTAMP
-             WHERE id = $2`,
+            'UPDATE inventory SET quantity = quantity - $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
             [deductFromThisBatch, batch.id]
           );
-          console.log(`[RETURN] Reduced batch ${batch.cost_batch_id} by ${deductFromThisBatch}`);
         }
-        
+
         remainingToDeduct -= deductFromThisBatch;
       }
 
-      console.log(`[RETURN] Successfully deducted ${adjustQty} from branch. Adding to warehouse ${disc.warehouse_location_id}`);
-      
       // Add to warehouse
       const batchId = `DISC-RETURN-${disc.id}-${Date.now()}`;
       await client.query(
@@ -390,8 +431,57 @@ router.put('/:id/add-to-inventory', auth, authorize('admin'), async (req, res) =
           batchId
         ]
       );
-      
-      console.log(`[RETURN] Successfully completed return process - ${adjustQty} ${disc.unit} moved from branch to warehouse`);
+
+      console.log(`[RETURN] Completed: ${adjustQty} ${disc.unit} moved from branch to warehouse`);
+
+    // ── DAMAGE ────────────────────────────────────────────────────────────
+    // Write off damaged goods from warehouse inventory
+    } else if (disc.type === 'damage') {
+      console.log(`[DAMAGE] Writing off ${adjustQty} ${disc.unit} of "${disc.item_description}" from warehouse ${disc.warehouse_location_id}`);
+
+      const warehouseInv = await client.query(
+        `SELECT id, quantity, cost_batch_id
+         FROM inventory
+         WHERE location_id = $1
+           AND LOWER(TRIM(description)) = LOWER(TRIM($2))
+           AND LOWER(TRIM(unit))        = LOWER(TRIM($3))
+         ORDER BY created_at ASC`,
+        [disc.warehouse_location_id, disc.item_description, disc.unit]
+      );
+
+      if (warehouseInv.rows.length === 0) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({
+          error: `"${disc.item_description}" (${disc.unit}) not found in warehouse inventory.`
+        });
+      }
+
+      const totalWarehouseAvailable = warehouseInv.rows.reduce((sum, b) => sum + parseFloat(b.quantity), 0);
+      if (totalWarehouseAvailable < adjustQty) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({
+          error: `Insufficient stock in warehouse. Available: ${totalWarehouseAvailable} ${disc.unit}, damage amount: ${adjustQty}`
+        });
+      }
+
+      // Deduct FIFO from warehouse
+      let remaining = adjustQty;
+      for (const batch of warehouseInv.rows) {
+        if (remaining <= 0) break;
+        const batchQty = parseFloat(batch.quantity);
+        const deduct = Math.min(batchQty, remaining);
+        if (deduct >= batchQty) {
+          await client.query('DELETE FROM inventory WHERE id = $1', [batch.id]);
+        } else {
+          await client.query(
+            'UPDATE inventory SET quantity = quantity - $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+            [deduct, batch.id]
+          );
+        }
+        remaining -= deduct;
+      }
+
+      console.log(`[DAMAGE] Completed: ${adjustQty} ${disc.unit} written off from warehouse`);
     }
 
     // Mark as completed
@@ -406,6 +496,12 @@ router.put('/:id/add-to-inventory', auth, authorize('admin'), async (req, res) =
 
     await client.query('COMMIT');
 
+    const auditDesc = disc.type === 'shortage'
+      ? `Shortage confirmed: ${adjustQty} ${disc.unit} of "${disc.item_description}" returned to warehouse, deducted from branch`
+      : disc.type === 'return'
+      ? `Returned ${adjustQty} ${disc.unit} of "${disc.item_description}" from branch to warehouse`
+      : `Damage write-off: ${adjustQty} ${disc.unit} of "${disc.item_description}" removed from warehouse inventory`;
+
     await logAudit({
       userId: req.user.id,
       username: req.user.username,
@@ -415,27 +511,31 @@ router.put('/:id/add-to-inventory', auth, authorize('admin'), async (req, res) =
       newValues: updated.rows[0],
       ipAddress: req.ip,
       userAgent: req.get('user-agent'),
-      description: disc.type === 'shortage'
-        ? `Added ${adjustQty} ${disc.unit} of "${disc.item_description}" to warehouse inventory (shortage)`
-        : `Returned ${adjustQty} ${disc.unit} of "${disc.item_description}" from branch to warehouse`
+      description: auditDesc
     });
 
-    // Notify branch
-    const typeLabel = disc.type === 'shortage' ? 'Shortage' : 'Return';
-    await notifyLocation(
-      disc.branch_location_id,
-      'discrepancy_completed',
-      `${typeLabel} Completed`,
-      `${typeLabel} for "${disc.item_description}" has been completed. ${disc.type === 'return' ? 'Items removed from your inventory.' : ''}`,
-      '/discrepancy'
-    );
+    // Notify branch (only if branch is involved)
+    if (disc.branch_location_id) {
+      const typeLabel = disc.type === 'shortage' ? 'Shortage' : 'Return';
+      const detail = disc.type === 'shortage'
+        ? 'Missing items corrected — your inventory has been adjusted.'
+        : 'Items removed from your inventory and returned to warehouse.';
+      await notifyLocation(
+        disc.branch_location_id,
+        'discrepancy_completed',
+        `${typeLabel} Completed`,
+        `${typeLabel} for "${disc.item_description}" has been completed. ${detail}`,
+        '/discrepancy'
+      );
+    }
 
-    res.json({
-      message: disc.type === 'shortage'
-        ? `Added ${adjustQty} ${disc.unit} of "${disc.item_description}" to warehouse inventory`
-        : `Returned ${adjustQty} ${disc.unit} of "${disc.item_description}" to warehouse. Removed from branch.`,
-      discrepancy: updated.rows[0]
-    });
+    const successMsg = disc.type === 'shortage'
+      ? `Shortage confirmed: ${adjustQty} ${disc.unit} of "${disc.item_description}" added to warehouse and removed from branch inventory`
+      : disc.type === 'return'
+      ? `Returned ${adjustQty} ${disc.unit} of "${disc.item_description}" to warehouse. Removed from branch.`
+      : `Damage write-off complete: ${adjustQty} ${disc.unit} of "${disc.item_description}" removed from warehouse inventory`;
+
+    res.json({ message: successMsg, discrepancy: updated.rows[0] });
   } catch (error) {
     await client.query('ROLLBACK');
     res.status(500).json({ error: error.message });
@@ -487,20 +587,19 @@ router.put('/:id/reject', auth, authorize('admin'), async (req, res) => {
       description: `Rejected ${disc.type} for "${disc.item_description}"${admin_note ? ` — reason: ${admin_note}` : ''}`
     });
 
-    // Notify branch
-    const typeLabel = disc.type === 'shortage' ? 'Shortage report' : 'Return request';
-    await notifyLocation(
-      disc.branch_location_id,
-      'discrepancy_rejected',
-      `${typeLabel} Rejected`,
-      `Your ${disc.type} request for "${disc.item_description}" was rejected.${admin_note ? ` Reason: ${admin_note}` : ''}`,
-      '/deliveries'
-    );
+    // Notify branch (only if branch is involved)
+    if (disc.branch_location_id) {
+      const typeLabel = disc.type === 'shortage' ? 'Shortage report' : 'Return request';
+      await notifyLocation(
+        disc.branch_location_id,
+        'discrepancy_rejected',
+        `${typeLabel} Rejected`,
+        `Your ${disc.type} request for "${disc.item_description}" was rejected.${admin_note ? ` Reason: ${admin_note}` : ''}`,
+        '/discrepancy'
+      );
+    }
 
-    res.json({
-      message: 'Discrepancy rejected',
-      discrepancy: updated.rows[0]
-    });
+    res.json({ message: 'Discrepancy rejected', discrepancy: updated.rows[0] });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

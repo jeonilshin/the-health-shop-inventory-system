@@ -3,7 +3,7 @@ import api from '../utils/api';
 import { AuthContext } from '../context/AuthContext';
 import { formatQuantity } from '../utils/formatNumber';
 import {
-  FiAlertTriangle, FiRefreshCw, FiX, FiInfo
+  FiAlertTriangle, FiRefreshCw, FiX, FiInfo, FiXCircle
 } from 'react-icons/fi';
 
 /**
@@ -14,6 +14,9 @@ import {
  *
  * type = 'return' → branch requests to send items back to warehouse
  *   props: (no delivery needed)
+ *
+ * type = 'damage' → warehouse reports damaged/write-off goods
+ *   props: (no delivery needed; warehouse_location_id comes from user.location_id)
  */
 function DiscrepancyModal({ type, delivery, onClose, onSuccess }) {
   const { user } = useContext(AuthContext);
@@ -28,6 +31,11 @@ function DiscrepancyModal({ type, delivery, onClose, onSuccess }) {
   const [returnQty, setReturnQty]             = useState('');
   const [warehouseId, setWarehouseId]         = useState('');
   const [warehouses, setWarehouses]           = useState([]);
+
+  // ── damage state ──
+  const [damageItemDesc, setDamageItemDesc] = useState('');
+  const [damageUnit, setDamageUnit]         = useState('');
+  const [damageQty, setDamageQty]           = useState('');
 
   // ── common ──
   const [note, setNote]       = useState('');
@@ -97,8 +105,7 @@ function DiscrepancyModal({ type, delivery, onClose, onSuccess }) {
           warehouse_location_id: delivery.from_location_id
         });
 
-      } else {
-        // return
+      } else if (type === 'return') {
         if (!itemDescription.trim()) { setError('Item description is required'); return; }
         if (!unit.trim())            { setError('Unit is required'); return; }
         const qty = parseFloat(returnQty);
@@ -115,6 +122,23 @@ function DiscrepancyModal({ type, delivery, onClose, onSuccess }) {
           branch_location_id:   user.location_id,
           warehouse_location_id: parseInt(warehouseId)
         });
+
+      } else {
+        // damage — warehouse reports damaged/write-off goods
+        if (!damageItemDesc.trim()) { setError('Item description is required'); return; }
+        if (!damageUnit.trim())     { setError('Unit is required'); return; }
+        const qty = parseFloat(damageQty);
+        if (isNaN(qty) || qty <= 0) { setError('Enter a valid damage quantity'); return; }
+
+        await api.post('/delivery-discrepancies', {
+          type: 'damage',
+          item_description:     damageItemDesc.trim(),
+          unit:                 damageUnit.trim(),
+          expected_quantity:    qty,
+          received_quantity:    qty,
+          note:                 note.trim(),
+          warehouse_location_id: user.location_id
+        });
       }
 
       onSuccess();
@@ -126,7 +150,8 @@ function DiscrepancyModal({ type, delivery, onClose, onSuccess }) {
   };
 
   const isShortage = type === 'shortage';
-  const accentColor = isShortage ? '#f59e0b' : '#8b5cf6';
+  const isDamage   = type === 'damage';
+  const accentColor = isShortage ? '#f59e0b' : isDamage ? '#ef4444' : '#8b5cf6';
 
   return (
     <div style={{
@@ -152,14 +177,18 @@ function DiscrepancyModal({ type, delivery, onClose, onSuccess }) {
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
             {isShortage
               ? <FiAlertTriangle size={22} color={accentColor} />
+              : isDamage
+              ? <FiXCircle       size={22} color={accentColor} />
               : <FiRefreshCw     size={22} color={accentColor} />}
             <div>
               <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700 }}>
-                {isShortage ? 'Report Delivery Shortage' : 'Request Return to Warehouse'}
+                {isShortage ? 'Report Delivery Shortage' : isDamage ? 'Report Damaged Goods' : 'Request Return to Warehouse'}
               </h3>
               <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-secondary, #6b7280)' }}>
                 {isShortage
                   ? `Delivery from ${delivery?.from_location_name || 'Warehouse'}`
+                  : isDamage
+                  ? 'Damaged items will be written off pending admin approval'
                   : 'Items will be sent back pending admin approval'}
               </p>
             </div>
@@ -191,7 +220,9 @@ function DiscrepancyModal({ type, delivery, onClose, onSuccess }) {
           }}>
             <FiInfo size={16} style={{ flexShrink: 0, marginTop: '1px' }} />
             {isShortage
-              ? 'Admin will review and, if approved, add the missing quantity back to the warehouse. Your branch inventory will remain unchanged.'
+              ? 'Admin will review and, if approved, add the missing quantity back to the warehouse and correct your branch inventory.'
+              : isDamage
+              ? 'Admin must approve this report. Once approved, the damaged quantity will be written off from warehouse inventory.'
               : 'Admin must approve this request. Once approved, the specified quantity will be removed from your inventory and added back to the warehouse.'}
           </div>
 
@@ -368,6 +399,68 @@ function DiscrepancyModal({ type, delivery, onClose, onSuccess }) {
             </>
           )}
 
+          {/* ── DAMAGE: item fields ── */}
+          {isDamage && (
+            <>
+              <div style={{ marginBottom: '14px' }}>
+                <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, marginBottom: '6px' }}>
+                  Item Description *
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. Paracetamol 500mg"
+                  value={damageItemDesc}
+                  onChange={e => setDamageItemDesc(e.target.value)}
+                  style={{
+                    width: '100%', padding: '8px 12px',
+                    border: '1px solid var(--border-color, #d1d5db)',
+                    borderRadius: '8px', fontSize: '14px', boxSizing: 'border-box',
+                    background: 'var(--bg-input, #fff)'
+                  }}
+                />
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '14px' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, marginBottom: '6px' }}>
+                    Unit *
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. pcs / box / bottle"
+                    value={damageUnit}
+                    onChange={e => setDamageUnit(e.target.value)}
+                    style={{
+                      width: '100%', padding: '8px 12px',
+                      border: '1px solid var(--border-color, #d1d5db)',
+                      borderRadius: '8px', fontSize: '14px', boxSizing: 'border-box',
+                      background: 'var(--bg-input, #fff)'
+                    }}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, marginBottom: '6px' }}>
+                    Damaged Quantity *
+                  </label>
+                  <input
+                    type="number"
+                    min="0.001"
+                    step="any"
+                    placeholder="0"
+                    value={damageQty}
+                    onChange={e => setDamageQty(e.target.value)}
+                    style={{
+                      width: '100%', padding: '8px 12px',
+                      border: '1px solid var(--border-color, #d1d5db)',
+                      borderRadius: '8px', fontSize: '14px', boxSizing: 'border-box',
+                      background: 'var(--bg-input, #fff)'
+                    }}
+                  />
+                </div>
+              </div>
+            </>
+          )}
+
           {/* ── Note (always required) ── */}
           <div style={{ marginBottom: '8px' }}>
             <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, marginBottom: '6px' }}>
@@ -377,6 +470,8 @@ function DiscrepancyModal({ type, delivery, onClose, onSuccess }) {
               rows={3}
               placeholder={isShortage
                 ? 'Explain what happened — e.g. box was damaged, items were missing on arrival…'
+                : isDamage
+                ? 'Describe the damage — e.g. water damage, expired goods, broken packaging…'
                 : 'Explain why you are returning this item — e.g. wrong item delivered, excess stock…'}
               value={note}
               onChange={e => setNote(e.target.value)}
@@ -429,7 +524,7 @@ function DiscrepancyModal({ type, delivery, onClose, onSuccess }) {
               opacity: loading ? 0.7 : 1
             }}
           >
-            {loading ? 'Submitting…' : isShortage ? 'Submit Shortage Report' : 'Submit Return Request'}
+            {loading ? 'Submitting…' : isShortage ? 'Submit Shortage Report' : isDamage ? 'Submit Damage Report' : 'Submit Return Request'}
           </button>
         </div>
       </div>

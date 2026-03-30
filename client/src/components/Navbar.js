@@ -58,7 +58,7 @@ const NAV_ITEMS = [
   { to: '/reports',         icon: FiFileText,    label: 'Reports',         roles: ['admin','branch_manager','branch_staff'] },
   { to: '/analytics',       icon: FiBarChart2,   label: 'Analytics',       roles: ['admin','branch_manager','branch_staff'] },
   { to: '/deliveries',      icon: FiTruck,       label: 'Deliveries',      roles: ['admin','warehouse','branch_manager'] },
-  { to: '/discrepancy',     icon: FiAlertTriangle, label: 'Discrepancy',   roles: ['admin','branch_manager','branch_staff'] },
+  { to: '/discrepancy',     icon: FiAlertTriangle, label: 'Discrepancy',   roles: ['admin','warehouse','branch_manager','branch_staff'] },
   { to: '/messages',        icon: FiMessageSquare, label: 'Messages',      roles: ['admin','warehouse','branch_manager','branch_staff'] },
   { to: '/admin',           icon: FiSettings,    label: 'Admin',           roles: ['admin'] },
   { to: '/audit',           icon: FiShield,      label: 'Audit Log',       roles: ['admin'] },

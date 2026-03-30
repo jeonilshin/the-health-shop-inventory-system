@@ -3,16 +3,18 @@ import api from '../utils/api';
 import { AuthContext } from '../context/AuthContext';
 import { formatQuantity } from '../utils/formatNumber';
 import {
-  FiRefreshCw, FiAlertTriangle, FiPackage, FiCalendar, FiFilter, FiCheckCircle, FiX, FiPlus
+  FiRefreshCw, FiAlertTriangle, FiPackage, FiCalendar, FiFilter, FiCheckCircle, FiX, FiPlus, FiXCircle
 } from 'react-icons/fi';
+import DiscrepancyModal from './DiscrepancyModal';
 
 function Discrepancy() {
   const { user } = useContext(AuthContext);
   const [discrepancies, setDiscrepancies] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [filterType, setFilterType] = useState('all'); // 'all', 'shortage', 'return'
+  const [filterType, setFilterType] = useState('all'); // 'all', 'shortage', 'return', 'damage'
   const [filterStatus, setFilterStatus] = useState('all'); // 'all', 'pending', 'approved', 'completed', 'rejected'
   const [rejectState, setRejectState] = useState({ id: null, note: '' });
+  const [showDamageModal, setShowDamageModal] = useState(false);
 
   useEffect(() => {
     fetchDiscrepancies();
@@ -67,8 +69,10 @@ function Discrepancy() {
       : parseFloat(disc.received_quantity);
 
     const confirmMsg = disc.type === 'shortage'
-      ? `Add ${adjustQty} ${disc.unit} of "${disc.item_description}" to warehouse inventory?`
-      : `Return ${adjustQty} ${disc.unit} of "${disc.item_description}" from branch to warehouse? This will remove items from branch inventory.`;
+      ? `Confirm shortage: Add ${adjustQty} ${disc.unit} of "${disc.item_description}" back to warehouse AND remove from branch inventory?`
+      : disc.type === 'return'
+      ? `Return ${adjustQty} ${disc.unit} of "${disc.item_description}" from branch to warehouse? This will remove items from branch inventory.`
+      : `Write off ${adjustQty} ${disc.unit} of "${disc.item_description}" from warehouse inventory? This cannot be undone.`;
 
     if (!window.confirm(confirmMsg)) return;
     
@@ -108,11 +112,12 @@ function Discrepancy() {
     return new Date(b) - new Date(a);
   });
 
-  const getStatusBadge = (status) => {
+  const getStatusBadge = (status, type) => {
+    const completedLabel = type === 'damage' ? 'Written Off' : type === 'shortage' ? 'Inventory Corrected' : 'Added to Inventory';
     const map = {
       pending:  { color: '#f59e0b', text: 'Pending' },
       approved: { color: '#3b82f6', text: 'Approved' },
-      completed: { color: '#10b981', text: 'Added to Inventory' },
+      completed: { color: '#10b981', text: completedLabel },
       rejected: { color: '#ef4444', text: 'Rejected' }
     };
     const b = map[status] || map.pending;
@@ -133,6 +138,12 @@ function Discrepancy() {
   };
 
   const getTypeBadge = (type) => {
+    const map = {
+      shortage: { bg: '#fef3c7', color: '#92400e', icon: <FiAlertTriangle size={11} />, label: 'Shortage' },
+      return:   { bg: '#ede9fe', color: '#5b21b6', icon: <FiRefreshCw     size={11} />, label: 'Return'   },
+      damage:   { bg: '#fee2e2', color: '#b91c1c', icon: <FiXCircle        size={11} />, label: 'Damage'   },
+    };
+    const b = map[type] || map.shortage;
     return (
       <span style={{
         display: 'inline-flex',
@@ -142,11 +153,11 @@ function Discrepancy() {
         borderRadius: '12px',
         fontSize: '12px',
         fontWeight: 600,
-        backgroundColor: type === 'shortage' ? '#fef3c7' : '#ede9fe',
-        color: type === 'shortage' ? '#92400e' : '#5b21b6'
+        backgroundColor: b.bg,
+        color: b.color
       }}>
-        {type === 'shortage' ? <FiAlertTriangle size={11} /> : <FiRefreshCw size={11} />}
-        {type === 'shortage' ? 'Shortage' : 'Return'}
+        {b.icon}
+        {b.label}
       </span>
     );
   };
@@ -178,11 +189,34 @@ function Discrepancy() {
           <div>
             <h2 style={{ margin: 0 }}>Discrepancy Records</h2>
             <p style={{ margin: 0, fontSize: '14px', color: 'var(--text-secondary)' }}>
-              Track shortage reports and return requests
+              Track shortage reports, return requests and damage write-offs
             </p>
           </div>
         </div>
+
+        {user.role === 'warehouse' && (
+          <button
+            className="btn"
+            style={{
+              display: 'flex', alignItems: 'center', gap: '6px',
+              padding: '8px 16px', fontSize: '14px', fontWeight: 600,
+              background: '#ef4444', color: '#fff', border: 'none'
+            }}
+            onClick={() => setShowDamageModal(true)}
+          >
+            <FiXCircle size={16} /> Report Damage
+          </button>
+        )}
       </div>
+
+      {/* Damage modal for warehouse users */}
+      {showDamageModal && (
+        <DiscrepancyModal
+          type="damage"
+          onClose={() => setShowDamageModal(false)}
+          onSuccess={() => { setShowDamageModal(false); fetchDiscrepancies(); }}
+        />
+      )}
 
       {/* Filters */}
       <div className="card" style={{ marginBottom: '24px' }}>
@@ -213,6 +247,7 @@ function Discrepancy() {
               <option value="all">All Types</option>
               <option value="shortage">Shortage Only</option>
               <option value="return">Return Only</option>
+              <option value="damage">Damage Only</option>
             </select>
           </div>
 
@@ -427,7 +462,7 @@ function Discrepancy() {
                         ) : (
                           // Status badge for non-pending or non-admin
                           <div>
-                            {getStatusBadge(disc.status)}
+                            {getStatusBadge(disc.status, disc.type)}
                             {disc.admin_note && (
                               <div style={{
                                 fontSize: '11px',
@@ -446,7 +481,7 @@ function Discrepancy() {
                                   marginTop: '8px',
                                   padding: '6px 12px',
                                   fontSize: '13px',
-                                  background: '#3b82f6',
+                                  background: disc.type === 'damage' ? '#ef4444' : '#3b82f6',
                                   color: 'white',
                                   border: 'none',
                                   whiteSpace: 'nowrap',
@@ -457,7 +492,10 @@ function Discrepancy() {
                                 }}
                                 onClick={() => handleAddToInventory(disc)}
                               >
-                                <FiPlus size={14} /> Add to My Inventory
+                                {disc.type === 'damage'
+                                  ? <><FiXCircle size={14} /> Confirm Write-Off</>
+                                  : <><FiPlus size={14} /> {disc.type === 'shortage' ? 'Confirm Shortage' : 'Add to Inventory'}</>
+                                }
                               </button>
                             )}
                           </div>
