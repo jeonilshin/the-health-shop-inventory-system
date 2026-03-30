@@ -82,7 +82,7 @@ function DiscrepancyModal({ type, delivery, onClose, onSuccess }) {
 
   const fetchWarehouseInventory = async () => {
     try {
-      const res = await api.get('/inventory');
+      const res = await api.get(`/inventory/location/${user.location_id}`);
       // deduplicate by description+unit
       const seen = new Set();
       const unique = res.data.filter(item => {
