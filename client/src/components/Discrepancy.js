@@ -10,29 +10,29 @@ import DiscrepancyModal from './DiscrepancyModal';
 function Discrepancy() {
   const { user } = useContext(AuthContext);
   const [discrepancies, setDiscrepancies] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [initialLoad, setInitialLoad] = useState(true);
   const [filterType, setFilterType] = useState('all'); // 'all', 'shortage', 'return', 'damage'
   const [filterStatus, setFilterStatus] = useState('all'); // 'all', 'pending', 'approved', 'completed', 'rejected'
   const [rejectState, setRejectState] = useState({ id: null, note: '' });
   const [showDamageModal, setShowDamageModal] = useState(false);
 
   useEffect(() => {
-    fetchDiscrepancies();
-    // Auto-refresh every 5 seconds for real-time updates
-    const interval = setInterval(fetchDiscrepancies, 5000);
+    fetchDiscrepancies(true);
+    // Background refresh — does NOT show spinner so open modals aren't destroyed
+    const interval = setInterval(() => fetchDiscrepancies(false), 5000);
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const fetchDiscrepancies = async () => {
+  const fetchDiscrepancies = async (isInitial = false) => {
     try {
-      setLoading(true);
+      if (isInitial) setInitialLoad(true);
       const res = await api.get('/delivery-discrepancies');
       setDiscrepancies(res.data);
     } catch (error) {
       console.error('Error fetching discrepancies:', error);
     } finally {
-      setLoading(false);
+      if (isInitial) setInitialLoad(false);
     }
   };
 
@@ -41,7 +41,7 @@ function Discrepancy() {
     try {
       const res = await api.put(`/delivery-discrepancies/${id}/approve`);
       alert(res.data.message);
-      fetchDiscrepancies();
+      fetchDiscrepancies(false);
     } catch (err) {
       alert(err.response?.data?.error || 'Error approving request');
     }
@@ -57,7 +57,7 @@ function Discrepancy() {
         admin_note: rejectState.note.trim()
       });
       setRejectState({ id: null, note: '' });
-      fetchDiscrepancies();
+      fetchDiscrepancies(false);
     } catch (err) {
       alert(err.response?.data?.error || 'Error rejecting request');
     }
@@ -79,7 +79,7 @@ function Discrepancy() {
     try {
       const res = await api.put(`/delivery-discrepancies/${disc.id}/add-to-inventory`);
       alert(res.data.message);
-      fetchDiscrepancies();
+      fetchDiscrepancies(false);
     } catch (err) {
       alert(err.response?.data?.error || 'Error adding to inventory');
     }
@@ -162,7 +162,7 @@ function Discrepancy() {
     );
   };
 
-  if (loading) {
+  if (initialLoad) {
     return (
       <div className="container">
         <div style={{ textAlign: 'center', padding: '40px' }}>
@@ -214,7 +214,7 @@ function Discrepancy() {
         <DiscrepancyModal
           type="damage"
           onClose={() => setShowDamageModal(false)}
-          onSuccess={() => { setShowDamageModal(false); fetchDiscrepancies(); }}
+          onSuccess={() => { setShowDamageModal(false); fetchDiscrepancies(false); alert('Damage report submitted! Admin will review shortly.'); }}
         />
       )}
 

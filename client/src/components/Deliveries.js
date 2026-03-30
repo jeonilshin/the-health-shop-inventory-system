@@ -5,7 +5,7 @@ import { formatQuantity, formatPrice } from '../utils/formatNumber';
 import DiscrepancyModal from './DiscrepancyModal';
 import {
   FiTruck, FiPackage, FiCheck, FiClock, FiAlertCircle,
-  FiCheckCircle, FiAlertTriangle, FiRefreshCw, FiX, FiInfo
+  FiCheckCircle, FiAlertTriangle, FiRefreshCw, FiX, FiInfo, FiXCircle, FiChevronDown
 } from 'react-icons/fi';
 
 function Deliveries() {
@@ -21,8 +21,9 @@ function Deliveries() {
   const [pendingDiscs, setPendingDiscs]   = useState([]);
 
   // ── modals / inline reject ──
-  const [discModal, setDiscModal]     = useState({ open: false, type: null, delivery: null });
-  const [rejectState, setRejectState] = useState({ id: null, note: '' });
+  const [discModal, setDiscModal]         = useState({ open: false, type: null, delivery: null });
+  const [rejectState, setRejectState]     = useState({ id: null, note: '' });
+  const [issueMenuDeliveryId, setIssueMenuDeliveryId] = useState(null); // which delivery has the sub-menu open
 
   // ── history visibility ──
   const [showDiscHistory, setShowDiscHistory] = useState(false);
@@ -125,13 +126,14 @@ function Deliveries() {
     }
   };
 
-  const openShortageModal = (delivery) => {
+  const openIssueModal = (delivery, issueType) => {
     const hasItems = delivery.items?.length > 0 && delivery.items[0]?.description;
     if (!hasItems) {
       alert('No item data available for this delivery.');
       return;
     }
-    setDiscModal({ open: true, type: 'shortage', delivery });
+    setIssueMenuDeliveryId(null);
+    setDiscModal({ open: true, type: issueType, delivery });
   };
 
   // ── helpers ──────────────────────────────────────────────────────────────
@@ -157,9 +159,10 @@ function Deliveries() {
 
   const getDiscStatusBadge = (status) => {
     const map = {
-      pending:  { color: '#f59e0b', text: 'Pending Review' },
-      approved: { color: '#10b981', text: 'Approved' },
-      rejected: { color: '#ef4444', text: 'Rejected' }
+      pending:   { color: '#f59e0b', text: 'Pending Review' },
+      approved:  { color: '#10b981', text: 'Approved' },
+      rejected:  { color: '#ef4444', text: 'Rejected' },
+      completed: { color: '#6b7280', text: 'Completed' }
     };
     const b = map[status] || map.pending;
     return (
@@ -172,7 +175,21 @@ function Deliveries() {
     );
   };
 
-  const canReportShortage = (delivery) =>
+  const getDiscTypeBadge = (type) => {
+    const map = {
+      shortage: { bg: '#fef3c7', color: '#92400e', icon: <FiAlertTriangle size={11} />, label: 'Shortage' },
+      return:   { bg: '#ede9fe', color: '#5b21b6', icon: <FiRefreshCw     size={11} />, label: 'Return'   },
+      damage:   { bg: '#fee2e2', color: '#b91c1c', icon: <FiXCircle        size={11} />, label: 'Damage'   },
+    };
+    const b = map[type] || map.shortage;
+    return (
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '2px 8px', borderRadius: '12px', fontSize: '12px', fontWeight: 600, background: b.bg, color: b.color }}>
+        {b.icon}{b.label}
+      </span>
+    );
+  };
+
+  const canReportIssue = (delivery) =>
     delivery.status === 'delivered' &&
     (user.role === 'branch_manager' || user.role === 'admin');
 
@@ -266,7 +283,7 @@ function Deliveries() {
             padding: '10px 14px', marginBottom: '16px', fontSize: '13px', color: '#991b1b'
           }}>
             <FiInfo size={16} style={{ flexShrink: 0, marginTop: '1px' }} />
-            Shortage: Adds missing quantity back to warehouse (branch inventory unchanged). Return: Removes from branch and adds to warehouse.
+            Shortage: Adds missing qty to warehouse + corrects branch inventory. Damage: Removes damaged qty from branch. Return: Removes from branch, adds to warehouse.
           </div>
 
           <div style={{ overflowX: 'auto' }}>
@@ -292,24 +309,12 @@ function Deliveries() {
 
                   return (
                     <tr key={disc.id}>
-                      <td>
-                        <span style={{
-                          display: 'inline-flex', alignItems: 'center', gap: '4px',
-                          padding: '2px 8px', borderRadius: '12px', fontSize: '12px', fontWeight: 600,
-                          background: disc.type === 'shortage' ? '#fef3c7' : '#ede9fe',
-                          color:      disc.type === 'shortage' ? '#92400e'  : '#5b21b6'
-                        }}>
-                          {disc.type === 'shortage'
-                            ? <FiAlertTriangle size={11} />
-                            : <FiRefreshCw size={11} />}
-                          {disc.type === 'shortage' ? 'Shortage' : 'Return'}
-                        </span>
-                      </td>
+                      <td>{getDiscTypeBadge(disc.type)}</td>
                       <td>
                         <strong style={{ fontSize: '13px' }}>{disc.item_description}</strong>
                         <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>{disc.unit}</div>
                       </td>
-                      <td style={{ fontSize: '13px' }}>{disc.branch_name}</td>
+                      <td style={{ fontSize: '13px' }}>{disc.branch_name || disc.warehouse_name}</td>
                       <td style={{ fontSize: '13px' }}>
                         {disc.type === 'shortage'
                           ? `${formatQuantity(disc.expected_quantity)} ${disc.unit}`
@@ -502,20 +507,63 @@ function Deliveries() {
                     )}
                     {(user.role === 'branch_manager' || user.role === 'admin') && (
                       <td>
-                        {canReportShortage(delivery) && (
-                          <button
-                            className="btn"
-                            style={{
-                              padding: '4px 10px', fontSize: '12px',
-                              background: '#fef3c7', color: '#92400e',
-                              border: '1px solid #f59e0b',
-                              display: 'inline-flex', alignItems: 'center', gap: '4px',
-                              whiteSpace: 'nowrap'
-                            }}
-                            onClick={() => openShortageModal(delivery)}
-                          >
-                            <FiAlertTriangle size={11} /> Report Shortage
-                          </button>
+                        {canReportIssue(delivery) && (
+                          <div style={{ position: 'relative', display: 'inline-block' }}>
+                            <button
+                              className="btn"
+                              style={{
+                                padding: '4px 10px', fontSize: '12px',
+                                background: '#fef3c7', color: '#92400e',
+                                border: '1px solid #f59e0b',
+                                display: 'inline-flex', alignItems: 'center', gap: '4px',
+                                whiteSpace: 'nowrap'
+                              }}
+                              onClick={() => setIssueMenuDeliveryId(
+                                issueMenuDeliveryId === delivery.id ? null : delivery.id
+                              )}
+                            >
+                              <FiAlertTriangle size={11} /> Report Issue <FiChevronDown size={11} />
+                            </button>
+                            {issueMenuDeliveryId === delivery.id && (
+                              <div style={{
+                                position: 'absolute', top: '100%', left: 0, zIndex: 100,
+                                background: 'var(--bg-card, #fff)',
+                                border: '1px solid var(--border-color, #e5e7eb)',
+                                borderRadius: '8px', boxShadow: '0 4px 16px rgba(0,0,0,0.12)',
+                                minWidth: '170px', overflow: 'hidden', marginTop: '2px'
+                              }}>
+                                <button
+                                  style={{
+                                    width: '100%', padding: '10px 14px', textAlign: 'left',
+                                    background: 'none', border: 'none', cursor: 'pointer',
+                                    display: 'flex', alignItems: 'center', gap: '8px',
+                                    fontSize: '13px', fontWeight: 600, color: '#92400e',
+                                    borderBottom: '1px solid var(--border-color, #f3f4f6)'
+                                  }}
+                                  onMouseEnter={e => e.currentTarget.style.background = '#fef3c7'}
+                                  onMouseLeave={e => e.currentTarget.style.background = 'none'}
+                                  onClick={() => openIssueModal(delivery, 'shortage')}
+                                >
+                                  <FiAlertTriangle size={13} /> Shortage
+                                  <span style={{ fontSize: '11px', color: '#a16207', fontWeight: 400, marginLeft: 'auto' }}>received less</span>
+                                </button>
+                                <button
+                                  style={{
+                                    width: '100%', padding: '10px 14px', textAlign: 'left',
+                                    background: 'none', border: 'none', cursor: 'pointer',
+                                    display: 'flex', alignItems: 'center', gap: '8px',
+                                    fontSize: '13px', fontWeight: 600, color: '#b91c1c'
+                                  }}
+                                  onMouseEnter={e => e.currentTarget.style.background = '#fee2e2'}
+                                  onMouseLeave={e => e.currentTarget.style.background = 'none'}
+                                  onClick={() => openIssueModal(delivery, 'damage')}
+                                >
+                                  <FiXCircle size={13} /> Damaged Goods
+                                  <span style={{ fontSize: '11px', color: '#991b1b', fontWeight: 400, marginLeft: 'auto' }}>write-off</span>
+                                </button>
+                              </div>
+                            )}
+                          </div>
                         )}
                       </td>
                     )}
@@ -574,25 +622,13 @@ function Deliveries() {
 
                     return (
                       <tr key={disc.id}>
-                        <td>
-                          <span style={{
-                            display: 'inline-flex', alignItems: 'center', gap: '4px',
-                            padding: '2px 8px', borderRadius: '12px', fontSize: '12px', fontWeight: 600,
-                            background: disc.type === 'shortage' ? '#fef3c7' : '#ede9fe',
-                            color:      disc.type === 'shortage' ? '#92400e'  : '#5b21b6'
-                          }}>
-                            {disc.type === 'shortage'
-                              ? <FiAlertTriangle size={11} />
-                              : <FiRefreshCw size={11} />}
-                            {disc.type === 'shortage' ? 'Shortage' : 'Return'}
-                          </span>
-                        </td>
+                        <td>{getDiscTypeBadge(disc.type)}</td>
                         <td>
                           <strong style={{ fontSize: '13px' }}>{disc.item_description}</strong>
                           <div style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>{disc.unit}</div>
                         </td>
                         {user.role === 'admin' && (
-                          <td style={{ fontSize: '13px' }}>{disc.branch_name}</td>
+                          <td style={{ fontSize: '13px' }}>{disc.branch_name || disc.warehouse_name}</td>
                         )}
                         <td style={{ fontSize: '13px' }}>
                           {disc.type === 'shortage'
@@ -633,9 +669,12 @@ function Deliveries() {
           onClose={() => setDiscModal({ open: false, type: null, delivery: null })}
           onSuccess={() => {
             setDiscModal({ open: false, type: null, delivery: null });
-            alert(discModal.type === 'shortage'
-              ? 'Shortage report submitted! Admin will review shortly.'
-              : 'Return request submitted! Admin will review shortly.');
+            const msgs = {
+              shortage: 'Shortage report submitted! Admin will review shortly.',
+              damage:   'Damage report submitted! Admin will review shortly.',
+              return:   'Return request submitted! Admin will review shortly.'
+            };
+            alert(msgs[discModal.type] || 'Submitted! Admin will review shortly.');
             fetchAll();
           }}
         />

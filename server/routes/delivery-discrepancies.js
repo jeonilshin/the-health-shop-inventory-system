@@ -435,38 +435,41 @@ router.put('/:id/add-to-inventory', auth, authorize('admin'), async (req, res) =
       console.log(`[RETURN] Completed: ${adjustQty} ${disc.unit} moved from branch to warehouse`);
 
     // ── DAMAGE ────────────────────────────────────────────────────────────
-    // Write off damaged goods from warehouse inventory
+    // branch_location_id set   → damage reported from delivery, deduct from branch
+    // branch_location_id null  → warehouse write-off, deduct from warehouse
     } else if (disc.type === 'damage') {
-      console.log(`[DAMAGE] Writing off ${adjustQty} ${disc.unit} of "${disc.item_description}" from warehouse ${disc.warehouse_location_id}`);
+      const deductFromLocationId = disc.branch_location_id || disc.warehouse_location_id;
+      const locLabel = disc.branch_location_id ? 'branch' : 'warehouse';
+      console.log(`[DAMAGE] Writing off ${adjustQty} ${disc.unit} of "${disc.item_description}" from ${locLabel} ${deductFromLocationId}`);
 
-      const warehouseInv = await client.query(
+      const invRows = await client.query(
         `SELECT id, quantity, cost_batch_id
          FROM inventory
          WHERE location_id = $1
            AND LOWER(TRIM(description)) = LOWER(TRIM($2))
            AND LOWER(TRIM(unit))        = LOWER(TRIM($3))
          ORDER BY created_at ASC`,
-        [disc.warehouse_location_id, disc.item_description, disc.unit]
+        [deductFromLocationId, disc.item_description, disc.unit]
       );
 
-      if (warehouseInv.rows.length === 0) {
+      if (invRows.rows.length === 0) {
         await client.query('ROLLBACK');
         return res.status(400).json({
-          error: `"${disc.item_description}" (${disc.unit}) not found in warehouse inventory.`
+          error: `"${disc.item_description}" (${disc.unit}) not found in ${locLabel} inventory.`
         });
       }
 
-      const totalWarehouseAvailable = warehouseInv.rows.reduce((sum, b) => sum + parseFloat(b.quantity), 0);
-      if (totalWarehouseAvailable < adjustQty) {
+      const totalAvailable = invRows.rows.reduce((sum, b) => sum + parseFloat(b.quantity), 0);
+      if (totalAvailable < adjustQty) {
         await client.query('ROLLBACK');
         return res.status(400).json({
-          error: `Insufficient stock in warehouse. Available: ${totalWarehouseAvailable} ${disc.unit}, damage amount: ${adjustQty}`
+          error: `Insufficient stock in ${locLabel}. Available: ${totalAvailable} ${disc.unit}, damage amount: ${adjustQty}`
         });
       }
 
-      // Deduct FIFO from warehouse
+      // Deduct FIFO
       let remaining = adjustQty;
-      for (const batch of warehouseInv.rows) {
+      for (const batch of invRows.rows) {
         if (remaining <= 0) break;
         const batchQty = parseFloat(batch.quantity);
         const deduct = Math.min(batchQty, remaining);
@@ -481,7 +484,7 @@ router.put('/:id/add-to-inventory', auth, authorize('admin'), async (req, res) =
         remaining -= deduct;
       }
 
-      console.log(`[DAMAGE] Completed: ${adjustQty} ${disc.unit} written off from warehouse`);
+      console.log(`[DAMAGE] Completed: ${adjustQty} ${disc.unit} written off from ${locLabel}`);
     }
 
     // Mark as completed
@@ -500,6 +503,8 @@ router.put('/:id/add-to-inventory', auth, authorize('admin'), async (req, res) =
       ? `Shortage confirmed: ${adjustQty} ${disc.unit} of "${disc.item_description}" returned to warehouse, deducted from branch`
       : disc.type === 'return'
       ? `Returned ${adjustQty} ${disc.unit} of "${disc.item_description}" from branch to warehouse`
+      : /* damage */ disc.branch_location_id
+      ? `Damage write-off: ${adjustQty} ${disc.unit} of "${disc.item_description}" removed from branch inventory`
       : `Damage write-off: ${adjustQty} ${disc.unit} of "${disc.item_description}" removed from warehouse inventory`;
 
     await logAudit({
@@ -516,15 +521,17 @@ router.put('/:id/add-to-inventory', auth, authorize('admin'), async (req, res) =
 
     // Notify branch (only if branch is involved)
     if (disc.branch_location_id) {
-      const typeLabel = disc.type === 'shortage' ? 'Shortage' : 'Return';
+      const notifyLabel = disc.type === 'shortage' ? 'Shortage' : disc.type === 'damage' ? 'Damage Report' : 'Return';
       const detail = disc.type === 'shortage'
         ? 'Missing items corrected — your inventory has been adjusted.'
+        : disc.type === 'damage'
+        ? 'Damaged items have been written off from your inventory.'
         : 'Items removed from your inventory and returned to warehouse.';
       await notifyLocation(
         disc.branch_location_id,
         'discrepancy_completed',
-        `${typeLabel} Completed`,
-        `${typeLabel} for "${disc.item_description}" has been completed. ${detail}`,
+        `${notifyLabel} Completed`,
+        `${notifyLabel} for "${disc.item_description}" has been completed. ${detail}`,
         '/discrepancy'
       );
     }
@@ -533,6 +540,8 @@ router.put('/:id/add-to-inventory', auth, authorize('admin'), async (req, res) =
       ? `Shortage confirmed: ${adjustQty} ${disc.unit} of "${disc.item_description}" added to warehouse and removed from branch inventory`
       : disc.type === 'return'
       ? `Returned ${adjustQty} ${disc.unit} of "${disc.item_description}" to warehouse. Removed from branch.`
+      : disc.branch_location_id
+      ? `Damage write-off complete: ${adjustQty} ${disc.unit} of "${disc.item_description}" removed from branch inventory`
       : `Damage write-off complete: ${adjustQty} ${disc.unit} of "${disc.item_description}" removed from warehouse inventory`;
 
     res.json({ message: successMsg, discrepancy: updated.rows[0] });
