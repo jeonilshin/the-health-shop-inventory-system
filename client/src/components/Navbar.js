@@ -20,7 +20,6 @@ import {
   FiShield,
   FiMenu,
   FiX,
-  FiRefreshCw,
   FiAlertTriangle,
 } from 'react-icons/fi';
 
