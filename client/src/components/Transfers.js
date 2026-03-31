@@ -5,7 +5,7 @@ import { formatQuantity, formatPrice } from '../utils/formatNumber';
 import AutocompleteSearch from './AutocompleteSearch';
 import CdrImportModal from './CdrImportModal';
 import ExpressTransferModal from './ExpressTransferModal';
-import { FiSend, FiPackage, FiAlertCircle, FiCheck, FiX, FiTruck, FiClock, FiCheckCircle, FiXCircle, FiTrash2 } from 'react-icons/fi';
+import { FiSend, FiPackage, FiAlertCircle, FiCheck, FiX, FiTruck, FiClock, FiCheckCircle, FiXCircle, FiTrash2, FiRefreshCw } from 'react-icons/fi';
 
 function Transfers() {
   const { user } = useContext(AuthContext);
@@ -43,17 +43,21 @@ function Transfers() {
   });
   const [showExportPreview, setShowExportPreview] = useState(false);
   const [exportData, setExportData] = useState([]);
+  const [discrepancies, setDiscrepancies] = useState([]);
+  const [openReturnId, setOpenReturnId] = useState(null);
 
   useEffect(() => {
     fetchLocations();
     fetchTransfers();
+    fetchDiscrepancies();
     if (user.role === 'admin') {
       fetchPendingApprovals();
     }
-    
+
     // Real-time updates every 5 seconds
     const interval = setInterval(() => {
       fetchTransfers();
+      fetchDiscrepancies();
       if (user.role === 'admin') {
         fetchPendingApprovals();
       }
@@ -116,6 +120,15 @@ function Transfers() {
       setPendingApprovals(response.data);
     } catch (error) {
       // Error fetching pending approvals
+    }
+  };
+
+  const fetchDiscrepancies = async () => {
+    try {
+      const res = await api.get('/delivery-discrepancies');
+      setDiscrepancies(res.data);
+    } catch {
+      // silently skip if migration not run yet
     }
   };
 
@@ -398,6 +411,19 @@ function Transfers() {
       alert(error.response?.data?.error || 'Error cancelling transfer');
     }
   };
+
+  const getApprovedReturnsForTransfer = (transfer) =>
+    discrepancies.filter(d => {
+      if (d.type !== 'return') return false;
+      if (d.status !== 'approved' && d.status !== 'completed') return false;
+      if (d.branch_location_id !== transfer.to_location_id) return false;
+      if (d.warehouse_location_id !== transfer.from_location_id) return false;
+      // Match by item description when available
+      if (transfer.description && d.item_description) {
+        return d.item_description.toLowerCase().trim() === transfer.description.toLowerCase().trim();
+      }
+      return true;
+    });
 
   const getStatusBadge = (status) => {
     const badges = {
@@ -1203,10 +1229,56 @@ function Transfers() {
               </thead>
               <tbody>
                 {groupTransfers(getFilteredTransfers())
-                  .map((transfer) => (
+                  .map((transfer) => {
+                    const approvedReturns = transfer.status === 'delivered'
+                      ? getApprovedReturnsForTransfer(transfer)
+                      : [];
+                    return (
                   <tr key={transfer.id}>
                     <td>{new Date(transfer.transfer_date).toLocaleDateString()}</td>
-                    <td>{getStatusBadge(transfer.status)}</td>
+                    <td>
+                      {approvedReturns.length > 0 ? (
+                        <div style={{ position: 'relative', display: 'inline-block' }}>
+                          <span
+                            onClick={() => setOpenReturnId(openReturnId === transfer.id ? null : transfer.id)}
+                            style={{
+                              display: 'inline-flex', alignItems: 'center', gap: '4px',
+                              backgroundColor: '#fff7ed', color: '#ea580c',
+                              padding: '2px 10px', borderRadius: '12px',
+                              fontSize: '12px', fontWeight: 700,
+                              cursor: 'pointer', border: '1px solid #fb923c',
+                              userSelect: 'none'
+                            }}
+                          >
+                            <FiRefreshCw size={12} /> Returned ({approvedReturns.length})
+                          </span>
+                          {openReturnId === transfer.id && (
+                            <div style={{
+                              position: 'absolute', top: '100%', left: 0, zIndex: 200,
+                              background: 'var(--bg-card, #fff)',
+                              border: '1px solid #fb923c',
+                              borderRadius: '8px', boxShadow: '0 4px 16px rgba(0,0,0,0.13)',
+                              minWidth: '240px', padding: '10px 12px', marginTop: '4px'
+                            }}>
+                              {approvedReturns.map((r, i) => (
+                                <div key={r.id} style={{
+                                  paddingBottom: i < approvedReturns.length - 1 ? '8px' : 0,
+                                  marginBottom: i < approvedReturns.length - 1 ? '8px' : 0,
+                                  borderBottom: i < approvedReturns.length - 1 ? '1px solid #fed7aa' : 'none'
+                                }}>
+                                  <div style={{ fontSize: '12px', fontWeight: 700, color: '#ea580c' }}>
+                                    {r.item_description} — {r.received_quantity} {r.unit}
+                                  </div>
+                                  <div style={{ fontSize: '11px', color: '#6b7280', marginTop: '2px', fontStyle: 'italic' }}>
+                                    Note: {r.note}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      ) : getStatusBadge(transfer.status)}
+                    </td>
                     <td>{transfer.from_location_name}</td>
                     <td>{transfer.to_location_name}</td>
                     <td style={{ fontWeight: 600 }}>
@@ -1344,7 +1416,8 @@ function Transfers() {
                       </div>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>

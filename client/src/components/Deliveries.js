@@ -195,12 +195,25 @@ function Deliveries() {
 
   const isBranch = user.role === 'branch_manager' || user.role === 'branch_staff';
 
-  const getApprovedReturn = (deliveryId) =>
-    discrepancies.find(d =>
-      d.type === 'return' &&
-      d.delivery_id === deliveryId &&
-      (d.status === 'approved' || d.status === 'completed')
-    );
+  const [openReturnId, setOpenReturnId] = useState(null);
+
+  // Returns all approved/completed return discrepancies for a delivery.
+  // Standalone returns (no delivery_id) are matched by branch + warehouse + item description
+  // because the "Request Return" form never links to a specific delivery.
+  const getApprovedReturns = (delivery) =>
+    discrepancies.filter(d => {
+      if (d.type !== 'return') return false;
+      if (d.status !== 'approved' && d.status !== 'completed') return false;
+      if (d.delivery_id && d.delivery_id === delivery.id) return true;
+      if (!d.delivery_id &&
+          d.branch_location_id === delivery.to_location_id &&
+          d.warehouse_location_id === delivery.from_location_id &&
+          delivery.items?.some(item =>
+            item.description?.toLowerCase().trim() === d.item_description?.toLowerCase().trim()
+          )
+      ) return true;
+      return false;
+    });
 
   return (
     <div className="container">
@@ -491,7 +504,7 @@ function Deliveries() {
               </thead>
               <tbody>
                 {deliveries.map((delivery) => {
-                  const approvedReturn = getApprovedReturn(delivery.id);
+                  const approvedReturns = getApprovedReturns(delivery);
                   return (
                   <tr key={delivery.id}>
                     <td>{new Date(delivery.delivery_date || delivery.created_at).toLocaleDateString()}</td>
@@ -508,19 +521,45 @@ function Deliveries() {
                       <td style={{ fontWeight: 600 }}>₱{formatPrice(delivery.total_value)}</td>
                     )}
                     <td>
-                      {approvedReturn ? (
-                        <div>
-                          <span style={{
-                            display: 'inline-flex', alignItems: 'center', gap: '4px',
-                            backgroundColor: '#fee2e2', color: '#ef4444',
-                            padding: '2px 8px', borderRadius: '12px',
-                            fontSize: '12px', fontWeight: 700
-                          }}>
-                            <FiRefreshCw size={12} /> Returned
+                      {approvedReturns.length > 0 ? (
+                        <div style={{ position: 'relative', display: 'inline-block' }}>
+                          <span
+                            onClick={() => setOpenReturnId(openReturnId === delivery.id ? null : delivery.id)}
+                            style={{
+                              display: 'inline-flex', alignItems: 'center', gap: '4px',
+                              backgroundColor: '#fff7ed', color: '#ea580c',
+                              padding: '2px 10px', borderRadius: '12px',
+                              fontSize: '12px', fontWeight: 700,
+                              cursor: 'pointer', border: '1px solid #fb923c',
+                              userSelect: 'none'
+                            }}
+                          >
+                            <FiRefreshCw size={12} /> Returned ({approvedReturns.length})
                           </span>
-                          <div style={{ marginTop: '4px', fontSize: '11px', color: '#ef4444', fontStyle: 'italic' }}>
-                            Note: {approvedReturn.note}
-                          </div>
+                          {openReturnId === delivery.id && (
+                            <div style={{
+                              position: 'absolute', top: '100%', left: 0, zIndex: 200,
+                              background: 'var(--bg-card, #fff)',
+                              border: '1px solid #fb923c',
+                              borderRadius: '8px', boxShadow: '0 4px 16px rgba(0,0,0,0.13)',
+                              minWidth: '240px', padding: '10px 12px', marginTop: '4px'
+                            }}>
+                              {approvedReturns.map((r, i) => (
+                                <div key={r.id} style={{
+                                  paddingBottom: i < approvedReturns.length - 1 ? '8px' : 0,
+                                  marginBottom: i < approvedReturns.length - 1 ? '8px' : 0,
+                                  borderBottom: i < approvedReturns.length - 1 ? '1px solid #fed7aa' : 'none'
+                                }}>
+                                  <div style={{ fontSize: '12px', fontWeight: 700, color: '#ea580c' }}>
+                                    {r.item_description} — {formatQuantity(r.received_quantity)} {r.unit}
+                                  </div>
+                                  <div style={{ fontSize: '11px', color: '#6b7280', marginTop: '2px', fontStyle: 'italic' }}>
+                                    Note: {r.note}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       ) : getStatusBadge(delivery.status)}
                     </td>
