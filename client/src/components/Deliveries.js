@@ -195,6 +195,13 @@ function Deliveries() {
 
   const isBranch = user.role === 'branch_manager' || user.role === 'branch_staff';
 
+  const getApprovedReturn = (deliveryId) =>
+    discrepancies.find(d =>
+      d.type === 'return' &&
+      d.delivery_id === deliveryId &&
+      (d.status === 'approved' || d.status === 'completed')
+    );
+
   return (
     <div className="container">
 
@@ -483,7 +490,9 @@ function Deliveries() {
                 </tr>
               </thead>
               <tbody>
-                {deliveries.map((delivery) => (
+                {deliveries.map((delivery) => {
+                  const approvedReturn = getApprovedReturn(delivery.id);
+                  return (
                   <tr key={delivery.id}>
                     <td>{new Date(delivery.delivery_date || delivery.created_at).toLocaleDateString()}</td>
                     <td>{delivery.from_location_name}</td>
@@ -498,7 +507,23 @@ function Deliveries() {
                     {user.role === 'admin' && (
                       <td style={{ fontWeight: 600 }}>₱{formatPrice(delivery.total_value)}</td>
                     )}
-                    <td>{getStatusBadge(delivery.status)}</td>
+                    <td>
+                      {approvedReturn ? (
+                        <div>
+                          <span style={{
+                            display: 'inline-flex', alignItems: 'center', gap: '4px',
+                            backgroundColor: '#fee2e2', color: '#ef4444',
+                            padding: '2px 8px', borderRadius: '12px',
+                            fontSize: '12px', fontWeight: 700
+                          }}>
+                            <FiRefreshCw size={12} /> Returned
+                          </span>
+                          <div style={{ marginTop: '4px', fontSize: '11px', color: '#ef4444', fontStyle: 'italic' }}>
+                            Note: {approvedReturn.note}
+                          </div>
+                        </div>
+                      ) : getStatusBadge(delivery.status)}
+                    </td>
                     <td>{delivery.created_by_name}</td>
                     {user.role === 'admin' && (
                       <td style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
@@ -568,7 +593,8 @@ function Deliveries() {
                       </td>
                     )}
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
