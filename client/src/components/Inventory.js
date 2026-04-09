@@ -766,6 +766,57 @@ function Inventory() {
     }
   };
 
+  const downloadLocationHistoryFile = (format) => {
+    const filtered = locationHistory.filter(entry => {
+      const d = new Date(entry.date);
+      if (locationHistoryFilter.startDate && d < new Date(locationHistoryFilter.startDate)) return false;
+      if (locationHistoryFilter.endDate && d > new Date(locationHistoryFilter.endDate + 'T23:59:59')) return false;
+      if (locationHistoryFilter.from && entry.from_location_name !== locationHistoryFilter.from) return false;
+      if (locationHistoryFilter.to && entry.to_location_name !== locationHistoryFilter.to) return false;
+      return true;
+    });
+    const headers = ['Date', 'Type', 'Item', 'Unit', 'Qty', 'Source / Destination', 'By'];
+    const data = filtered.map(entry => {
+      const isReceived = entry.type === 'received';
+      const isTransferred = entry.type === 'transferred';
+      const typeLabel = isReceived
+        ? (entry.from_location_type === 'warehouse' ? 'Received (Warehouse)' : 'Received (Outlet)')
+        : isTransferred
+        ? (entry.to_location_type === 'warehouse' ? 'Transferred (Warehouse)' : 'Transferred (Outlet)')
+        : 'Added by Admin';
+      const sourceDest = isReceived
+        ? `From: ${entry.from_location_name}`
+        : isTransferred
+        ? `To: ${entry.to_location_name}`
+        : entry.audit_description || '—';
+      return [
+        new Date(entry.date).toLocaleDateString(),
+        typeLabel,
+        entry.description || '—',
+        entry.unit || '',
+        entry.quantity != null ? formatQuantity(entry.quantity) : '—',
+        sourceDest,
+        entry.by_who || '—'
+      ];
+    });
+    const filename = `inventory_history_${new Date().toISOString().split('T')[0]}`;
+    if (format === 'csv') {
+      const csv = [headers, ...data].map(r => r.map(c => `"${c}"`).join(',')).join('\n');
+      const blob = new Blob([csv], { type: 'text/csv' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download = filename + '.csv'; a.click();
+      window.URL.revokeObjectURL(url);
+    } else {
+      let html = '<table><thead><tr>' + headers.map(h => `<th>${h}</th>`).join('') + '</tr></thead><tbody>';
+      data.forEach(r => { html += '<tr>' + r.map(c => `<td>${c}</td>`).join('') + '</tr>'; });
+      html += '</tbody></table>';
+      const blob = new Blob([html], { type: 'application/vnd.ms-excel' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download = filename + '.xls'; a.click();
+      window.URL.revokeObjectURL(url);
+    }
+  };
+
   // Helper function to determine stock status based on percentage
   const getStockStatus = (quantity, maxQuantity) => {
     const qty = parseFloat(quantity);
@@ -3211,11 +3262,21 @@ function Inventory() {
               })()}
             </div>
 
-            <div style={{ padding: '16px 24px', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
-                {locationHistory.length} record{locationHistory.length !== 1 ? 's' : ''} — received, transferred, and manually added items
+            <div style={{ padding: '16px 24px', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button className="btn btn-success" onClick={() => downloadLocationHistoryFile('csv')} style={{ fontSize: '13px' }}>
+                  <FiDownload size={14} /> CSV
+                </button>
+                <button className="btn btn-primary" onClick={() => downloadLocationHistoryFile('xlsx')} style={{ fontSize: '13px' }}>
+                  <FiDownload size={14} /> XLSX
+                </button>
               </div>
-              <button className="btn btn-secondary" onClick={() => setShowLocationHistoryModal(false)}>Close</button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
+                  {locationHistory.length} record{locationHistory.length !== 1 ? 's' : ''} total
+                </span>
+                <button className="btn btn-secondary" onClick={() => setShowLocationHistoryModal(false)}>Close</button>
+              </div>
             </div>
           </div>
         </div>

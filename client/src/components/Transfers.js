@@ -5,7 +5,7 @@ import { formatQuantity, formatPrice } from '../utils/formatNumber';
 import AutocompleteSearch from './AutocompleteSearch';
 import CdrImportModal from './CdrImportModal';
 import ExpressTransferModal from './ExpressTransferModal';
-import { FiSend, FiPackage, FiAlertCircle, FiCheck, FiX, FiTruck, FiClock, FiCheckCircle, FiXCircle, FiTrash2, FiRefreshCw } from 'react-icons/fi';
+import { FiSend, FiPackage, FiAlertCircle, FiCheck, FiX, FiTruck, FiClock, FiCheckCircle, FiXCircle, FiTrash2, FiRefreshCw, FiDownload } from 'react-icons/fi';
 
 function Transfers() {
   const { user } = useContext(AuthContext);
@@ -703,6 +703,60 @@ function Transfers() {
     a.download = `transfers_${new Date().toISOString().split('T')[0]}.xls`;
     a.click();
     window.URL.revokeObjectURL(url);
+  };
+
+  const getHistoryModalRows = () => {
+    const applyFilter = (list) => list.filter(t => {
+      if (historyModalFilter.startDate && new Date(t.transfer_date) < new Date(historyModalFilter.startDate)) return false;
+      if (historyModalFilter.endDate && new Date(t.transfer_date) > new Date(historyModalFilter.endDate + 'T23:59:59')) return false;
+      if (historyModalFilter.from && String(t.from_location_id) !== String(historyModalFilter.from)) return false;
+      if (historyModalFilter.to && String(t.to_location_id) !== String(historyModalFilter.to)) return false;
+      return true;
+    });
+    const delivered = transfers.filter(t => t.status === 'delivered');
+    if (historyTab === 'received') {
+      return applyFilter(delivered.filter(t => {
+        if (user.role === 'warehouse') return false;
+        if (user.role === 'branch_manager') return String(t.to_location_id) === String(user.location_id);
+        return true;
+      }));
+    }
+    return applyFilter(delivered.filter(t => {
+      if (user.role === 'warehouse') return String(t.from_location_id) === String(user.location_id);
+      if (user.role === 'branch_manager') return String(t.from_location_id) === String(user.location_id);
+      return true;
+    }));
+  };
+
+  const downloadHistoryFile = (format) => {
+    const rows = getHistoryModalRows();
+    const tabLabel = historyTab === 'received' ? 'received' : 'transferred_out';
+    const headers = ['Date', 'Item', 'Unit', 'Qty', 'From', 'To', 'By'];
+    const data = rows.map(t => [
+      new Date(t.transfer_date).toLocaleDateString(),
+      t.description || 'Multiple Items',
+      t.unit || '',
+      t.quantity ? formatQuantity(t.quantity) : '—',
+      t.from_location_name || '—',
+      t.to_location_name || '—',
+      t.transferred_by_name || '—'
+    ]);
+    const filename = `transfer_history_${tabLabel}_${new Date().toISOString().split('T')[0]}`;
+    if (format === 'csv') {
+      const csv = [headers, ...data].map(r => r.map(c => `"${c}"`).join(',')).join('\n');
+      const blob = new Blob([csv], { type: 'text/csv' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download = filename + '.csv'; a.click();
+      window.URL.revokeObjectURL(url);
+    } else {
+      let html = '<table><thead><tr>' + headers.map(h => `<th>${h}</th>`).join('') + '</tr></thead><tbody>';
+      data.forEach(r => { html += '<tr>' + r.map(c => `<td>${c}</td>`).join('') + '</tr>'; });
+      html += '</tbody></table>';
+      const blob = new Blob([html], { type: 'application/vnd.ms-excel' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download = filename + '.xls'; a.click();
+      window.URL.revokeObjectURL(url);
+    }
   };
 
   return (
@@ -1917,7 +1971,15 @@ function Transfers() {
               );
             })()}
 
-            <div style={{ padding: '16px 24px', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end' }}>
+            <div style={{ padding: '16px 24px', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button className="btn btn-success" onClick={() => downloadHistoryFile('csv')} style={{ fontSize: '13px' }}>
+                  <FiDownload size={14} /> CSV
+                </button>
+                <button className="btn btn-primary" onClick={() => downloadHistoryFile('xlsx')} style={{ fontSize: '13px' }}>
+                  <FiDownload size={14} /> XLSX
+                </button>
+              </div>
               <button className="btn btn-secondary" onClick={() => setShowTransferHistoryModal(false)}>Close</button>
             </div>
           </div>
