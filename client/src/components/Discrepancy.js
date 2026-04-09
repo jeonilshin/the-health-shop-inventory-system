@@ -3,7 +3,7 @@ import api from '../utils/api';
 import { AuthContext } from '../context/AuthContext';
 import { formatQuantity } from '../utils/formatNumber';
 import {
-  FiRefreshCw, FiAlertTriangle, FiPackage, FiCalendar, FiFilter, FiCheckCircle, FiX, FiPlus, FiXCircle
+  FiRefreshCw, FiAlertTriangle, FiPackage, FiCalendar, FiFilter, FiCheckCircle, FiX, FiPlus, FiXCircle, FiDownload
 } from 'react-icons/fi';
 import DiscrepancyModal from './DiscrepancyModal';
 
@@ -13,6 +13,8 @@ function Discrepancy() {
   const [initialLoad, setInitialLoad] = useState(true);
   const [filterType, setFilterType] = useState('all'); // 'all', 'shortage', 'return', 'damage'
   const [filterStatus, setFilterStatus] = useState('all'); // 'all', 'pending', 'approved', 'completed', 'rejected'
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
   const [rejectState, setRejectState] = useState({ id: null, note: '' });
   const [showDamageModal, setShowDamageModal] = useState(false);
 
@@ -89,8 +91,59 @@ function Discrepancy() {
   const filteredDiscrepancies = discrepancies.filter(disc => {
     if (filterType !== 'all' && disc.type !== filterType) return false;
     if (filterStatus !== 'all' && disc.status !== filterStatus) return false;
+    if (startDate) {
+      const discDate = new Date(disc.reported_at);
+      if (discDate < new Date(startDate)) return false;
+    }
+    if (endDate) {
+      const discDate = new Date(disc.reported_at);
+      if (discDate > new Date(endDate + 'T23:59:59')) return false;
+    }
     return true;
   });
+
+  const handleDownload = (format) => {
+    const headers = user.role === 'admin'
+      ? ['Date Reported', 'Type', 'Item Description', 'Unit', 'Expected Qty', 'Received/Return Qty', 'Discrepancy Qty', 'Branch', 'Reported By', 'Status', 'Note', 'Admin Note']
+      : ['Date Reported', 'Type', 'Item Description', 'Unit', 'Expected Qty', 'Received/Return Qty', 'Discrepancy Qty', 'Status', 'Note', 'Admin Note'];
+
+    const rows = filteredDiscrepancies.map(disc => {
+      const adjustQty = disc.type === 'shortage'
+        ? parseFloat(disc.expected_quantity) - parseFloat(disc.received_quantity)
+        : parseFloat(disc.received_quantity);
+      const statusLabels = { pending: 'Pending', approved: 'Approved', completed: 'Completed', rejected: 'Rejected' };
+      const base = [
+        new Date(disc.reported_at).toLocaleDateString(),
+        disc.type.charAt(0).toUpperCase() + disc.type.slice(1),
+        disc.item_description || '',
+        disc.unit || '',
+        disc.expected_quantity != null ? disc.expected_quantity : '',
+        disc.received_quantity != null ? disc.received_quantity : '',
+        adjustQty,
+      ];
+      if (user.role === 'admin') base.push(disc.branch_name || '—', disc.reported_by_name || '—');
+      base.push(statusLabels[disc.status] || disc.status, disc.note || '', disc.admin_note || '');
+      return base;
+    });
+
+    const filename = `discrepancies_${new Date().toISOString().split('T')[0]}`;
+
+    if (format === 'csv') {
+      const csv = [headers, ...rows].map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
+      const blob = new Blob([csv], { type: 'text/csv' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download = filename + '.csv'; a.click();
+      window.URL.revokeObjectURL(url);
+    } else {
+      let html = '<table><thead><tr>' + headers.map(h => `<th>${h}</th>`).join('') + '</tr></thead><tbody>';
+      rows.forEach(r => { html += '<tr>' + r.map(c => `<td>${c}</td>`).join('') + '</tr>'; });
+      html += '</tbody></table>';
+      const blob = new Blob([html], { type: 'application/vnd.ms-excel' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download = filename + '.xls'; a.click();
+      window.URL.revokeObjectURL(url);
+    }
+  };
 
   // Group by date
   const groupedByDate = filteredDiscrepancies.reduce((acc, disc) => {
@@ -272,8 +325,100 @@ function Discrepancy() {
             </select>
           </div>
 
-          <div style={{ marginLeft: 'auto', fontSize: '13px', color: '#6b7280' }}>
-            Showing {filteredDiscrepancies.length} of {discrepancies.length} records
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <label style={{ fontSize: '13px', color: '#6b7280' }}>From:</label>
+            <input
+              type="date"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              style={{
+                padding: '6px 10px',
+                border: '1px solid var(--border-color)',
+                borderRadius: '6px',
+                fontSize: '13px',
+                background: 'var(--bg-input)'
+              }}
+            />
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <label style={{ fontSize: '13px', color: '#6b7280' }}>To:</label>
+            <input
+              type="date"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+              style={{
+                padding: '6px 10px',
+                border: '1px solid var(--border-color)',
+                borderRadius: '6px',
+                fontSize: '13px',
+                background: 'var(--bg-input)'
+              }}
+            />
+          </div>
+
+          {(filterType !== 'all' || filterStatus !== 'all' || startDate || endDate) && (
+            <button
+              onClick={() => { setFilterType('all'); setFilterStatus('all'); setStartDate(''); setEndDate(''); }}
+              style={{
+                padding: '6px 12px',
+                fontSize: '13px',
+                border: '1px solid var(--border-color)',
+                borderRadius: '6px',
+                background: 'transparent',
+                color: '#6b7280',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px'
+              }}
+            >
+              <FiX size={13} /> Clear
+            </button>
+          )}
+
+          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span style={{ fontSize: '13px', color: '#6b7280' }}>
+              Showing {filteredDiscrepancies.length} of {discrepancies.length} records
+            </span>
+            <button
+              onClick={() => handleDownload('csv')}
+              disabled={filteredDiscrepancies.length === 0}
+              style={{
+                padding: '6px 12px',
+                fontSize: '13px',
+                border: '1px solid #d1d5db',
+                borderRadius: '6px',
+                background: '#fff',
+                color: '#374151',
+                cursor: filteredDiscrepancies.length === 0 ? 'not-allowed' : 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                opacity: filteredDiscrepancies.length === 0 ? 0.5 : 1
+              }}
+            >
+              <FiDownload size={13} /> CSV
+            </button>
+            <button
+              onClick={() => handleDownload('xlsx')}
+              disabled={filteredDiscrepancies.length === 0}
+              style={{
+                padding: '6px 12px',
+                fontSize: '13px',
+                border: '1px solid #d1d5db',
+                borderRadius: '6px',
+                background: '#fff',
+                color: '#374151',
+                cursor: filteredDiscrepancies.length === 0 ? 'not-allowed' : 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                opacity: filteredDiscrepancies.length === 0 ? 0.5 : 1
+              }}
+            >
+              <FiDownload size={13} /> XLSX
+            </button>
           </div>
         </div>
       </div>
@@ -285,7 +430,7 @@ function Discrepancy() {
             <div className="empty-state-icon"><FiPackage /></div>
             <h3>No Discrepancy Records</h3>
             <p>
-              {filterType !== 'all' || filterStatus !== 'all'
+              {filterType !== 'all' || filterStatus !== 'all' || startDate || endDate
                 ? 'No records match your current filters'
                 : 'No shortage reports or return requests have been filed yet'}
             </p>
