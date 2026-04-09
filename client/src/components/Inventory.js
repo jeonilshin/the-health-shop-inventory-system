@@ -3114,7 +3114,6 @@ function Inventory() {
                       {locationHistory.map((entry, idx) => {
                         const isReceived = entry.type === 'received';
                         const isTransferred = entry.type === 'transferred';
-                        const isAdded = entry.type === 'added';
                         const typeColor = isReceived ? '#16a34a' : isTransferred ? '#d97706' : '#2563eb';
                         const typeLabel = isReceived
                           ? (entry.from_location_type === 'warehouse' ? 'Received (Warehouse)' : 'Received (Outlet)')

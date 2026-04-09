@@ -603,10 +603,10 @@ function Transfers() {
 
     // Apply from/to location filters
     if (locationFilter.from) {
-      filtered = filtered.filter(t => t.from_location_id == locationFilter.from);
+      filtered = filtered.filter(t => String(t.from_location_id) === String(locationFilter.from));
     }
     if (locationFilter.to) {
-      filtered = filtered.filter(t => t.to_location_id == locationFilter.to);
+      filtered = filtered.filter(t => String(t.to_location_id) === String(locationFilter.to));
     }
 
     return filtered;
@@ -1711,13 +1711,13 @@ function Transfers() {
                 }
 
                 const sentDelivered = delivered.filter(t => {
-                  if (user.role === 'warehouse') return t.from_location_id == user.location_id;
-                  if (user.role === 'branch_manager') return t.from_location_id == user.location_id;
+                  if (user.role === 'warehouse') return String(t.from_location_id) === String(user.location_id);
+                  if (user.role === 'branch_manager') return String(t.from_location_id) === String(user.location_id);
                   return true;
                 });
                 const receivedDelivered = delivered.filter(t => {
                   if (user.role === 'warehouse') return false;
-                  if (user.role === 'branch_manager') return t.to_location_id == user.location_id;
+                  if (user.role === 'branch_manager') return String(t.to_location_id) === String(user.location_id);
                   return true;
                 });
 
