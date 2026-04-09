@@ -43,6 +43,8 @@ function Transfers() {
   });
   const [locationFilter, setLocationFilter] = useState({ from: '', to: '' });
   const [showTransferHistoryModal, setShowTransferHistoryModal] = useState(false);
+  const [historyTab, setHistoryTab] = useState('received');
+  const [historyModalFilter, setHistoryModalFilter] = useState({ startDate: '', endDate: '', from: '', to: '' });
   const [showExportPreview, setShowExportPreview] = useState(false);
   const [exportData, setExportData] = useState([]);
   const [discrepancies, setDiscrepancies] = useState([]);
@@ -818,7 +820,7 @@ function Transfers() {
               <FiPackage size={16} />
               Download
             </button>
-            <button className="btn" style={{ backgroundColor: '#0891b2', color: 'white' }} onClick={() => setShowTransferHistoryModal(true)}>
+            <button className="btn" style={{ backgroundColor: '#0891b2', color: 'white' }} onClick={() => { setHistoryModalFilter({ startDate: '', endDate: '', from: '', to: '' }); setShowTransferHistoryModal(true); }}>
               <FiClock size={16} />
               History
             </button>
@@ -1679,6 +1681,7 @@ function Transfers() {
       {showTransferHistoryModal && (
         <div className="modal-overlay" onClick={() => setShowTransferHistoryModal(false)}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '1050px', width: '95%', maxHeight: '90vh' }}>
+            {/* Header */}
             <div style={{
               padding: '20px 24px',
               borderBottom: '1px solid var(--border)',
@@ -1697,84 +1700,141 @@ function Transfers() {
               </button>
             </div>
 
-            <div style={{ padding: '24px', overflowY: 'auto', maxHeight: 'calc(90vh - 130px)' }}>
-              {(() => {
-                const delivered = transfers.filter(t => t.status === 'delivered');
-                if (delivered.length === 0) {
-                  return (
-                    <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
-                      <FiClock size={48} style={{ marginBottom: '16px', opacity: 0.5 }} />
-                      <h3>No Completed Transfers</h3>
-                      <p>No delivered transfers found yet.</p>
-                    </div>
-                  );
-                }
+            {/* What's the difference info box */}
+            <div style={{ padding: '12px 24px', background: '#f0f9ff', borderBottom: '1px solid #bae6fd', display: 'flex', gap: '32px', flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
+                <span style={{ fontSize: '18px', lineHeight: 1 }}>⬇</span>
+                <div>
+                  <div style={{ fontWeight: 700, color: '#16a34a', fontSize: '13px' }}>Items Received</div>
+                  <div style={{ fontSize: '12px', color: '#64748b' }}>Stock that arrived at this location — sent from a warehouse or another outlet.</div>
+                </div>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
+                <span style={{ fontSize: '18px', lineHeight: 1 }}>⬆</span>
+                <div>
+                  <div style={{ fontWeight: 700, color: '#d97706', fontSize: '13px' }}>Items Transferred Out</div>
+                  <div style={{ fontSize: '12px', color: '#64748b' }}>Stock that left this location — sent to a warehouse or another outlet.</div>
+                </div>
+              </div>
+            </div>
 
-                const sentDelivered = delivered.filter(t => {
-                  if (user.role === 'warehouse') return String(t.from_location_id) === String(user.location_id);
-                  if (user.role === 'branch_manager') return String(t.from_location_id) === String(user.location_id);
-                  return true;
-                });
-                const receivedDelivered = delivered.filter(t => {
-                  if (user.role === 'warehouse') return false;
-                  if (user.role === 'branch_manager') return String(t.to_location_id) === String(user.location_id);
-                  return true;
-                });
+            {/* Modal Filters */}
+            <div style={{ padding: '12px 24px', borderBottom: '1px solid var(--border)', background: 'var(--bg-secondary)' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '10px', alignItems: 'end' }}>
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label style={{ fontSize: '12px' }}>Start Date</label>
+                  <input type="date" value={historyModalFilter.startDate} onChange={e => setHistoryModalFilter(f => ({ ...f, startDate: e.target.value }))} style={{ width: '100%', fontSize: '13px' }} />
+                </div>
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label style={{ fontSize: '12px' }}>End Date</label>
+                  <input type="date" value={historyModalFilter.endDate} onChange={e => setHistoryModalFilter(f => ({ ...f, endDate: e.target.value }))} style={{ width: '100%', fontSize: '13px' }} />
+                </div>
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label style={{ fontSize: '12px' }}>From Location</label>
+                  <select value={historyModalFilter.from} onChange={e => setHistoryModalFilter(f => ({ ...f, from: e.target.value }))} style={{ width: '100%', fontSize: '13px' }}>
+                    <option value="">All</option>
+                    {locations.map(loc => <option key={loc.id} value={loc.id}>{loc.name}</option>)}
+                  </select>
+                </div>
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label style={{ fontSize: '12px' }}>To Location</label>
+                  <select value={historyModalFilter.to} onChange={e => setHistoryModalFilter(f => ({ ...f, to: e.target.value }))} style={{ width: '100%', fontSize: '13px' }}>
+                    <option value="">All</option>
+                    {locations.map(loc => <option key={loc.id} value={loc.id}>{loc.name}</option>)}
+                  </select>
+                </div>
+                <button className="btn btn-secondary" style={{ fontSize: '12px', height: 'fit-content' }} onClick={() => setHistoryModalFilter({ startDate: '', endDate: '', from: '', to: '' })}>
+                  Clear
+                </button>
+              </div>
+            </div>
 
-                return (
-                  <div>
-                    {/* Received Section */}
-                    {(user.role === 'branch_manager' || user.role === 'admin') && (
-                      <div style={{ marginBottom: '32px' }}>
-                        <h4 style={{ marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px', color: '#16a34a' }}>
-                          ⬇ Items Received
-                          <span style={{ fontSize: '13px', fontWeight: 400, color: 'var(--text-muted)' }}>({receivedDelivered.length})</span>
-                        </h4>
-                        {receivedDelivered.length === 0 ? (
-                          <p style={{ color: 'var(--text-muted)', fontSize: '14px' }}>No items received yet.</p>
-                        ) : (
-                          <div style={{ overflowX: 'auto' }}>
-                            <table style={{ width: '100%', fontSize: '14px' }}>
-                              <thead>
-                                <tr style={{ background: 'var(--bg-secondary)' }}>
-                                  <th style={{ padding: '10px 8px', textAlign: 'left' }}>Date</th>
-                                  <th style={{ padding: '10px 8px', textAlign: 'left' }}>Item</th>
-                                  <th style={{ padding: '10px 8px', textAlign: 'left' }}>Qty</th>
-                                  <th style={{ padding: '10px 8px', textAlign: 'left' }}>From</th>
-                                  <th style={{ padding: '10px 8px', textAlign: 'left' }}>Requested By</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {receivedDelivered.map((t, idx) => (
-                                  <tr key={idx} style={{ borderBottom: '1px solid var(--border)' }}>
-                                    <td style={{ padding: '10px 8px', whiteSpace: 'nowrap' }}>
-                                      <div style={{ fontWeight: 600 }}>{new Date(t.transfer_date).toLocaleDateString()}</div>
-                                      <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{new Date(t.transfer_date).toLocaleTimeString()}</div>
-                                    </td>
-                                    <td style={{ padding: '10px 8px', fontWeight: 600 }}>
-                                      {t.description || 'Multiple Items'}
-                                      {t.unit && <span style={{ fontWeight: 400, color: 'var(--text-muted)', marginLeft: 4 }}>({t.unit})</span>}
-                                    </td>
-                                    <td style={{ padding: '10px 8px' }}>{t.quantity ? formatQuantity(t.quantity) : '—'}</td>
-                                    <td style={{ padding: '10px 8px', color: 'var(--text-secondary)' }}>{t.from_location_name}</td>
-                                    <td style={{ padding: '10px 8px', fontWeight: 600 }}>{t.transferred_by_name || '—'}</td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
-                          </div>
-                        )}
-                      </div>
+            {(() => {
+              const applyFilter = (list) => list.filter(t => {
+                if (historyModalFilter.startDate && new Date(t.transfer_date) < new Date(historyModalFilter.startDate)) return false;
+                if (historyModalFilter.endDate && new Date(t.transfer_date) > new Date(historyModalFilter.endDate + 'T23:59:59')) return false;
+                if (historyModalFilter.from && String(t.from_location_id) !== String(historyModalFilter.from)) return false;
+                if (historyModalFilter.to && String(t.to_location_id) !== String(historyModalFilter.to)) return false;
+                return true;
+              });
+
+              const delivered = transfers.filter(t => t.status === 'delivered');
+              const sentDelivered = applyFilter(delivered.filter(t => {
+                if (user.role === 'warehouse') return String(t.from_location_id) === String(user.location_id);
+                if (user.role === 'branch_manager') return String(t.from_location_id) === String(user.location_id);
+                return true;
+              }));
+              const receivedDelivered = applyFilter(delivered.filter(t => {
+                if (user.role === 'warehouse') return false;
+                if (user.role === 'branch_manager') return String(t.to_location_id) === String(user.location_id);
+                return true;
+              }));
+              const showReceivedTab = user.role === 'branch_manager' || user.role === 'admin';
+
+              return (
+                <>
+                  {/* Tab buttons */}
+                  <div style={{ display: 'flex', gap: '0', borderBottom: '2px solid var(--border)', padding: '0 24px' }}>
+                    {showReceivedTab && (
+                      <button
+                        onClick={() => setHistoryTab('received')}
+                        style={{
+                          padding: '12px 20px',
+                          border: 'none',
+                          background: 'none',
+                          cursor: 'pointer',
+                          fontSize: '14px',
+                          fontWeight: historyTab === 'received' ? 700 : 400,
+                          color: historyTab === 'received' ? '#16a34a' : 'var(--text-secondary)',
+                          borderBottom: historyTab === 'received' ? '3px solid #16a34a' : '3px solid transparent',
+                          marginBottom: '-2px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px'
+                        }}
+                      >
+                        ⬇ Items Received
+                        <span style={{
+                          background: historyTab === 'received' ? '#dcfce7' : 'var(--bg-secondary)',
+                          color: historyTab === 'received' ? '#16a34a' : 'var(--text-muted)',
+                          borderRadius: '10px', padding: '1px 8px', fontSize: '12px', fontWeight: 700
+                        }}>{receivedDelivered.length}</span>
+                      </button>
                     )}
+                    <button
+                      onClick={() => setHistoryTab('transferred')}
+                      style={{
+                        padding: '12px 20px',
+                        border: 'none',
+                        background: 'none',
+                        cursor: 'pointer',
+                        fontSize: '14px',
+                        fontWeight: historyTab === 'transferred' ? 700 : 400,
+                        color: historyTab === 'transferred' ? '#d97706' : 'var(--text-secondary)',
+                        borderBottom: historyTab === 'transferred' ? '3px solid #d97706' : '3px solid transparent',
+                        marginBottom: '-2px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px'
+                      }}
+                    >
+                      ⬆ Items Transferred Out
+                      <span style={{
+                        background: historyTab === 'transferred' ? '#fef3c7' : 'var(--bg-secondary)',
+                        color: historyTab === 'transferred' ? '#d97706' : 'var(--text-muted)',
+                        borderRadius: '10px', padding: '1px 8px', fontSize: '12px', fontWeight: 700
+                      }}>{sentDelivered.length}</span>
+                    </button>
+                  </div>
 
-                    {/* Transferred Out Section */}
-                    <div>
-                      <h4 style={{ marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px', color: '#d97706' }}>
-                        ⬆ Items Transferred Out
-                        <span style={{ fontSize: '13px', fontWeight: 400, color: 'var(--text-muted)' }}>({sentDelivered.length})</span>
-                      </h4>
-                      {sentDelivered.length === 0 ? (
-                        <p style={{ color: 'var(--text-muted)', fontSize: '14px' }}>No items transferred out yet.</p>
+                  {/* Tab content */}
+                  <div style={{ padding: '20px 24px', overflowY: 'auto', maxHeight: 'calc(90vh - 280px)' }}>
+                    {historyTab === 'received' && showReceivedTab && (
+                      receivedDelivered.length === 0 ? (
+                        <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
+                          <FiClock size={40} style={{ marginBottom: '12px', opacity: 0.4 }} />
+                          <p>No items have been received yet.</p>
+                        </div>
                       ) : (
                         <div style={{ overflowX: 'auto' }}>
                           <table style={{ width: '100%', fontSize: '14px' }}>
@@ -1783,6 +1843,49 @@ function Transfers() {
                                 <th style={{ padding: '10px 8px', textAlign: 'left' }}>Date</th>
                                 <th style={{ padding: '10px 8px', textAlign: 'left' }}>Item</th>
                                 <th style={{ padding: '10px 8px', textAlign: 'left' }}>Qty</th>
+                                <th style={{ padding: '10px 8px', textAlign: 'left' }}>From</th>
+                                <th style={{ padding: '10px 8px', textAlign: 'left' }}>To</th>
+                                <th style={{ padding: '10px 8px', textAlign: 'left' }}>By</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {receivedDelivered.map((t, idx) => (
+                                <tr key={idx} style={{ borderBottom: '1px solid var(--border)' }}>
+                                  <td style={{ padding: '10px 8px', whiteSpace: 'nowrap' }}>
+                                    <div style={{ fontWeight: 600 }}>{new Date(t.transfer_date).toLocaleDateString()}</div>
+                                    <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{new Date(t.transfer_date).toLocaleTimeString()}</div>
+                                  </td>
+                                  <td style={{ padding: '10px 8px', fontWeight: 600 }}>
+                                    {t.description || 'Multiple Items'}
+                                    {t.unit && <span style={{ fontWeight: 400, color: 'var(--text-muted)', marginLeft: 4 }}>({t.unit})</span>}
+                                  </td>
+                                  <td style={{ padding: '10px 8px' }}>{t.quantity ? formatQuantity(t.quantity) : '—'}</td>
+                                  <td style={{ padding: '10px 8px', color: 'var(--text-secondary)' }}>{t.from_location_name}</td>
+                                  <td style={{ padding: '10px 8px', color: 'var(--text-secondary)' }}>{t.to_location_name}</td>
+                                  <td style={{ padding: '10px 8px', fontWeight: 600 }}>{t.transferred_by_name || '—'}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )
+                    )}
+
+                    {historyTab === 'transferred' && (
+                      sentDelivered.length === 0 ? (
+                        <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
+                          <FiClock size={40} style={{ marginBottom: '12px', opacity: 0.4 }} />
+                          <p>No items have been transferred out yet.</p>
+                        </div>
+                      ) : (
+                        <div style={{ overflowX: 'auto' }}>
+                          <table style={{ width: '100%', fontSize: '14px' }}>
+                            <thead>
+                              <tr style={{ background: 'var(--bg-secondary)' }}>
+                                <th style={{ padding: '10px 8px', textAlign: 'left' }}>Date</th>
+                                <th style={{ padding: '10px 8px', textAlign: 'left' }}>Item</th>
+                                <th style={{ padding: '10px 8px', textAlign: 'left' }}>Qty</th>
+                                <th style={{ padding: '10px 8px', textAlign: 'left' }}>From</th>
                                 <th style={{ padding: '10px 8px', textAlign: 'left' }}>To</th>
                                 <th style={{ padding: '10px 8px', textAlign: 'left' }}>By</th>
                               </tr>
@@ -1799,6 +1902,7 @@ function Transfers() {
                                     {t.unit && <span style={{ fontWeight: 400, color: 'var(--text-muted)', marginLeft: 4 }}>({t.unit})</span>}
                                   </td>
                                   <td style={{ padding: '10px 8px' }}>{t.quantity ? formatQuantity(t.quantity) : '—'}</td>
+                                  <td style={{ padding: '10px 8px', color: 'var(--text-secondary)' }}>{t.from_location_name}</td>
                                   <td style={{ padding: '10px 8px', color: 'var(--text-secondary)' }}>{t.to_location_name}</td>
                                   <td style={{ padding: '10px 8px', fontWeight: 600 }}>{t.transferred_by_name || '—'}</td>
                                 </tr>
@@ -1806,12 +1910,12 @@ function Transfers() {
                             </tbody>
                           </table>
                         </div>
-                      )}
-                    </div>
+                      )
+                    )}
                   </div>
-                );
-              })()}
-            </div>
+                </>
+              );
+            })()}
 
             <div style={{ padding: '16px 24px', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end' }}>
               <button className="btn btn-secondary" onClick={() => setShowTransferHistoryModal(false)}>Close</button>

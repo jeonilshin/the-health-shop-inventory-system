@@ -34,6 +34,7 @@ function Inventory() {
   const [showLocationHistoryModal, setShowLocationHistoryModal] = useState(false);
   const [locationHistory, setLocationHistory] = useState([]);
   const [loadingLocationHistory, setLoadingLocationHistory] = useState(false);
+  const [locationHistoryFilter, setLocationHistoryFilter] = useState({ startDate: '', endDate: '', from: '', to: '' });
   const [viewBatches, setViewBatches] = useState(null);
   const [editingBatchId, setEditingBatchId] = useState(null);
   const [batchEditData, setBatchEditData] = useState({});
@@ -753,6 +754,7 @@ function Inventory() {
       return;
     }
     setLoadingLocationHistory(true);
+    setLocationHistoryFilter({ startDate: '', endDate: '', from: '', to: '' });
     try {
       const response = await api.get(`/inventory/location-history/${selectedLocation}`);
       setLocationHistory(response.data);
@@ -3090,82 +3092,123 @@ function Inventory() {
               </button>
             </div>
 
-            <div style={{ padding: '24px', overflowY: 'auto', maxHeight: 'calc(90vh - 120px)' }}>
-              {locationHistory.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
-                  <FiClock size={48} style={{ marginBottom: '16px', opacity: 0.5 }} />
-                  <h3>No History Found</h3>
-                  <p>No inventory movements recorded for this location yet.</p>
+            {/* Filters */}
+            {locationHistory.length > 0 && (() => {
+              const fromLocations = [...new Set(locationHistory.filter(e => e.from_location_name).map(e => e.from_location_name))];
+              const toLocations = [...new Set(locationHistory.filter(e => e.to_location_name).map(e => e.to_location_name))];
+              return (
+                <div style={{ padding: '12px 24px', borderBottom: '1px solid var(--border)', background: 'var(--bg-secondary)' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '10px', alignItems: 'end' }}>
+                    <div className="form-group" style={{ marginBottom: 0 }}>
+                      <label style={{ fontSize: '12px' }}>Start Date</label>
+                      <input type="date" value={locationHistoryFilter.startDate} onChange={e => setLocationHistoryFilter(f => ({ ...f, startDate: e.target.value }))} style={{ width: '100%', fontSize: '13px' }} />
+                    </div>
+                    <div className="form-group" style={{ marginBottom: 0 }}>
+                      <label style={{ fontSize: '12px' }}>End Date</label>
+                      <input type="date" value={locationHistoryFilter.endDate} onChange={e => setLocationHistoryFilter(f => ({ ...f, endDate: e.target.value }))} style={{ width: '100%', fontSize: '13px' }} />
+                    </div>
+                    <div className="form-group" style={{ marginBottom: 0 }}>
+                      <label style={{ fontSize: '12px' }}>From Location</label>
+                      <select value={locationHistoryFilter.from} onChange={e => setLocationHistoryFilter(f => ({ ...f, from: e.target.value }))} style={{ width: '100%', fontSize: '13px' }}>
+                        <option value="">All</option>
+                        {fromLocations.map(name => <option key={name} value={name}>{name}</option>)}
+                      </select>
+                    </div>
+                    <div className="form-group" style={{ marginBottom: 0 }}>
+                      <label style={{ fontSize: '12px' }}>To Location</label>
+                      <select value={locationHistoryFilter.to} onChange={e => setLocationHistoryFilter(f => ({ ...f, to: e.target.value }))} style={{ width: '100%', fontSize: '13px' }}>
+                        <option value="">All</option>
+                        {toLocations.map(name => <option key={name} value={name}>{name}</option>)}
+                      </select>
+                    </div>
+                    <button className="btn btn-secondary" style={{ fontSize: '12px', height: 'fit-content' }} onClick={() => setLocationHistoryFilter({ startDate: '', endDate: '', from: '', to: '' })}>
+                      Clear
+                    </button>
+                  </div>
                 </div>
-              ) : (
-                <div style={{ overflowX: 'auto' }}>
-                  <table style={{ width: '100%', fontSize: '14px' }}>
-                    <thead>
-                      <tr style={{ background: 'var(--bg-secondary)' }}>
-                        <th style={{ padding: '10px 8px', textAlign: 'left' }}>Date</th>
-                        <th style={{ padding: '10px 8px', textAlign: 'left' }}>Type</th>
-                        <th style={{ padding: '10px 8px', textAlign: 'left' }}>Item</th>
-                        <th style={{ padding: '10px 8px', textAlign: 'left' }}>Qty</th>
-                        <th style={{ padding: '10px 8px', textAlign: 'left' }}>Source / Destination</th>
-                        <th style={{ padding: '10px 8px', textAlign: 'left' }}>By</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {locationHistory.map((entry, idx) => {
-                        const isReceived = entry.type === 'received';
-                        const isTransferred = entry.type === 'transferred';
-                        const typeColor = isReceived ? '#16a34a' : isTransferred ? '#d97706' : '#2563eb';
-                        const typeLabel = isReceived
-                          ? (entry.from_location_type === 'warehouse' ? 'Received (Warehouse)' : 'Received (Outlet)')
-                          : isTransferred
-                          ? (entry.to_location_type === 'warehouse' ? 'Transferred (Warehouse)' : 'Transferred (Outlet)')
-                          : 'Added by Admin';
-                        const sourceDest = isReceived
-                          ? `From: ${entry.from_location_name}`
-                          : isTransferred
-                          ? `To: ${entry.to_location_name}`
-                          : entry.audit_description || '—';
+              );
+            })()}
 
-                        return (
-                          <tr key={idx} style={{ borderBottom: '1px solid var(--border)' }}>
-                            <td style={{ padding: '10px 8px', whiteSpace: 'nowrap' }}>
-                              <div style={{ fontWeight: 600 }}>{new Date(entry.date).toLocaleDateString()}</div>
-                              <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{new Date(entry.date).toLocaleTimeString()}</div>
-                            </td>
-                            <td style={{ padding: '10px 8px' }}>
-                              <span style={{
-                                display: 'inline-block',
-                                padding: '3px 10px',
-                                borderRadius: '12px',
-                                fontSize: '12px',
-                                fontWeight: 700,
-                                background: typeColor + '18',
-                                color: typeColor,
-                                whiteSpace: 'nowrap'
-                              }}>
-                                {isReceived ? '⬇ ' : isTransferred ? '⬆ ' : '＋ '}{typeLabel}
-                              </span>
-                            </td>
-                            <td style={{ padding: '10px 8px', fontWeight: 600 }}>
-                              {entry.description || '—'}
-                              {entry.unit && <span style={{ fontWeight: 400, color: 'var(--text-muted)', marginLeft: 4 }}>({entry.unit})</span>}
-                            </td>
-                            <td style={{ padding: '10px 8px' }}>
-                              {entry.quantity != null ? formatQuantity(entry.quantity) : '—'}
-                            </td>
-                            <td style={{ padding: '10px 8px', color: 'var(--text-secondary)', fontSize: '13px' }}>
-                              {sourceDest}
-                            </td>
-                            <td style={{ padding: '10px 8px', fontWeight: 600 }}>
-                              {entry.by_who || '—'}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              )}
+            <div style={{ padding: '24px', overflowY: 'auto', maxHeight: 'calc(90vh - 200px)' }}>
+              {(() => {
+                const filtered = locationHistory.filter(entry => {
+                  const d = new Date(entry.date);
+                  if (locationHistoryFilter.startDate && d < new Date(locationHistoryFilter.startDate)) return false;
+                  if (locationHistoryFilter.endDate && d > new Date(locationHistoryFilter.endDate + 'T23:59:59')) return false;
+                  if (locationHistoryFilter.from && entry.from_location_name !== locationHistoryFilter.from) return false;
+                  if (locationHistoryFilter.to && entry.to_location_name !== locationHistoryFilter.to) return false;
+                  return true;
+                });
+
+                if (filtered.length === 0) return (
+                  <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
+                    <FiClock size={48} style={{ marginBottom: '16px', opacity: 0.5 }} />
+                    <h3>{locationHistory.length === 0 ? 'No History Found' : 'No Results'}</h3>
+                    <p>{locationHistory.length === 0 ? 'No inventory movements recorded for this location yet.' : 'No records match the current filters.'}</p>
+                  </div>
+                );
+
+                return (
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', fontSize: '14px' }}>
+                      <thead>
+                        <tr style={{ background: 'var(--bg-secondary)' }}>
+                          <th style={{ padding: '10px 8px', textAlign: 'left' }}>Date</th>
+                          <th style={{ padding: '10px 8px', textAlign: 'left' }}>Type</th>
+                          <th style={{ padding: '10px 8px', textAlign: 'left' }}>Item</th>
+                          <th style={{ padding: '10px 8px', textAlign: 'left' }}>Qty</th>
+                          <th style={{ padding: '10px 8px', textAlign: 'left' }}>Source / Destination</th>
+                          <th style={{ padding: '10px 8px', textAlign: 'left' }}>By</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filtered.map((entry, idx) => {
+                          const isReceived = entry.type === 'received';
+                          const isTransferred = entry.type === 'transferred';
+                          const typeColor = isReceived ? '#16a34a' : isTransferred ? '#d97706' : '#2563eb';
+                          const typeLabel = isReceived
+                            ? (entry.from_location_type === 'warehouse' ? 'Received (Warehouse)' : 'Received (Outlet)')
+                            : isTransferred
+                            ? (entry.to_location_type === 'warehouse' ? 'Transferred (Warehouse)' : 'Transferred (Outlet)')
+                            : 'Added by Admin';
+                          const sourceDest = isReceived
+                            ? `From: ${entry.from_location_name}`
+                            : isTransferred
+                            ? `To: ${entry.to_location_name}`
+                            : entry.audit_description || '—';
+
+                          return (
+                            <tr key={idx} style={{ borderBottom: '1px solid var(--border)' }}>
+                              <td style={{ padding: '10px 8px', whiteSpace: 'nowrap' }}>
+                                <div style={{ fontWeight: 600 }}>{new Date(entry.date).toLocaleDateString()}</div>
+                                <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{new Date(entry.date).toLocaleTimeString()}</div>
+                              </td>
+                              <td style={{ padding: '10px 8px' }}>
+                                <span style={{ display: 'inline-block', padding: '3px 10px', borderRadius: '12px', fontSize: '12px', fontWeight: 700, background: typeColor + '18', color: typeColor, whiteSpace: 'nowrap' }}>
+                                  {isReceived ? '⬇ ' : isTransferred ? '⬆ ' : '＋ '}{typeLabel}
+                                </span>
+                              </td>
+                              <td style={{ padding: '10px 8px', fontWeight: 600 }}>
+                                {entry.description || '—'}
+                                {entry.unit && <span style={{ fontWeight: 400, color: 'var(--text-muted)', marginLeft: 4 }}>({entry.unit})</span>}
+                              </td>
+                              <td style={{ padding: '10px 8px' }}>
+                                {entry.quantity != null ? formatQuantity(entry.quantity) : '—'}
+                              </td>
+                              <td style={{ padding: '10px 8px', color: 'var(--text-secondary)', fontSize: '13px' }}>
+                                {sourceDest}
+                              </td>
+                              <td style={{ padding: '10px 8px', fontWeight: 600 }}>
+                                {entry.by_who || '—'}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                );
+              })()}
             </div>
 
             <div style={{ padding: '16px 24px', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
