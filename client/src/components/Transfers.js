@@ -41,6 +41,8 @@ function Transfers() {
     startDate: '',
     endDate: ''
   });
+  const [locationFilter, setLocationFilter] = useState({ from: '', to: '' });
+  const [showTransferHistoryModal, setShowTransferHistoryModal] = useState(false);
   const [showExportPreview, setShowExportPreview] = useState(false);
   const [exportData, setExportData] = useState([]);
   const [discrepancies, setDiscrepancies] = useState([]);
@@ -599,6 +601,14 @@ function Transfers() {
       filtered = filtered.filter(t => new Date(t.transfer_date) <= new Date(dateFilter.endDate + 'T23:59:59'));
     }
 
+    // Apply from/to location filters
+    if (locationFilter.from) {
+      filtered = filtered.filter(t => t.from_location_id == locationFilter.from);
+    }
+    if (locationFilter.to) {
+      filtered = filtered.filter(t => t.to_location_id == locationFilter.to);
+    }
+
     return filtered;
   };
 
@@ -808,18 +818,22 @@ function Transfers() {
               <FiPackage size={16} />
               Download
             </button>
+            <button className="btn" style={{ backgroundColor: '#0891b2', color: 'white' }} onClick={() => setShowTransferHistoryModal(true)}>
+              <FiClock size={16} />
+              History
+            </button>
           </div>
         </div>
 
-        {/* Date Filters */}
-        <div style={{ 
-          marginBottom: '20px', 
-          padding: '16px', 
-          backgroundColor: 'var(--bg-secondary)', 
+        {/* Filters */}
+        <div style={{
+          marginBottom: '20px',
+          padding: '16px',
+          backgroundColor: 'var(--bg-secondary)',
           borderRadius: 'var(--radius)',
           border: '1px solid var(--border)'
         }}>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px', alignItems: 'end' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px', alignItems: 'end' }}>
             <div className="form-group" style={{ marginBottom: 0 }}>
               <label>Start Date</label>
               <input
@@ -838,9 +852,35 @@ function Transfers() {
                 style={{ width: '100%' }}
               />
             </div>
-            <button 
-              className="btn btn-secondary" 
-              onClick={() => setDateFilter({ startDate: '', endDate: '' })}
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label>From Location</label>
+              <select
+                value={locationFilter.from}
+                onChange={(e) => setLocationFilter({ ...locationFilter, from: e.target.value })}
+                style={{ width: '100%' }}
+              >
+                <option value="">All</option>
+                {locations.map(loc => (
+                  <option key={loc.id} value={loc.id}>{loc.name}</option>
+                ))}
+              </select>
+            </div>
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label>To Location</label>
+              <select
+                value={locationFilter.to}
+                onChange={(e) => setLocationFilter({ ...locationFilter, to: e.target.value })}
+                style={{ width: '100%' }}
+              >
+                <option value="">All</option>
+                {locations.map(loc => (
+                  <option key={loc.id} value={loc.id}>{loc.name}</option>
+                ))}
+              </select>
+            </div>
+            <button
+              className="btn btn-secondary"
+              onClick={() => { setDateFilter({ startDate: '', endDate: '' }); setLocationFilter({ from: '', to: '' }); }}
               style={{ height: 'fit-content' }}
             >
               Clear Filters
@@ -1630,6 +1670,151 @@ function Transfers() {
               >
                 Close
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Transfer History Modal */}
+      {showTransferHistoryModal && (
+        <div className="modal-overlay" onClick={() => setShowTransferHistoryModal(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '1050px', width: '95%', maxHeight: '90vh' }}>
+            <div style={{
+              padding: '20px 24px',
+              borderBottom: '1px solid var(--border)',
+              background: 'linear-gradient(135deg, #0891b2 0%, #0e7490 100%)',
+              color: 'white',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center'
+            }}>
+              <h2 style={{ fontSize: '1.25rem', fontWeight: 'bold', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <FiClock size={20} />
+                Transfer History (Completed)
+              </h2>
+              <button onClick={() => setShowTransferHistoryModal(false)} style={{ background: 'rgba(255,255,255,0.2)', border: 'none', color: 'white', width: '32px', height: '32px', borderRadius: 'var(--radius)', cursor: 'pointer' }}>
+                <FiX size={16} />
+              </button>
+            </div>
+
+            <div style={{ padding: '24px', overflowY: 'auto', maxHeight: 'calc(90vh - 130px)' }}>
+              {(() => {
+                const delivered = transfers.filter(t => t.status === 'delivered');
+                if (delivered.length === 0) {
+                  return (
+                    <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
+                      <FiClock size={48} style={{ marginBottom: '16px', opacity: 0.5 }} />
+                      <h3>No Completed Transfers</h3>
+                      <p>No delivered transfers found yet.</p>
+                    </div>
+                  );
+                }
+
+                const sentDelivered = delivered.filter(t => {
+                  if (user.role === 'warehouse') return t.from_location_id == user.location_id;
+                  if (user.role === 'branch_manager') return t.from_location_id == user.location_id;
+                  return true;
+                });
+                const receivedDelivered = delivered.filter(t => {
+                  if (user.role === 'warehouse') return false;
+                  if (user.role === 'branch_manager') return t.to_location_id == user.location_id;
+                  return true;
+                });
+
+                return (
+                  <div>
+                    {/* Received Section */}
+                    {(user.role === 'branch_manager' || user.role === 'admin') && (
+                      <div style={{ marginBottom: '32px' }}>
+                        <h4 style={{ marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px', color: '#16a34a' }}>
+                          ⬇ Items Received
+                          <span style={{ fontSize: '13px', fontWeight: 400, color: 'var(--text-muted)' }}>({receivedDelivered.length})</span>
+                        </h4>
+                        {receivedDelivered.length === 0 ? (
+                          <p style={{ color: 'var(--text-muted)', fontSize: '14px' }}>No items received yet.</p>
+                        ) : (
+                          <div style={{ overflowX: 'auto' }}>
+                            <table style={{ width: '100%', fontSize: '14px' }}>
+                              <thead>
+                                <tr style={{ background: 'var(--bg-secondary)' }}>
+                                  <th style={{ padding: '10px 8px', textAlign: 'left' }}>Date</th>
+                                  <th style={{ padding: '10px 8px', textAlign: 'left' }}>Item</th>
+                                  <th style={{ padding: '10px 8px', textAlign: 'left' }}>Qty</th>
+                                  <th style={{ padding: '10px 8px', textAlign: 'left' }}>From</th>
+                                  <th style={{ padding: '10px 8px', textAlign: 'left' }}>Requested By</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {receivedDelivered.map((t, idx) => (
+                                  <tr key={idx} style={{ borderBottom: '1px solid var(--border)' }}>
+                                    <td style={{ padding: '10px 8px', whiteSpace: 'nowrap' }}>
+                                      <div style={{ fontWeight: 600 }}>{new Date(t.transfer_date).toLocaleDateString()}</div>
+                                      <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{new Date(t.transfer_date).toLocaleTimeString()}</div>
+                                    </td>
+                                    <td style={{ padding: '10px 8px', fontWeight: 600 }}>
+                                      {t.description || 'Multiple Items'}
+                                      {t.unit && <span style={{ fontWeight: 400, color: 'var(--text-muted)', marginLeft: 4 }}>({t.unit})</span>}
+                                    </td>
+                                    <td style={{ padding: '10px 8px' }}>{t.quantity ? formatQuantity(t.quantity) : '—'}</td>
+                                    <td style={{ padding: '10px 8px', color: 'var(--text-secondary)' }}>{t.from_location_name}</td>
+                                    <td style={{ padding: '10px 8px', fontWeight: 600 }}>{t.transferred_by_name || '—'}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Transferred Out Section */}
+                    <div>
+                      <h4 style={{ marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px', color: '#d97706' }}>
+                        ⬆ Items Transferred Out
+                        <span style={{ fontSize: '13px', fontWeight: 400, color: 'var(--text-muted)' }}>({sentDelivered.length})</span>
+                      </h4>
+                      {sentDelivered.length === 0 ? (
+                        <p style={{ color: 'var(--text-muted)', fontSize: '14px' }}>No items transferred out yet.</p>
+                      ) : (
+                        <div style={{ overflowX: 'auto' }}>
+                          <table style={{ width: '100%', fontSize: '14px' }}>
+                            <thead>
+                              <tr style={{ background: 'var(--bg-secondary)' }}>
+                                <th style={{ padding: '10px 8px', textAlign: 'left' }}>Date</th>
+                                <th style={{ padding: '10px 8px', textAlign: 'left' }}>Item</th>
+                                <th style={{ padding: '10px 8px', textAlign: 'left' }}>Qty</th>
+                                <th style={{ padding: '10px 8px', textAlign: 'left' }}>To</th>
+                                <th style={{ padding: '10px 8px', textAlign: 'left' }}>By</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {sentDelivered.map((t, idx) => (
+                                <tr key={idx} style={{ borderBottom: '1px solid var(--border)' }}>
+                                  <td style={{ padding: '10px 8px', whiteSpace: 'nowrap' }}>
+                                    <div style={{ fontWeight: 600 }}>{new Date(t.transfer_date).toLocaleDateString()}</div>
+                                    <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{new Date(t.transfer_date).toLocaleTimeString()}</div>
+                                  </td>
+                                  <td style={{ padding: '10px 8px', fontWeight: 600 }}>
+                                    {t.description || 'Multiple Items'}
+                                    {t.unit && <span style={{ fontWeight: 400, color: 'var(--text-muted)', marginLeft: 4 }}>({t.unit})</span>}
+                                  </td>
+                                  <td style={{ padding: '10px 8px' }}>{t.quantity ? formatQuantity(t.quantity) : '—'}</td>
+                                  <td style={{ padding: '10px 8px', color: 'var(--text-secondary)' }}>{t.to_location_name}</td>
+                                  <td style={{ padding: '10px 8px', fontWeight: 600 }}>{t.transferred_by_name || '—'}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+
+            <div style={{ padding: '16px 24px', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end' }}>
+              <button className="btn btn-secondary" onClick={() => setShowTransferHistoryModal(false)}>Close</button>
             </div>
           </div>
         </div>

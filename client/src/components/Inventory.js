@@ -31,6 +31,9 @@ function Inventory() {
   const [viewHistory, setViewHistory] = useState(null);
   const [productHistory, setProductHistory] = useState([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
+  const [showLocationHistoryModal, setShowLocationHistoryModal] = useState(false);
+  const [locationHistory, setLocationHistory] = useState([]);
+  const [loadingLocationHistory, setLoadingLocationHistory] = useState(false);
   const [viewBatches, setViewBatches] = useState(null);
   const [editingBatchId, setEditingBatchId] = useState(null);
   const [batchEditData, setBatchEditData] = useState({});
@@ -744,6 +747,23 @@ function Inventory() {
     }
   };
 
+  const fetchLocationHistory = async () => {
+    if (!selectedLocation || selectedLocation === 'all') {
+      alert('Please select a specific location to view history');
+      return;
+    }
+    setLoadingLocationHistory(true);
+    try {
+      const response = await api.get(`/inventory/location-history/${selectedLocation}`);
+      setLocationHistory(response.data);
+      setShowLocationHistoryModal(true);
+    } catch (error) {
+      alert(error.response?.data?.error || 'Error fetching history');
+    } finally {
+      setLoadingLocationHistory(false);
+    }
+  };
+
   // Helper function to determine stock status based on percentage
   const getStockStatus = (quantity, maxQuantity) => {
     const qty = parseFloat(quantity);
@@ -1194,6 +1214,10 @@ function Inventory() {
                     </button>
                     <button className="btn btn-secondary" onClick={fetchConversionHistory} disabled={loadingHistory}>
                       📋 {loadingHistory ? 'Loading...' : 'Action History'}
+                    </button>
+                    <button className="btn btn-info" onClick={fetchLocationHistory} disabled={loadingLocationHistory} style={{ backgroundColor: '#0891b2', color: 'white' }}>
+                      <FiClock size={14} />
+                      {loadingLocationHistory ? 'Loading...' : 'History'}
                     </button>
                   </>
                 )}
@@ -3043,6 +3067,117 @@ function Inventory() {
           fetchInventoryHistory();
         }}
       />
+
+      {/* Location History Modal */}
+      {showLocationHistoryModal && (
+        <div className="modal-overlay" onClick={() => setShowLocationHistoryModal(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '1000px', width: '95%', maxHeight: '90vh' }}>
+            <div style={{
+              padding: '20px 24px',
+              borderBottom: '1px solid var(--border)',
+              background: 'linear-gradient(135deg, #0891b2 0%, #0e7490 100%)',
+              color: 'white',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center'
+            }}>
+              <h2 style={{ fontSize: '1.25rem', fontWeight: 'bold', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <FiClock size={20} />
+                Inventory History
+              </h2>
+              <button onClick={() => setShowLocationHistoryModal(false)} style={{ background: 'rgba(255,255,255,0.2)', border: 'none', color: 'white', width: '32px', height: '32px', borderRadius: 'var(--radius)', cursor: 'pointer' }}>
+                <FiX size={16} />
+              </button>
+            </div>
+
+            <div style={{ padding: '24px', overflowY: 'auto', maxHeight: 'calc(90vh - 120px)' }}>
+              {locationHistory.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
+                  <FiClock size={48} style={{ marginBottom: '16px', opacity: 0.5 }} />
+                  <h3>No History Found</h3>
+                  <p>No inventory movements recorded for this location yet.</p>
+                </div>
+              ) : (
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', fontSize: '14px' }}>
+                    <thead>
+                      <tr style={{ background: 'var(--bg-secondary)' }}>
+                        <th style={{ padding: '10px 8px', textAlign: 'left' }}>Date</th>
+                        <th style={{ padding: '10px 8px', textAlign: 'left' }}>Type</th>
+                        <th style={{ padding: '10px 8px', textAlign: 'left' }}>Item</th>
+                        <th style={{ padding: '10px 8px', textAlign: 'left' }}>Qty</th>
+                        <th style={{ padding: '10px 8px', textAlign: 'left' }}>Source / Destination</th>
+                        <th style={{ padding: '10px 8px', textAlign: 'left' }}>By</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {locationHistory.map((entry, idx) => {
+                        const isReceived = entry.type === 'received';
+                        const isTransferred = entry.type === 'transferred';
+                        const isAdded = entry.type === 'added';
+                        const typeColor = isReceived ? '#16a34a' : isTransferred ? '#d97706' : '#2563eb';
+                        const typeLabel = isReceived
+                          ? (entry.from_location_type === 'warehouse' ? 'Received (Warehouse)' : 'Received (Outlet)')
+                          : isTransferred
+                          ? (entry.to_location_type === 'warehouse' ? 'Transferred (Warehouse)' : 'Transferred (Outlet)')
+                          : 'Added by Admin';
+                        const sourceDest = isReceived
+                          ? `From: ${entry.from_location_name}`
+                          : isTransferred
+                          ? `To: ${entry.to_location_name}`
+                          : entry.audit_description || '—';
+
+                        return (
+                          <tr key={idx} style={{ borderBottom: '1px solid var(--border)' }}>
+                            <td style={{ padding: '10px 8px', whiteSpace: 'nowrap' }}>
+                              <div style={{ fontWeight: 600 }}>{new Date(entry.date).toLocaleDateString()}</div>
+                              <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{new Date(entry.date).toLocaleTimeString()}</div>
+                            </td>
+                            <td style={{ padding: '10px 8px' }}>
+                              <span style={{
+                                display: 'inline-block',
+                                padding: '3px 10px',
+                                borderRadius: '12px',
+                                fontSize: '12px',
+                                fontWeight: 700,
+                                background: typeColor + '18',
+                                color: typeColor,
+                                whiteSpace: 'nowrap'
+                              }}>
+                                {isReceived ? '⬇ ' : isTransferred ? '⬆ ' : '＋ '}{typeLabel}
+                              </span>
+                            </td>
+                            <td style={{ padding: '10px 8px', fontWeight: 600 }}>
+                              {entry.description || '—'}
+                              {entry.unit && <span style={{ fontWeight: 400, color: 'var(--text-muted)', marginLeft: 4 }}>({entry.unit})</span>}
+                            </td>
+                            <td style={{ padding: '10px 8px' }}>
+                              {entry.quantity != null ? formatQuantity(entry.quantity) : '—'}
+                            </td>
+                            <td style={{ padding: '10px 8px', color: 'var(--text-secondary)', fontSize: '13px' }}>
+                              {sourceDest}
+                            </td>
+                            <td style={{ padding: '10px 8px', fontWeight: 600 }}>
+                              {entry.by_who || '—'}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            <div style={{ padding: '16px 24px', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
+                {locationHistory.length} record{locationHistory.length !== 1 ? 's' : ''} — received, transferred, and manually added items
+              </div>
+              <button className="btn btn-secondary" onClick={() => setShowLocationHistoryModal(false)}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Action History Modal */}
       {showActionModal && (

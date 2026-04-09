@@ -825,3 +825,87 @@ router.get('/history/:id', auth, async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+
+// Get location-level receive/transfer/add history for a location
+router.get('/location-history/:locationId', auth, async (req, res) => {
+  try {
+    const { locationId } = req.params;
+
+    if (req.user.role !== 'admin' && req.user.location_id != locationId) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    // Items RECEIVED (transfers delivered TO this location)
+    const receivedResult = await pool.query(
+      `SELECT
+        'received' as type,
+        t.id,
+        COALESCE(t.transfer_date, t.created_at) as date,
+        t.description,
+        t.unit,
+        t.quantity,
+        t.unit_cost,
+        COALESCE(t.transferred_by_name, 'Unknown') as by_who,
+        fl.name as from_location_name,
+        fl.type as from_location_type
+      FROM transfers t
+      JOIN locations fl ON t.from_location_id = fl.id
+      WHERE t.to_location_id = $1 AND t.status = 'delivered'
+      ORDER BY COALESCE(t.transfer_date, t.created_at) DESC
+      LIMIT 500`,
+      [locationId]
+    );
+
+    // Items TRANSFERRED OUT (transfers from this location that are delivered)
+    const sentResult = await pool.query(
+      `SELECT
+        'transferred' as type,
+        t.id,
+        COALESCE(t.transfer_date, t.created_at) as date,
+        t.description,
+        t.unit,
+        t.quantity,
+        t.unit_cost,
+        COALESCE(t.transferred_by_name, 'Unknown') as by_who,
+        tl.name as to_location_name,
+        tl.type as to_location_type
+      FROM transfers t
+      JOIN locations tl ON t.to_location_id = tl.id
+      WHERE t.from_location_id = $1 AND t.status = 'delivered'
+      ORDER BY COALESCE(t.transfer_date, t.created_at) DESC
+      LIMIT 500`,
+      [locationId]
+    );
+
+    // Items ADDED manually by admin/staff
+    const addedResult = await pool.query(
+      `SELECT
+        'added' as type,
+        al.id,
+        al.created_at as date,
+        al.new_values->>'description' as description,
+        al.new_values->>'unit' as unit,
+        al.new_values->>'quantity' as quantity,
+        al.new_values->>'unit_cost' as unit_cost,
+        al.username as by_who,
+        al.description as audit_description
+      FROM audit_log al
+      WHERE al.table_name = 'inventory'
+        AND al.action = 'INVENTORY_ADD'
+        AND (al.new_values->>'location_id')::integer = $1
+      ORDER BY al.created_at DESC
+      LIMIT 500`,
+      [locationId]
+    );
+
+    const allHistory = [
+      ...receivedResult.rows,
+      ...sentResult.rows,
+      ...addedResult.rows
+    ].sort((a, b) => new Date(b.date) - new Date(a.date));
+
+    res.json(allHistory);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
