@@ -845,11 +845,12 @@ router.get('/location-history/:locationId', auth, async (req, res) => {
         t.unit,
         t.quantity,
         t.unit_cost,
-        COALESCE(t.transferred_by_name, 'Unknown') as by_who,
+        COALESCE(u.full_name, 'Unknown') as by_who,
         fl.name as from_location_name,
         fl.type as from_location_type
       FROM transfers t
       JOIN locations fl ON t.from_location_id = fl.id
+      LEFT JOIN users u ON t.transferred_by = u.id
       WHERE t.to_location_id = $1 AND t.status = 'delivered'
       ORDER BY COALESCE(t.transfer_date, t.created_at) DESC
       LIMIT 500`,
@@ -866,11 +867,12 @@ router.get('/location-history/:locationId', auth, async (req, res) => {
         t.unit,
         t.quantity,
         t.unit_cost,
-        COALESCE(t.transferred_by_name, 'Unknown') as by_who,
+        COALESCE(u.full_name, 'Unknown') as by_who,
         tl.name as to_location_name,
         tl.type as to_location_type
       FROM transfers t
       JOIN locations tl ON t.to_location_id = tl.id
+      LEFT JOIN users u ON t.transferred_by = u.id
       WHERE t.from_location_id = $1 AND t.status = 'delivered'
       ORDER BY COALESCE(t.transfer_date, t.created_at) DESC
       LIMIT 500`,
