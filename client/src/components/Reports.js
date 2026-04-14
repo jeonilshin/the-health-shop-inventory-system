@@ -18,6 +18,7 @@ function Reports() {
   });
 
   const [salesAutoFetching, setSalesAutoFetching] = useState(false);
+  const [cashBeginAutoFilled, setCashBeginAutoFilled] = useState(false);
 
   // Track which auto-calculated fields have been manually edited
   const [manualOverrides, setManualOverrides] = useState({
@@ -201,6 +202,38 @@ function Reports() {
     manualOverrides
   ]);
 
+  // Auto-fill cash_beginning from previous day's cash_beginning_next_day
+  useEffect(() => {
+    if (!showForm || !formData.report_date || !formData.location_id) return;
+
+    const fetchPrevDayCashBeginning = async () => {
+      try {
+        const prevDate = new Date(formData.report_date);
+        prevDate.setDate(prevDate.getDate() - 1);
+        const prevDateStr = prevDate.toISOString().split('T')[0];
+
+        const params = new URLSearchParams();
+        params.append('startDate', prevDateStr);
+        params.append('endDate', prevDateStr);
+        params.append('locationId', formData.location_id);
+        const res = await api.get(`/sales-reports?${params.toString()}`);
+        const prevReport = res.data.find(r => r.report_type === formData.report_type);
+        if (prevReport && prevReport.cash_beginning_next_day != null) {
+          setFormData(prev => ({ ...prev, cash_beginning: parseFloat(prevReport.cash_beginning_next_day).toFixed(2) }));
+          setCashBeginAutoFilled(true);
+        } else {
+          setCashBeginAutoFilled(false);
+        }
+      } catch (err) {
+        console.error('Error fetching previous day report:', err);
+        setCashBeginAutoFilled(false);
+      }
+    };
+
+    fetchPrevDayCashBeginning();
+  // eslint-disable-next-line
+  }, [formData.report_date, formData.location_id, formData.report_type, showForm]);
+
   // Auto-populate cash/maya/gcash fields from recorded sales transactions
   useEffect(() => {
     if (!showForm || !formData.report_date || !formData.location_id) return;
@@ -280,6 +313,7 @@ function Reports() {
       cash_overage_shortage: '', cash_beginning_next_day: '',
       net_sales: '', notes: ''
     });
+    setCashBeginAutoFilled(false);
     // Reset manual overrides
     setManualOverrides({
       gross_sales: false,
@@ -484,8 +518,22 @@ function Reports() {
               <h4 style={{ marginTop: 0, color: 'var(--primary)' }}>A. CASH SALES</h4>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}>
                 <div className="form-group" style={{ marginBottom: 0 }}>
-                  <label>Cash on Hand, Beginning</label>
-                  <input type="text" value={formatNumberInput(formData.cash_beginning)} onChange={(e) => handleCurrencyChange('cash_beginning', e.target.value)} placeholder="0.00" />
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    Cash on Hand, Beginning
+                    {cashBeginAutoFilled && (
+                      <span style={{ fontSize: '10px', background: '#d1fae5', color: '#065f46', borderRadius: '4px', padding: '1px 5px' }}>auto from prev day</span>
+                    )}
+                  </label>
+                  <input
+                    type="text"
+                    value={formatNumberInput(formData.cash_beginning)}
+                    onChange={(e) => {
+                      handleCurrencyChange('cash_beginning', e.target.value);
+                      setCashBeginAutoFilled(false);
+                    }}
+                    placeholder="0.00"
+                    style={{ backgroundColor: cashBeginAutoFilled ? '#f0fdf4' : undefined }}
+                  />
                 </div>
                 <div className="form-group" style={{ marginBottom: 0 }}>
                   <label style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
