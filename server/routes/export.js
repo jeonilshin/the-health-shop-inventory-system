@@ -100,7 +100,10 @@ router.get('/sales', auth, authorize('admin'), async (req, res) => {
 // Get analytics data
 router.get('/analytics', auth, async (req, res) => {
   try {
+    // days is validated to a safe integer — safe to interpolate directly
     const days = Math.min(Math.max(parseInt(req.query.days) || 30, 1), 365);
+    const interval     = `${days} days`;
+    const prevInterval = `${days * 2} days`;
 
     // Role-based location scoping
     const isAdmin = req.user.role === 'admin';
@@ -108,123 +111,124 @@ router.get('/analytics', auth, async (req, res) => {
       ? (req.query.locationId ? parseInt(req.query.locationId) : null)
       : req.user.location_id;
 
+    // Helper: optionally append location filter
+    // When filterLocationId is set, $1 = filterLocationId
+    const locFilter  = (col) => filterLocationId ? ` AND ${col} = $1` : '';
+    const locParams  = filterLocationId ? [filterLocationId] : [];
+
     // ── 1. Current-period sales summary ──────────────────────────────────────
-    const sumParams = [days];
-    let sumQuery = `
+    const salesData = await pool.query(`
       SELECT
         COALESCE(SUM(total_amount), 0)                          AS total_sales,
         COALESCE(SUM(total_amount - (quantity * unit_cost)), 0) AS total_profit,
         COUNT(*)                                                 AS total_transactions,
         COALESCE(AVG(total_amount), 0)                          AS avg_transaction
       FROM sales
-      WHERE sale_date >= CURRENT_DATE - $1
-    `;
-    if (filterLocationId) { sumQuery += ` AND location_id = $2`; sumParams.push(filterLocationId); }
-    const salesData = await pool.query(sumQuery, sumParams);
+      WHERE sale_date >= NOW() - INTERVAL '${interval}'
+      ${locFilter('location_id')}
+    `, locParams);
 
     // ── 2. Previous-period comparison ─────────────────────────────────────────
-    const prevParams = [days * 2, days];
-    let prevQuery = `
+    const prevData = await pool.query(`
       SELECT
         COALESCE(SUM(total_amount), 0)                          AS total_sales,
         COALESCE(SUM(total_amount - (quantity * unit_cost)), 0) AS total_profit,
         COUNT(*)                                                 AS total_transactions
       FROM sales
-      WHERE sale_date >= CURRENT_DATE - $1
-        AND sale_date <  CURRENT_DATE - $2
-    `;
-    if (filterLocationId) { prevQuery += ` AND location_id = $3`; prevParams.push(filterLocationId); }
-    const prevData = await pool.query(prevQuery, prevParams);
+      WHERE sale_date >= NOW() - INTERVAL '${prevInterval}'
+        AND sale_date <  NOW() - INTERVAL '${interval}'
+      ${locFilter('location_id')}
+    `, locParams);
 
     // ── 3. Inventory value ────────────────────────────────────────────────────
-    const invParams = [];
-    let invQuery = `SELECT COALESCE(SUM(quantity * unit_cost), 0) AS total_value FROM inventory`;
-    if (filterLocationId) { invQuery += ` WHERE location_id = $1`; invParams.push(filterLocationId); }
-    const inventoryValue = await pool.query(invQuery, invParams);
+    const inventoryValue = await pool.query(`
+      SELECT COALESCE(SUM(quantity * unit_cost), 0) AS total_value
+      FROM inventory
+      ${filterLocationId ? 'WHERE location_id = $1' : ''}
+    `, locParams);
 
     // ── 4. Low-stock count ────────────────────────────────────────────────────
-    const lsParams = [];
-    let lsQuery = `SELECT COUNT(*) AS count FROM inventory WHERE quantity < 10`;
-    if (filterLocationId) { lsQuery += ` AND location_id = $1`; lsParams.push(filterLocationId); }
-    const lowStock = await pool.query(lsQuery, lsParams);
+    const lowStock = await pool.query(`
+      SELECT COUNT(*) AS count
+      FROM inventory
+      WHERE quantity < 10
+      ${locFilter('location_id')}
+    `, locParams);
 
     // ── 5. Daily revenue & profit trend ──────────────────────────────────────
-    const trendParams = [days];
-    let trendQuery = `
+    const revenueTrend = await pool.query(`
       SELECT
         DATE(sale_date)                                          AS date,
         COALESCE(SUM(total_amount), 0)                          AS revenue,
         COALESCE(SUM(total_amount - (quantity * unit_cost)), 0) AS profit,
         COUNT(*)                                                 AS transactions
       FROM sales
-      WHERE sale_date >= CURRENT_DATE - $1
-    `;
-    if (filterLocationId) { trendQuery += ` AND location_id = $2`; trendParams.push(filterLocationId); }
-    trendQuery += ` GROUP BY DATE(sale_date) ORDER BY date`;
-    const revenueTrend = await pool.query(trendQuery, trendParams);
+      WHERE sale_date >= NOW() - INTERVAL '${interval}'
+      ${locFilter('location_id')}
+      GROUP BY DATE(sale_date)
+      ORDER BY date
+    `, locParams);
 
     // ── 6. Payment-method breakdown (from sales_transactions) ─────────────────
-    const payParams = [days];
-    let payQuery = `
+    const paymentBreakdown = await pool.query(`
       SELECT
-        COALESCE(payment_method, 'other')  AS payment_method,
-        COUNT(*)                           AS transactions,
-        COALESCE(SUM(total_amount), 0)     AS revenue
+        COALESCE(payment_method, 'other') AS payment_method,
+        COUNT(*)                          AS transactions,
+        COALESCE(SUM(total_amount), 0)    AS revenue
       FROM sales_transactions
-      WHERE transaction_date >= CURRENT_DATE - $1
+      WHERE transaction_date >= NOW() - INTERVAL '${interval}'
         AND (cancellation_status IS NULL OR cancellation_status = 'rejected')
-    `;
-    if (filterLocationId) { payQuery += ` AND location_id = $2`; payParams.push(filterLocationId); }
-    payQuery += ` GROUP BY payment_method ORDER BY revenue DESC`;
-    const paymentBreakdown = await pool.query(payQuery, payParams);
+      ${locFilter('location_id')}
+      GROUP BY payment_method
+      ORDER BY revenue DESC
+    `, locParams);
 
     // ── 7. Top selling products ───────────────────────────────────────────────
-    const prodParams = [days];
-    let prodQuery = `
+    const topProducts = await pool.query(`
       SELECT
         description,
-        SUM(quantity)    AS total_sold,
+        SUM(quantity)     AS total_sold,
         SUM(total_amount) AS revenue
       FROM sales
-      WHERE sale_date >= CURRENT_DATE - $1
-    `;
-    if (filterLocationId) { prodQuery += ` AND location_id = $2`; prodParams.push(filterLocationId); }
-    prodQuery += ` GROUP BY description ORDER BY total_sold DESC LIMIT 10`;
-    const topProducts = await pool.query(prodQuery, prodParams);
+      WHERE sale_date >= NOW() - INTERVAL '${interval}'
+      ${locFilter('location_id')}
+      GROUP BY description
+      ORDER BY total_sold DESC
+      LIMIT 10
+    `, locParams);
 
     // ── 8. Branch performance ─────────────────────────────────────────────────
     const salesByLocation = await pool.query(`
       SELECT
-        l.id                                                         AS location_id,
-        l.name                                                       AS location,
-        COUNT(s.id)                                                  AS transactions,
-        COALESCE(SUM(s.total_amount), 0)                             AS revenue,
+        l.id                                                          AS location_id,
+        l.name                                                        AS location,
+        COUNT(s.id)                                                   AS transactions,
+        COALESCE(SUM(s.total_amount), 0)                              AS revenue,
         COALESCE(SUM(s.total_amount - (s.quantity * s.unit_cost)), 0) AS profit
       FROM locations l
       LEFT JOIN sales s ON l.id = s.location_id
-        AND s.sale_date >= CURRENT_DATE - $1
+        AND s.sale_date >= NOW() - INTERVAL '${interval}'
       WHERE l.type = 'branch'
       GROUP BY l.id, l.name
       ORDER BY revenue DESC
-    `, [days]);
+    `);
 
     // ── 9. Cash-flow trend (from daily sales_reports) ─────────────────────────
-    const cfParams = [days];
-    let cfQuery = `
+    const cashFlowTrend = await pool.query(`
       SELECT
         sr.report_date,
-        COALESCE(SUM(sr.net_cash_receipts),    0) AS net_cash_receipts,
+        COALESCE(SUM(sr.net_cash_receipts),     0) AS net_cash_receipts,
         COALESCE(SUM(sr.actual_cash_deposited), 0) AS deposited,
         COALESCE(SUM(sr.cash_overage_shortage), 0) AS overage_shortage,
         COALESCE(SUM(sr.total_disbursements),   0) AS disbursements,
         COALESCE(SUM(sr.net_sales),             0) AS net_sales
       FROM sales_reports sr
-      WHERE sr.report_date >= CURRENT_DATE - $1
+      WHERE sr.report_date >= NOW() - INTERVAL '${interval}'
         AND sr.report_type = 'daily'
-    `;
-    if (filterLocationId) { cfQuery += ` AND sr.location_id = $2`; cfParams.push(filterLocationId); }
-    cfQuery += ` GROUP BY sr.report_date ORDER BY sr.report_date`;
-    const cashFlowTrend = await pool.query(cfQuery, cfParams);
+      ${locFilter('sr.location_id')}
+      GROUP BY sr.report_date
+      ORDER BY sr.report_date
+    `, locParams);
 
     res.json({
       summary: {
@@ -243,7 +247,7 @@ router.get('/analytics', auth, async (req, res) => {
       top_products:      topProducts.rows,
       sales_by_location: salesByLocation.rows,
       cash_flow_trend:   cashFlowTrend.rows,
-      daily_sales:       revenueTrend.rows, // backward compat
+      daily_sales:       revenueTrend.rows,
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
