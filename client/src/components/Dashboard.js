@@ -325,7 +325,7 @@ function Dashboard() {
               <FiShoppingCart size={15} /> Record Sale
             </Link>
           )}
-          {(user?.role === 'admin' || user?.role === 'branch_manager' || user?.role === 'branch_staff') && (
+          {user?.role === 'admin' && (
             <Link to="/analytics" className="btn" style={{ justifyContent: 'center', padding: '10px 16px' }}>
               <FiBarChart2 size={15} /> Analytics
             </Link>

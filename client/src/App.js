@@ -112,13 +112,13 @@ function App() {
                   : <Navigate to="/" />
               } 
             />
-            <Route 
-              path="/analytics" 
+            <Route
+              path="/analytics"
               element={
-                user && (user.role === 'admin' || user.role === 'branch_manager' || user.role === 'branch_staff') 
-                  ? <Analytics /> 
+                user && user.role === 'admin'
+                  ? <Analytics />
                   : <Navigate to="/" />
-              } 
+              }
             />
             <Route 
               path="/deliveries" 

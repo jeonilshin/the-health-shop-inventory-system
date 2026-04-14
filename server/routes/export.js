@@ -119,24 +119,24 @@ router.get('/analytics', auth, async (req, res) => {
     // ── 1. Current-period sales summary ──────────────────────────────────────
     const salesData = await pool.query(`
       SELECT
-        COALESCE(SUM(total_amount), 0)                          AS total_sales,
-        COALESCE(SUM(total_amount - (quantity * unit_cost)), 0) AS total_profit,
-        COUNT(*)                                                 AS total_transactions,
-        COALESCE(AVG(total_amount), 0)                          AS avg_transaction
-      FROM sales
-      WHERE sale_date >= NOW() - INTERVAL '${interval}'
+        COALESCE(SUM(total_amount), 0)  AS total_sales,
+        COUNT(*)                        AS total_transactions,
+        COALESCE(AVG(total_amount), 0)  AS avg_transaction
+      FROM sales_transactions
+      WHERE transaction_date >= NOW() - INTERVAL '${interval}'
+        AND (cancellation_status IS NULL OR cancellation_status = 'rejected')
       ${locFilter('location_id')}
     `, locParams);
 
     // ── 2. Previous-period comparison ─────────────────────────────────────────
     const prevData = await pool.query(`
       SELECT
-        COALESCE(SUM(total_amount), 0)                          AS total_sales,
-        COALESCE(SUM(total_amount - (quantity * unit_cost)), 0) AS total_profit,
-        COUNT(*)                                                 AS total_transactions
-      FROM sales
-      WHERE sale_date >= NOW() - INTERVAL '${prevInterval}'
-        AND sale_date <  NOW() - INTERVAL '${interval}'
+        COALESCE(SUM(total_amount), 0) AS total_sales,
+        COUNT(*)                       AS total_transactions
+      FROM sales_transactions
+      WHERE transaction_date >= NOW() - INTERVAL '${prevInterval}'
+        AND transaction_date <  NOW() - INTERVAL '${interval}'
+        AND (cancellation_status IS NULL OR cancellation_status = 'rejected')
       ${locFilter('location_id')}
     `, locParams);
 
@@ -155,21 +155,21 @@ router.get('/analytics', auth, async (req, res) => {
       ${locFilter('location_id')}
     `, locParams);
 
-    // ── 5. Daily revenue & profit trend ──────────────────────────────────────
+    // ── 5. Daily revenue trend ────────────────────────────────────────────────
     const revenueTrend = await pool.query(`
       SELECT
-        DATE(sale_date)                                          AS date,
-        COALESCE(SUM(total_amount), 0)                          AS revenue,
-        COALESCE(SUM(total_amount - (quantity * unit_cost)), 0) AS profit,
-        COUNT(*)                                                 AS transactions
-      FROM sales
-      WHERE sale_date >= NOW() - INTERVAL '${interval}'
+        transaction_date               AS date,
+        COALESCE(SUM(total_amount), 0) AS revenue,
+        COUNT(*)                       AS transactions
+      FROM sales_transactions
+      WHERE transaction_date >= NOW() - INTERVAL '${interval}'
+        AND (cancellation_status IS NULL OR cancellation_status = 'rejected')
       ${locFilter('location_id')}
-      GROUP BY DATE(sale_date)
-      ORDER BY date
+      GROUP BY transaction_date
+      ORDER BY transaction_date
     `, locParams);
 
-    // ── 6. Payment-method breakdown (from sales_transactions) ─────────────────
+    // ── 6. Payment-method breakdown ───────────────────────────────────────────
     const paymentBreakdown = await pool.query(`
       SELECT
         COALESCE(payment_method, 'other') AS payment_method,
@@ -186,13 +186,14 @@ router.get('/analytics', auth, async (req, res) => {
     // ── 7. Top selling products ───────────────────────────────────────────────
     const topProducts = await pool.query(`
       SELECT
-        description,
-        SUM(quantity)     AS total_sold,
-        SUM(total_amount) AS revenue
-      FROM sales
-      WHERE sale_date >= NOW() - INTERVAL '${interval}'
+        item_description              AS description,
+        SUM(quantity_sold)            AS total_sold,
+        SUM(total_amount)             AS revenue
+      FROM sales_transactions
+      WHERE transaction_date >= NOW() - INTERVAL '${interval}'
+        AND (cancellation_status IS NULL OR cancellation_status = 'rejected')
       ${locFilter('location_id')}
-      GROUP BY description
+      GROUP BY item_description
       ORDER BY total_sold DESC
       LIMIT 10
     `, locParams);
@@ -200,14 +201,14 @@ router.get('/analytics', auth, async (req, res) => {
     // ── 8. Branch performance ─────────────────────────────────────────────────
     const salesByLocation = await pool.query(`
       SELECT
-        l.id                                                          AS location_id,
-        l.name                                                        AS location,
-        COUNT(s.id)                                                   AS transactions,
-        COALESCE(SUM(s.total_amount), 0)                              AS revenue,
-        COALESCE(SUM(s.total_amount - (s.quantity * s.unit_cost)), 0) AS profit
+        l.id                               AS location_id,
+        l.name                             AS location,
+        COUNT(st.id)                       AS transactions,
+        COALESCE(SUM(st.total_amount), 0)  AS revenue
       FROM locations l
-      LEFT JOIN sales s ON l.id = s.location_id
-        AND s.sale_date >= NOW() - INTERVAL '${interval}'
+      LEFT JOIN sales_transactions st ON l.id = st.location_id
+        AND st.transaction_date >= NOW() - INTERVAL '${interval}'
+        AND (st.cancellation_status IS NULL OR st.cancellation_status = 'rejected')
       WHERE l.type = 'branch'
       GROUP BY l.id, l.name
       ORDER BY revenue DESC
@@ -234,12 +235,10 @@ router.get('/analytics', auth, async (req, res) => {
       summary: {
         inventory_value:    inventoryValue.rows[0].total_value,
         total_sales:        salesData.rows[0].total_sales,
-        total_profit:       salesData.rows[0].total_profit,
         total_transactions: salesData.rows[0].total_transactions,
         avg_transaction:    salesData.rows[0].avg_transaction,
         low_stock_count:    lowStock.rows[0].count,
         prev_sales:         prevData.rows[0].total_sales,
-        prev_profit:        prevData.rows[0].total_profit,
         prev_transactions:  prevData.rows[0].total_transactions,
       },
       revenue_trend:     revenueTrend.rows,

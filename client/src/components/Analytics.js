@@ -10,6 +10,7 @@ import {
   FiBarChart2, FiTrendingUp, FiDollarSign, FiShoppingCart,
   FiAlertTriangle, FiAward, FiMapPin, FiPackage, FiActivity,
   FiPieChart, FiCalendar, FiArrowUp, FiArrowDown, FiRefreshCw,
+  FiGlobe, FiStar,
 } from 'react-icons/fi';
 
 // ── Palette ──────────────────────────────────────────────────────────────────
@@ -68,11 +69,31 @@ const TrendBadge = ({ change }) => {
 
 const SectionTitle = ({ icon, children, sub }) => (
   <h3 style={{ margin: '0 0 16px', display: 'flex', alignItems: 'center', gap: 8, fontSize: 15, fontWeight: 700 }}>
-    {icon}
-    {children}
+    {icon}{children}
     {sub && <span style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 400 }}>{sub}</span>}
   </h3>
 );
+
+// Rank badge (1st / 2nd / 3rd) using icons instead of emoji
+const RankIcon = ({ rank }) => {
+  const styles = [
+    { color: '#d97706', bg: 'rgba(245,158,11,0.12)' }, // gold
+    { color: '#64748b', bg: 'rgba(100,116,139,0.12)' }, // silver
+    { color: '#92400e', bg: 'rgba(146,64,14,0.12)'   }, // bronze
+  ][rank] || { color: '#94a3b8', bg: 'transparent' };
+  return (
+    <span style={{
+      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+      width: 22, height: 22, borderRadius: '50%',
+      background: styles.bg, color: styles.color, flexShrink: 0,
+    }}>
+      {rank === 0
+        ? <FiAward size={13} />
+        : <span style={{ fontSize: 11, fontWeight: 700 }}>{rank + 1}</span>
+      }
+    </span>
+  );
+};
 
 // ── Custom recharts tooltip ───────────────────────────────────────────────────
 const CustomTooltip = ({ active, payload, label }) => {
@@ -101,21 +122,28 @@ const CustomTooltip = ({ active, payload, label }) => {
 // ── Main Component ────────────────────────────────────────────────────────────
 function Analytics() {
   const { user } = useContext(AuthContext);
-  const [analytics, setAnalytics] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [days, setDays] = useState(30);
-  const [refreshedAt, setRefreshedAt] = useState(new Date());
+  const [analytics, setAnalytics]         = useState(null);
+  const [loading, setLoading]             = useState(true);
+  const [error, setError]                 = useState(null);
+  const [days, setDays]                   = useState(30);
+  const [locations, setLocations]         = useState([]);
+  const [selectedLocation, setSelectedLocation] = useState('all'); // 'all' or location id string
+  const [refreshedAt, setRefreshedAt]     = useState(new Date());
 
-  const isAdmin = user.role === 'admin';
+  useEffect(() => {
+    api.get('/locations').then(r => {
+      setLocations(r.data.filter(l => l.type === 'branch'));
+    }).catch(() => {});
+  }, []);
 
-  useEffect(() => { fetchAnalytics(); }, [days]); // eslint-disable-line
+  useEffect(() => { fetchAnalytics(); }, [days, selectedLocation]); // eslint-disable-line
 
   const fetchAnalytics = async () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await api.get(`/export/analytics?days=${days}`);
+      const locParam = selectedLocation !== 'all' ? `&locationId=${selectedLocation}` : '';
+      const res = await api.get(`/export/analytics?days=${days}${locParam}`);
       setAnalytics(res.data);
       setRefreshedAt(new Date());
     } catch {
@@ -145,9 +173,8 @@ function Analytics() {
   const { summary, revenue_trend, payment_breakdown, top_products, sales_by_location, cash_flow_trend } = analytics;
 
   const revenueData = (revenue_trend || []).map(d => ({
-    date: new Date(d.date).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' }),
+    date:         new Date(d.date).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' }),
     Revenue:      parseFloat(d.revenue)      || 0,
-    Profit:       parseFloat(d.profit)       || 0,
     Transactions: parseInt(d.transactions)   || 0,
   }));
 
@@ -170,44 +197,36 @@ function Analytics() {
     name:         l.location.length > 14 ? l.location.slice(0, 14) + '…' : l.location,
     fullName:     l.location,
     Revenue:      parseFloat(l.revenue)      || 0,
-    Profit:       parseFloat(l.profit)       || 0,
     transactions: parseInt(l.transactions)   || 0,
   }));
 
   const cashFlowData = (cash_flow_trend || []).map(d => ({
-    date:            new Date(d.report_date).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' }),
-    'Net Receipts':  parseFloat(d.net_cash_receipts) || 0,
-    Deposited:       parseFloat(d.deposited)          || 0,
-    Disbursements:   parseFloat(d.disbursements)      || 0,
+    date:           new Date(d.report_date).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' }),
+    'Net Receipts': parseFloat(d.net_cash_receipts) || 0,
+    Deposited:      parseFloat(d.deposited)          || 0,
+    Disbursements:  parseFloat(d.disbursements)      || 0,
   }));
 
-  // ── Derived KPI metrics ────────────────────────────────────────────────────
+  // ── Derived metrics ────────────────────────────────────────────────────────
   const revenueChange = pctChange(summary.total_sales,        summary.prev_sales);
-  const profitChange  = pctChange(summary.total_profit,       summary.prev_profit);
   const txnChange     = pctChange(summary.total_transactions, summary.prev_transactions);
-  const profitMargin  = parseFloat(summary.total_sales) > 0
-    ? (parseFloat(summary.total_profit) / parseFloat(summary.total_sales) * 100).toFixed(1)
-    : 0;
 
   const totalRevenue      = revenueData.reduce((s, d) => s + d.Revenue,      0);
-  const totalProfit       = revenueData.reduce((s, d) => s + d.Profit,       0);
   const totalTransactions = revenueData.reduce((s, d) => s + d.Transactions, 0);
+  const daysWithSales     = revenueData.length || 1;
+  const bestDay           = revenueData.length ? revenueData.reduce((a, b) => b.Revenue > a.Revenue ? b : a, revenueData[0]) : null;
+  const maxLocRev         = locationData.length ? Math.max(...locationData.map(l => l.Revenue)) : 0;
 
-  // Best performing day
-  const bestDay  = revenueData.length ? revenueData.reduce((a, b) => b.Revenue > a.Revenue ? b : a, revenueData[0]) : null;
-  const maxLocRev = locationData.length ? Math.max(...locationData.map(l => l.Revenue)) : 0;
+  const selectedLocationName = selectedLocation === 'all'
+    ? 'All Branches'
+    : (locations.find(l => l.id.toString() === selectedLocation)?.name || '');
 
-  // ── KPI card definitions ───────────────────────────────────────────────────
+  // ── KPI cards ─────────────────────────────────────────────────────────────
   const kpiCards = [
-    ...(isAdmin ? [
-      { label: 'REVENUE',         icon: <FiShoppingCart size={18} />, value: `₱${formatPrice(summary.total_sales)}`,     sub: `prev ${days}d`,      change: revenueChange, color: C.green,  bg: 'rgba(16,185,129,0.1)' },
-      { label: 'PROFIT',          icon: <FiDollarSign   size={18} />, value: `₱${formatPrice(summary.total_profit)}`,    sub: `${profitMargin}% margin`, change: profitChange, color: C.amber,  bg: 'rgba(245,158,11,0.1)' },
-      { label: 'AVG TRANSACTION', icon: <FiTrendingUp   size={18} />, value: `₱${formatPrice(summary.avg_transaction)}`, sub: 'per sale',           color: C.blue,   bg: 'rgba(37,99,235,0.1)'  },
-    ] : []),
-    { label: 'TRANSACTIONS', icon: <FiActivity      size={18} />, value: parseInt(summary.total_transactions).toLocaleString(), sub: `prev ${days}d`, change: txnChange, color: C.purple, bg: 'rgba(139,92,246,0.1)' },
-    ...(isAdmin ? [
-      { label: 'INVENTORY VALUE', icon: <FiPackage size={18} />, value: `₱${formatPrice(summary.inventory_value)}`, sub: 'total stock', color: C.blue, bg: 'rgba(37,99,235,0.1)' },
-    ] : []),
+    { label: 'REVENUE',         icon: <FiShoppingCart size={18} />, value: `₱${formatPrice(summary.total_sales)}`,     sub: `prev ${days}d`, change: revenueChange, color: C.green,  bg: 'rgba(16,185,129,0.1)'   },
+    { label: 'AVG TRANSACTION', icon: <FiTrendingUp   size={18} />, value: `₱${formatPrice(summary.avg_transaction)}`, sub: 'per sale',                             color: C.blue,   bg: 'rgba(37,99,235,0.1)'    },
+    { label: 'TRANSACTIONS',    icon: <FiActivity     size={18} />, value: parseInt(summary.total_transactions).toLocaleString(), sub: `prev ${days}d`, change: txnChange, color: C.purple, bg: 'rgba(139,92,246,0.1)'  },
+    { label: 'INVENTORY VALUE', icon: <FiPackage      size={18} />, value: `₱${formatPrice(summary.inventory_value)}`, sub: 'total stock',                          color: C.blue,   bg: 'rgba(37,99,235,0.1)'    },
     {
       label: 'LOW STOCK', icon: <FiAlertTriangle size={18} />,
       value: parseInt(summary.low_stock_count),
@@ -222,41 +241,79 @@ function Analytics() {
     <div className="container">
 
       {/* ── Header ── */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 22, flexWrap: 'wrap', gap: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 20, flexWrap: 'wrap', gap: 12 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <FiBarChart2 size={30} color={C.blue} />
           <div>
             <h2 style={{ margin: 0, fontSize: 22 }}>Analytics Dashboard</h2>
             <p style={{ margin: 0, fontSize: 12, color: 'var(--text-muted)' }}>
-              Updated {refreshedAt.toLocaleTimeString()}
+              Updated {refreshedAt.toLocaleTimeString()} · {selectedLocationName}
             </p>
           </div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          {/* Date-range toggle */}
-          <div style={{ display: 'flex', gap: 3, background: 'var(--bg-secondary)', borderRadius: 8, padding: 3 }}>
-            {[{ label: '7D', v: 7 }, { label: '30D', v: 30 }, { label: '90D', v: 90 }].map(o => (
-              <button key={o.v} onClick={() => setDays(o.v)} style={{
-                padding: '5px 16px', borderRadius: 6, border: 'none', cursor: 'pointer',
-                fontWeight: 600, fontSize: 13, transition: 'all 0.15s',
-                background: days === o.v ? 'var(--primary)' : 'transparent',
-                color:      days === o.v ? '#fff' : 'var(--text-secondary)',
-              }}>{o.label}</button>
-            ))}
+
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8 }}>
+          {/* Date range + Refresh */}
+          <div style={{ display: 'flex', gap: 6 }}>
+            <div style={{ display: 'flex', gap: 3, background: 'var(--bg-secondary)', borderRadius: 8, padding: 3 }}>
+              {[{ label: '7D', v: 7 }, { label: '30D', v: 30 }, { label: '90D', v: 90 }].map(o => (
+                <button key={o.v} onClick={() => setDays(o.v)} style={{
+                  padding: '5px 16px', borderRadius: 6, border: 'none', cursor: 'pointer',
+                  fontWeight: 600, fontSize: 13, transition: 'all 0.15s',
+                  background: days === o.v ? 'var(--primary)' : 'transparent',
+                  color:      days === o.v ? '#fff' : 'var(--text-secondary)',
+                }}>{o.label}</button>
+              ))}
+            </div>
+            <button onClick={fetchAnalytics} style={{
+              display: 'flex', alignItems: 'center', gap: 6, padding: '7px 12px',
+              borderRadius: 8, border: '1px solid var(--border)', background: 'var(--card-bg)',
+              cursor: 'pointer', fontSize: 13, color: 'var(--text-secondary)', fontWeight: 500,
+            }}>
+              <FiRefreshCw size={13} /> Refresh
+            </button>
           </div>
-          {/* Refresh */}
-          <button onClick={fetchAnalytics} style={{
-            display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px',
-            borderRadius: 8, border: '1px solid var(--border)', background: 'var(--card-bg)',
-            cursor: 'pointer', fontSize: 13, color: 'var(--text-secondary)', fontWeight: 500,
-          }}>
-            <FiRefreshCw size={14} /> Refresh
-          </button>
+
+          {/* Branch selector */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+            <span style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 500 }}>View:</span>
+            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+              <button
+                onClick={() => setSelectedLocation('all')}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 5,
+                  padding: '4px 12px', borderRadius: 20, border: '1.5px solid',
+                  cursor: 'pointer', fontSize: 12, fontWeight: 600, transition: 'all 0.15s',
+                  borderColor:    selectedLocation === 'all' ? C.blue : 'var(--border)',
+                  background:     selectedLocation === 'all' ? 'rgba(37,99,235,0.08)' : 'var(--card-bg)',
+                  color:          selectedLocation === 'all' ? C.blue : 'var(--text-secondary)',
+                }}
+              >
+                <FiGlobe size={11} /> Overall
+              </button>
+              {locations.map(loc => (
+                <button
+                  key={loc.id}
+                  onClick={() => setSelectedLocation(loc.id.toString())}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 5,
+                    padding: '4px 12px', borderRadius: 20, border: '1.5px solid',
+                    cursor: 'pointer', fontSize: 12, fontWeight: 600, transition: 'all 0.15s',
+                    borderColor: selectedLocation === loc.id.toString() ? C.blue : 'var(--border)',
+                    background:  selectedLocation === loc.id.toString() ? 'rgba(37,99,235,0.08)' : 'var(--card-bg)',
+                    color:       selectedLocation === loc.id.toString() ? C.blue : 'var(--text-secondary)',
+                  }}
+                >
+                  <FiMapPin size={11} /> {loc.name}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
       </div>
 
       {/* ── KPI Cards ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(165px, 1fr))', gap: 14, marginBottom: 22 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(165px, 1fr))', gap: 14, marginBottom: 20 }}>
         {kpiCards.map((card, i) => (
           <div key={i} className="stat-card">
             <div className="stat-card-header">
@@ -274,22 +331,25 @@ function Analytics() {
         ))}
       </div>
 
-      {/* ── Insight Banner (best day) ── */}
-      {bestDay && isAdmin && (
+      {/* ── Insight Banner ── */}
+      {bestDay && (
         <div style={{
-          display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 18,
-          background: 'linear-gradient(135deg, rgba(37,99,235,0.06) 0%, rgba(16,185,129,0.06) 100%)',
-          border: '1px solid var(--border)', borderRadius: 12, padding: '12px 18px',
+          display: 'flex', gap: 0, flexWrap: 'wrap', marginBottom: 18,
+          background: 'linear-gradient(135deg, rgba(37,99,235,0.05) 0%, rgba(16,185,129,0.05) 100%)',
+          border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden',
         }}>
           {[
-            { label: 'Best Day',      value: bestDay.date,                       sub: `₱${formatPrice(bestDay.Revenue)} revenue` },
-            { label: 'Avg Daily Rev', value: `₱${formatPrice(totalRevenue / (revenueData.length || 1))}`, sub: `over ${revenueData.length} days with sales` },
-            { label: 'Profit Margin', value: `${profitMargin}%`,                  sub: `₱${formatPrice(totalProfit)} profit on ₱${formatPrice(totalRevenue)} revenue` },
-            { label: 'Daily Avg Txns', value: Math.round(totalTransactions / (revenueData.length || 1)).toLocaleString(), sub: 'transactions per day' },
-          ].map((item, i) => (
-            <div key={i} style={{ minWidth: 150 }}>
-              <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600, letterSpacing: '0.05em', textTransform: 'uppercase' }}>{item.label}</div>
-              <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--text-primary)', margin: '2px 0' }}>{item.value}</div>
+            { label: 'Best Day',       value: bestDay.date,                                                    sub: `₱${formatPrice(bestDay.Revenue)} revenue` },
+            { label: 'Avg Daily Rev',  value: `₱${formatPrice(totalRevenue / daysWithSales)}`,                 sub: `over ${daysWithSales} active day${daysWithSales !== 1 ? 's' : ''}` },
+            { label: 'Daily Avg Txns', value: Math.round(totalTransactions / daysWithSales).toLocaleString(), sub: 'transactions per day' },
+            { label: 'Period Revenue', value: `₱${formatPrice(totalRevenue)}`,                                 sub: `${totalTransactions.toLocaleString()} transactions total` },
+          ].map((item, i, arr) => (
+            <div key={i} style={{
+              flex: '1 1 150px', padding: '12px 18px',
+              borderRight: i < arr.length - 1 ? '1px solid var(--border)' : 'none',
+            }}>
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{item.label}</div>
+              <div style={{ fontSize: 17, fontWeight: 700, color: 'var(--text-primary)', margin: '3px 0' }}>{item.value}</div>
               <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{item.sub}</div>
             </div>
           ))}
@@ -297,12 +357,12 @@ function Analytics() {
       )}
 
       {/* ── Revenue Trend + Payment Methods ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 2fr) minmax(260px, 1fr)', gap: 16, marginBottom: 16, alignItems: 'start' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 2fr) minmax(250px, 1fr)', gap: 16, marginBottom: 16, alignItems: 'start' }}>
 
-        {/* Revenue & Profit Area Chart */}
+        {/* Revenue Area Chart */}
         <div className="card">
           <SectionTitle icon={<FiTrendingUp size={17} color={C.blue} />} sub={`· last ${days} days`}>
-            Revenue & Profit Trend
+            Revenue Trend
           </SectionTitle>
           {revenueData.length === 0
             ? <EmptyChart message="No sales data for this period" />
@@ -311,12 +371,8 @@ function Analytics() {
                 <AreaChart data={revenueData} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
                   <defs>
                     <linearGradient id="gRev" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%"  stopColor={C.blue}  stopOpacity={0.18} />
-                      <stop offset="95%" stopColor={C.blue}  stopOpacity={0.01} />
-                    </linearGradient>
-                    <linearGradient id="gPro" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%"  stopColor={C.green} stopOpacity={0.18} />
-                      <stop offset="95%" stopColor={C.green} stopOpacity={0.01} />
+                      <stop offset="5%"  stopColor={C.blue} stopOpacity={0.18} />
+                      <stop offset="95%" stopColor={C.blue} stopOpacity={0.01} />
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--border-light)" vertical={false} />
@@ -324,8 +380,7 @@ function Analytics() {
                   <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} tickLine={false} axisLine={false} tickFormatter={fmtAxis} width={62} />
                   <Tooltip content={<CustomTooltip />} />
                   <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 12, paddingTop: 8 }} />
-                  <Area type="monotone" dataKey="Revenue" stroke={C.blue}  strokeWidth={2} fill="url(#gRev)" dot={false} activeDot={{ r: 4 }} />
-                  {isAdmin && <Area type="monotone" dataKey="Profit" stroke={C.green} strokeWidth={2} fill="url(#gPro)" dot={false} activeDot={{ r: 4 }} />}
+                  <Area type="monotone" dataKey="Revenue" stroke={C.blue} strokeWidth={2} fill="url(#gRev)" dot={false} activeDot={{ r: 4 }} />
                 </AreaChart>
               </ResponsiveContainer>
             )
@@ -381,9 +436,9 @@ function Analytics() {
       </div>
 
       {/* ── Top Products + Branch Performance ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: isAdmin ? '1fr 1fr' : '1fr', gap: 16, marginBottom: 16 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: selectedLocation === 'all' ? '1fr 1fr' : '1fr', gap: 16, marginBottom: 16 }}>
 
-        {/* Top Products horizontal bar */}
+        {/* Top Products */}
         <div className="card">
           <SectionTitle icon={<FiAward size={17} color={C.amber} />} sub="· by qty sold">
             Top Selling Products
@@ -405,8 +460,8 @@ function Analytics() {
           }
         </div>
 
-        {/* Branch Performance (admin only) */}
-        {isAdmin && (
+        {/* Branch Performance — only in Overall view */}
+        {selectedLocation === 'all' && (
           <div className="card">
             <SectionTitle icon={<FiMapPin size={17} color={C.green} />}>
               Branch Performance
@@ -421,24 +476,24 @@ function Analytics() {
                       <XAxis dataKey="name" tick={{ fontSize: 11, fill: 'var(--text-secondary)', angle: -30, textAnchor: 'end' }} tickLine={false} axisLine={false} />
                       <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} tickLine={false} axisLine={false} tickFormatter={v => `₱${v >= 1000 ? (v / 1000).toFixed(0) + 'k' : v}`} width={55} />
                       <Tooltip content={<CustomTooltip />} />
-                      <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 12, paddingTop: 8 }} />
-                      <Bar dataKey="Revenue" fill={C.blue}  radius={[4, 4, 0, 0]} />
-                      <Bar dataKey="Profit"  fill={C.green} radius={[4, 4, 0, 0]} />
+                      <Bar dataKey="Revenue" fill={C.blue} radius={[4, 4, 0, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
-                  {/* Medals */}
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 7, marginTop: 10 }}>
-                    {locationData.slice(0, 3).map((l, i) => {
+
+                  {/* Ranked list */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 12 }}>
+                    {locationData.slice(0, 4).map((l, i) => {
                       const pct = maxLocRev > 0 ? (l.Revenue / maxLocRev * 100).toFixed(0) : 0;
                       return (
                         <div key={i}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3 }}>
-                            <span>{['🥇', '🥈', '🥉'][i]}</span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                            <RankIcon rank={i} />
                             <span style={{ flex: 1, fontSize: 12, color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{l.fullName}</span>
+                            <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{l.transactions} txns</span>
                             <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--primary)' }}>₱{formatPrice(l.Revenue)}</span>
                           </div>
                           <div style={{ height: 3, background: 'var(--bg-secondary)', borderRadius: 2 }}>
-                            <div style={{ height: '100%', width: `${pct}%`, background: [C.amber, '#94a3b8', '#cd7c3c'][i], borderRadius: 2 }} />
+                            <div style={{ height: '100%', width: `${pct}%`, background: i === 0 ? C.amber : i === 1 ? '#94a3b8' : i === 2 ? '#b45309' : C.blue, borderRadius: 2 }} />
                           </div>
                         </div>
                       );
@@ -460,18 +515,9 @@ function Analytics() {
           <ResponsiveContainer width="100%" height={210}>
             <AreaChart data={cashFlowData} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
               <defs>
-                <linearGradient id="gNC" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%"  stopColor={C.blue}  stopOpacity={0.15} />
-                  <stop offset="95%" stopColor={C.blue}  stopOpacity={0.01} />
-                </linearGradient>
-                <linearGradient id="gDep" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%"  stopColor={C.green} stopOpacity={0.15} />
-                  <stop offset="95%" stopColor={C.green} stopOpacity={0.01} />
-                </linearGradient>
-                <linearGradient id="gDisb" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%"  stopColor={C.red}   stopOpacity={0.12} />
-                  <stop offset="95%" stopColor={C.red}   stopOpacity={0.01} />
-                </linearGradient>
+                <linearGradient id="gNC"   x1="0" y1="0" x2="0" y2="1"><stop offset="5%"  stopColor={C.blue}  stopOpacity={0.15} /><stop offset="95%" stopColor={C.blue}  stopOpacity={0.01} /></linearGradient>
+                <linearGradient id="gDep"  x1="0" y1="0" x2="0" y2="1"><stop offset="5%"  stopColor={C.green} stopOpacity={0.15} /><stop offset="95%" stopColor={C.green} stopOpacity={0.01} /></linearGradient>
+                <linearGradient id="gDisb" x1="0" y1="0" x2="0" y2="1"><stop offset="5%"  stopColor={C.red}   stopOpacity={0.12} /><stop offset="95%" stopColor={C.red}   stopOpacity={0.01} /></linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="var(--border-light)" vertical={false} />
               <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#94a3b8' }} tickLine={false} axisLine={false} />
@@ -498,56 +544,35 @@ function Analytics() {
                 <tr>
                   <th>Date</th>
                   <th style={{ textAlign: 'right' }}>Transactions</th>
-                  {isAdmin && <th style={{ textAlign: 'right' }}>Revenue</th>}
-                  {isAdmin && <th style={{ textAlign: 'right' }}>Profit</th>}
-                  {isAdmin && <th style={{ textAlign: 'right' }}>Margin</th>}
+                  <th style={{ textAlign: 'right' }}>Revenue</th>
                 </tr>
               </thead>
               <tbody>
                 {[...revenueData].reverse().map((d, i) => {
-                  const margin = d.Revenue > 0 ? (d.Profit / d.Revenue * 100).toFixed(1) : 0;
-                  const mNum   = parseFloat(margin);
-                  const barPct = totalRevenue > 0 ? (d.Revenue / (Math.max(...revenueData.map(x => x.Revenue)) || 1) * 100) : 0;
+                  const maxRev = Math.max(...revenueData.map(x => x.Revenue)) || 1;
+                  const barPct = (d.Revenue / maxRev * 100).toFixed(0);
                   return (
                     <tr key={i}>
                       <td style={{ fontWeight: 500 }}>{d.date}</td>
                       <td style={{ textAlign: 'right' }}>{d.Transactions.toLocaleString()}</td>
-                      {isAdmin && (
-                        <td style={{ textAlign: 'right' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8 }}>
-                            <div style={{ width: 55, height: 4, background: 'var(--bg-secondary)', borderRadius: 2 }}>
-                              <div style={{ height: '100%', width: `${barPct}%`, background: C.blue, borderRadius: 2 }} />
-                            </div>
-                            <span style={{ fontWeight: 600 }}>₱{formatPrice(d.Revenue)}</span>
+                      <td style={{ textAlign: 'right' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8 }}>
+                          <div style={{ width: 55, height: 4, background: 'var(--bg-secondary)', borderRadius: 2 }}>
+                            <div style={{ height: '100%', width: `${barPct}%`, background: C.blue, borderRadius: 2 }} />
                           </div>
-                        </td>
-                      )}
-                      {isAdmin && <td style={{ textAlign: 'right', fontWeight: 600, color: C.green }}>₱{formatPrice(d.Profit)}</td>}
-                      {isAdmin && (
-                        <td style={{ textAlign: 'right' }}>
-                          <span style={{
-                            fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 12,
-                            background: mNum > 20 ? 'rgba(16,185,129,0.1)' : mNum > 10 ? 'rgba(245,158,11,0.1)' : 'rgba(239,68,68,0.1)',
-                            color:      mNum > 20 ? '#059669'              : mNum > 10 ? '#d97706'              : '#dc2626',
-                          }}>{margin}%</span>
-                        </td>
-                      )}
+                          <span style={{ fontWeight: 600 }}>₱{formatPrice(d.Revenue)}</span>
+                        </div>
+                      </td>
                     </tr>
                   );
                 })}
               </tbody>
-              {isAdmin && revenueData.length > 1 && (
+              {revenueData.length > 1 && (
                 <tfoot>
                   <tr style={{ fontWeight: 700, borderTop: '2px solid var(--border)' }}>
                     <td>Total ({revenueData.length} days)</td>
                     <td style={{ textAlign: 'right' }}>{totalTransactions.toLocaleString()}</td>
-                    <td style={{ textAlign: 'right' }}>₱{formatPrice(totalRevenue)}</td>
-                    <td style={{ textAlign: 'right', color: C.green }}>₱{formatPrice(totalProfit)}</td>
-                    <td style={{ textAlign: 'right' }}>
-                      <span style={{ fontSize: 12, fontWeight: 700, padding: '2px 8px', borderRadius: 12, background: 'rgba(16,185,129,0.1)', color: '#059669' }}>
-                        {profitMargin}%
-                      </span>
-                    </td>
+                    <td style={{ textAlign: 'right', color: C.blue }}>₱{formatPrice(totalRevenue)}</td>
                   </tr>
                 </tfoot>
               )}
