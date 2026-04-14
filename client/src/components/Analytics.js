@@ -1,16 +1,15 @@
-import React, { useState, useEffect, useContext } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from 'recharts';
 import api from '../utils/api';
 import { formatQuantity, formatPrice } from '../utils/formatNumber';
-import { AuthContext } from '../context/AuthContext';
 import {
   FiBarChart2, FiTrendingUp, FiDollarSign, FiShoppingCart,
   FiAlertTriangle, FiAward, FiMapPin, FiPackage, FiActivity,
   FiPieChart, FiCalendar, FiArrowUp, FiArrowDown, FiRefreshCw,
-  FiGlobe, FiStar,
+  FiGlobe,
 } from 'react-icons/fi';
 
 // ── Palette ──────────────────────────────────────────────────────────────────
@@ -121,7 +120,6 @@ const CustomTooltip = ({ active, payload, label }) => {
 
 // ── Main Component ────────────────────────────────────────────────────────────
 function Analytics() {
-  const { user } = useContext(AuthContext);
   const [analytics, setAnalytics]         = useState(null);
   const [loading, setLoading]             = useState(true);
   const [error, setError]                 = useState(null);
