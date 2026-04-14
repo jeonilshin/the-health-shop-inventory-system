@@ -100,79 +100,150 @@ router.get('/sales', auth, authorize('admin'), async (req, res) => {
 // Get analytics data
 router.get('/analytics', auth, async (req, res) => {
   try {
-    // Total inventory value
-    const inventoryValue = await pool.query(`
-      SELECT COALESCE(SUM(quantity * unit_cost), 0) as total_value
-      FROM inventory
-    `);
-    
-    // Total sales (last 30 days)
-    const salesData = await pool.query(`
-      SELECT 
-        COALESCE(SUM(total_amount), 0) as total_sales,
-        COALESCE(SUM(total_amount - (quantity * unit_cost)), 0) as total_profit,
-        COUNT(*) as total_transactions
+    const days = Math.min(Math.max(parseInt(req.query.days) || 30, 1), 365);
+
+    // Role-based location scoping
+    const isAdmin = req.user.role === 'admin';
+    const filterLocationId = isAdmin
+      ? (req.query.locationId ? parseInt(req.query.locationId) : null)
+      : req.user.location_id;
+
+    // ── 1. Current-period sales summary ──────────────────────────────────────
+    const sumParams = [days];
+    let sumQuery = `
+      SELECT
+        COALESCE(SUM(total_amount), 0)                          AS total_sales,
+        COALESCE(SUM(total_amount - (quantity * unit_cost)), 0) AS total_profit,
+        COUNT(*)                                                 AS total_transactions,
+        COALESCE(AVG(total_amount), 0)                          AS avg_transaction
       FROM sales
-      WHERE sale_date >= NOW() - INTERVAL '30 days'
-    `);
-    
-    // Low stock items
-    const lowStock = await pool.query(`
-      SELECT COUNT(*) as count
-      FROM inventory
-      WHERE quantity < 10
-    `);
-    
-    // Top selling products (last 30 days)
-    const topProducts = await pool.query(`
-      SELECT 
+      WHERE sale_date >= CURRENT_DATE - $1
+    `;
+    if (filterLocationId) { sumQuery += ` AND location_id = $2`; sumParams.push(filterLocationId); }
+    const salesData = await pool.query(sumQuery, sumParams);
+
+    // ── 2. Previous-period comparison ─────────────────────────────────────────
+    const prevParams = [days * 2, days];
+    let prevQuery = `
+      SELECT
+        COALESCE(SUM(total_amount), 0)                          AS total_sales,
+        COALESCE(SUM(total_amount - (quantity * unit_cost)), 0) AS total_profit,
+        COUNT(*)                                                 AS total_transactions
+      FROM sales
+      WHERE sale_date >= CURRENT_DATE - $1
+        AND sale_date <  CURRENT_DATE - $2
+    `;
+    if (filterLocationId) { prevQuery += ` AND location_id = $3`; prevParams.push(filterLocationId); }
+    const prevData = await pool.query(prevQuery, prevParams);
+
+    // ── 3. Inventory value ────────────────────────────────────────────────────
+    const invParams = [];
+    let invQuery = `SELECT COALESCE(SUM(quantity * unit_cost), 0) AS total_value FROM inventory`;
+    if (filterLocationId) { invQuery += ` WHERE location_id = $1`; invParams.push(filterLocationId); }
+    const inventoryValue = await pool.query(invQuery, invParams);
+
+    // ── 4. Low-stock count ────────────────────────────────────────────────────
+    const lsParams = [];
+    let lsQuery = `SELECT COUNT(*) AS count FROM inventory WHERE quantity < 10`;
+    if (filterLocationId) { lsQuery += ` AND location_id = $1`; lsParams.push(filterLocationId); }
+    const lowStock = await pool.query(lsQuery, lsParams);
+
+    // ── 5. Daily revenue & profit trend ──────────────────────────────────────
+    const trendParams = [days];
+    let trendQuery = `
+      SELECT
+        DATE(sale_date)                                          AS date,
+        COALESCE(SUM(total_amount), 0)                          AS revenue,
+        COALESCE(SUM(total_amount - (quantity * unit_cost)), 0) AS profit,
+        COUNT(*)                                                 AS transactions
+      FROM sales
+      WHERE sale_date >= CURRENT_DATE - $1
+    `;
+    if (filterLocationId) { trendQuery += ` AND location_id = $2`; trendParams.push(filterLocationId); }
+    trendQuery += ` GROUP BY DATE(sale_date) ORDER BY date`;
+    const revenueTrend = await pool.query(trendQuery, trendParams);
+
+    // ── 6. Payment-method breakdown (from sales_transactions) ─────────────────
+    const payParams = [days];
+    let payQuery = `
+      SELECT
+        COALESCE(payment_method, 'other')  AS payment_method,
+        COUNT(*)                           AS transactions,
+        COALESCE(SUM(total_amount), 0)     AS revenue
+      FROM sales_transactions
+      WHERE transaction_date >= CURRENT_DATE - $1
+        AND (cancellation_status IS NULL OR cancellation_status = 'rejected')
+    `;
+    if (filterLocationId) { payQuery += ` AND location_id = $2`; payParams.push(filterLocationId); }
+    payQuery += ` GROUP BY payment_method ORDER BY revenue DESC`;
+    const paymentBreakdown = await pool.query(payQuery, payParams);
+
+    // ── 7. Top selling products ───────────────────────────────────────────────
+    const prodParams = [days];
+    let prodQuery = `
+      SELECT
         description,
-        SUM(quantity) as total_sold,
-        SUM(total_amount) as revenue
+        SUM(quantity)    AS total_sold,
+        SUM(total_amount) AS revenue
       FROM sales
-      WHERE sale_date >= NOW() - INTERVAL '30 days'
-      GROUP BY description
-      ORDER BY total_sold DESC
-      LIMIT 5
-    `);
-    
-    // Sales by location (last 30 days)
+      WHERE sale_date >= CURRENT_DATE - $1
+    `;
+    if (filterLocationId) { prodQuery += ` AND location_id = $2`; prodParams.push(filterLocationId); }
+    prodQuery += ` GROUP BY description ORDER BY total_sold DESC LIMIT 10`;
+    const topProducts = await pool.query(prodQuery, prodParams);
+
+    // ── 8. Branch performance ─────────────────────────────────────────────────
     const salesByLocation = await pool.query(`
-      SELECT 
-        l.name as location,
-        COUNT(s.id) as transactions,
-        COALESCE(SUM(s.total_amount), 0) as revenue
+      SELECT
+        l.id                                                         AS location_id,
+        l.name                                                       AS location,
+        COUNT(s.id)                                                  AS transactions,
+        COALESCE(SUM(s.total_amount), 0)                             AS revenue,
+        COALESCE(SUM(s.total_amount - (s.quantity * s.unit_cost)), 0) AS profit
       FROM locations l
-      LEFT JOIN sales s ON l.id = s.location_id AND s.sale_date >= NOW() - INTERVAL '30 days'
+      LEFT JOIN sales s ON l.id = s.location_id
+        AND s.sale_date >= CURRENT_DATE - $1
       WHERE l.type = 'branch'
       GROUP BY l.id, l.name
       ORDER BY revenue DESC
-      LIMIT 10
-    `);
-    
-    // Daily sales trend (last 7 days)
-    const dailySales = await pool.query(`
-      SELECT 
-        DATE(sale_date) as date,
-        COUNT(*) as transactions,
-        SUM(total_amount) as revenue
-      FROM sales
-      WHERE sale_date >= NOW() - INTERVAL '7 days'
-      GROUP BY DATE(sale_date)
-      ORDER BY date
-    `);
-    
+    `, [days]);
+
+    // ── 9. Cash-flow trend (from daily sales_reports) ─────────────────────────
+    const cfParams = [days];
+    let cfQuery = `
+      SELECT
+        sr.report_date,
+        COALESCE(SUM(sr.net_cash_receipts),    0) AS net_cash_receipts,
+        COALESCE(SUM(sr.actual_cash_deposited), 0) AS deposited,
+        COALESCE(SUM(sr.cash_overage_shortage), 0) AS overage_shortage,
+        COALESCE(SUM(sr.total_disbursements),   0) AS disbursements,
+        COALESCE(SUM(sr.net_sales),             0) AS net_sales
+      FROM sales_reports sr
+      WHERE sr.report_date >= CURRENT_DATE - $1
+        AND sr.report_type = 'daily'
+    `;
+    if (filterLocationId) { cfQuery += ` AND sr.location_id = $2`; cfParams.push(filterLocationId); }
+    cfQuery += ` GROUP BY sr.report_date ORDER BY sr.report_date`;
+    const cashFlowTrend = await pool.query(cfQuery, cfParams);
+
     res.json({
       summary: {
-        inventory_value: inventoryValue.rows[0].total_value,
-        total_sales: salesData.rows[0].total_sales,
-        total_profit: salesData.rows[0].total_profit,
+        inventory_value:    inventoryValue.rows[0].total_value,
+        total_sales:        salesData.rows[0].total_sales,
+        total_profit:       salesData.rows[0].total_profit,
         total_transactions: salesData.rows[0].total_transactions,
-        low_stock_count: lowStock.rows[0].count
+        avg_transaction:    salesData.rows[0].avg_transaction,
+        low_stock_count:    lowStock.rows[0].count,
+        prev_sales:         prevData.rows[0].total_sales,
+        prev_profit:        prevData.rows[0].total_profit,
+        prev_transactions:  prevData.rows[0].total_transactions,
       },
-      top_products: topProducts.rows,
+      revenue_trend:     revenueTrend.rows,
+      payment_breakdown: paymentBreakdown.rows,
+      top_products:      topProducts.rows,
       sales_by_location: salesByLocation.rows,
-      daily_sales: dailySales.rows
+      cash_flow_trend:   cashFlowTrend.rows,
+      daily_sales:       revenueTrend.rows, // backward compat
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
