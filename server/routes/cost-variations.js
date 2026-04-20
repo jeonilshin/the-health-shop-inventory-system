@@ -109,6 +109,43 @@ router.get('/summary', auth, authorize('admin'), async (req, res) => {
   }
 });
 
+// Get inventory by location for a specific item (shows cost distribution across locations)
+router.get('/inventory-by-location/:description/:unit', auth, authorize('admin'), async (req, res) => {
+  try {
+    const { description, unit } = req.params;
+    
+    const result = await pool.query(`
+      SELECT 
+        l.id as location_id,
+        l.name as location_name,
+        l.type as location_type,
+        i.unit_cost,
+        i.suggested_selling_price,
+        SUM(i.quantity) as total_quantity,
+        COUNT(DISTINCT i.id) as batch_count,
+        MIN(i.expiry_date) as earliest_expiry,
+        MAX(i.expiry_date) as latest_expiry,
+        json_agg(
+          json_build_object(
+            'id', i.id,
+            'quantity', i.quantity,
+            'expiry_date', i.expiry_date,
+            'batch_number', i.batch_number
+          ) ORDER BY i.expiry_date NULLS LAST
+        ) as batches
+      FROM inventory i
+      JOIN locations l ON i.location_id = l.id
+      WHERE i.description = $1 AND i.unit = $2 AND i.quantity > 0
+      GROUP BY l.id, l.name, l.type, i.unit_cost, i.suggested_selling_price
+      ORDER BY l.type DESC, l.name, i.unit_cost
+    `, [decodeURIComponent(description), decodeURIComponent(unit)]);
+    
+    res.json(result.rows);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Create cost variation (admin only)
 router.post('/', auth, authorize('admin'), async (req, res) => {
   try {

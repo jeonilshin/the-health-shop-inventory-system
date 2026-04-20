@@ -10,7 +10,9 @@ function CostVariations() {
   const [summary, setSummary] = useState([]);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
-  const [viewMode, setViewMode] = useState('summary'); // 'summary' or 'detailed'
+  const [viewMode, setViewMode] = useState('summary'); // 'summary', 'detailed', or 'by-location'
+  const [selectedItem, setSelectedItem] = useState(null);
+  const [inventoryByLocation, setInventoryByLocation] = useState([]);
   const [formData, setFormData] = useState({
     description: '',
     unit: '',
@@ -42,6 +44,18 @@ function CostVariations() {
       setCostVariations(response.data);
     } catch (error) {
       console.error('Error fetching cost variations:', error);
+    }
+  };
+
+  const fetchInventoryByLocation = async (description, unit) => {
+    try {
+      const response = await api.get(`/cost-variations/inventory-by-location/${encodeURIComponent(description)}/${encodeURIComponent(unit)}`);
+      setInventoryByLocation(response.data);
+      setSelectedItem({ description, unit });
+      setViewMode('by-location');
+    } catch (error) {
+      console.error('Error fetching inventory by location:', error);
+      alert('Error loading inventory by location');
     }
   };
 
@@ -150,6 +164,14 @@ function CostVariations() {
           >
             Detailed View
           </button>
+          {viewMode === 'by-location' && (
+            <button
+              className="btn btn-secondary"
+              onClick={() => setViewMode('summary')}
+            >
+              ← Back to Summary
+            </button>
+          )}
           <button
             className="btn btn-primary"
             onClick={() => {
@@ -298,6 +320,7 @@ function CostVariations() {
                   <th>Avg Cost</th>
                   <th>Selling Price Range</th>
                   <th>Details</th>
+                  <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -356,6 +379,15 @@ function CostVariations() {
                           </div>
                         ))}
                       </div>
+                    </td>
+                    <td>
+                      <button
+                        className="btn btn-sm btn-secondary"
+                        onClick={() => fetchInventoryByLocation(item.description, item.unit)}
+                        style={{ fontSize: '12px' }}
+                      >
+                        View by Location
+                      </button>
                     </td>
                   </tr>
                 ))}
@@ -477,6 +509,104 @@ function CostVariations() {
                     </tr>
                   );
                 })}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
+
+      {/* By Location View */}
+      {viewMode === 'by-location' && selectedItem && (
+        <div className="card">
+          <h3 style={{ marginBottom: '16px' }}>
+            {selectedItem.description} ({selectedItem.unit}) - Inventory by Location
+          </h3>
+          {inventoryByLocation.length === 0 ? (
+            <p style={{ textAlign: 'center', color: '#6b7280', padding: '32px' }}>
+              No inventory found for this item.
+            </p>
+          ) : (
+            <table>
+              <thead>
+                <tr>
+                  <th>Location</th>
+                  <th>Type</th>
+                  <th>Unit Cost</th>
+                  <th>Selling Price</th>
+                  <th>Total Qty</th>
+                  <th>Batches</th>
+                  <th>Expiry Range</th>
+                  <th>Batch Details</th>
+                </tr>
+              </thead>
+              <tbody>
+                {inventoryByLocation.map((loc, idx) => (
+                  <tr key={idx}>
+                    <td><strong>{loc.location_name}</strong></td>
+                    <td>
+                      <span className="badge" style={{
+                        backgroundColor: loc.location_type === 'warehouse' ? '#3b82f620' : '#10b98120',
+                        color: loc.location_type === 'warehouse' ? '#3b82f6' : '#10b981'
+                      }}>
+                        {loc.location_type}
+                      </span>
+                    </td>
+                    <td>{formatPrice(loc.unit_cost)}</td>
+                    <td>{formatPrice(loc.suggested_selling_price)}</td>
+                    <td>
+                      <span style={{ fontWeight: 600, color: '#10b981' }}>
+                        {parseFloat(loc.total_quantity).toFixed(2)}
+                      </span>
+                    </td>
+                    <td>
+                      <span className="badge" style={{ backgroundColor: '#f3f4f6', color: '#374151' }}>
+                        {loc.batch_count} {loc.batch_count === 1 ? 'batch' : 'batches'}
+                      </span>
+                    </td>
+                    <td>
+                      {loc.earliest_expiry && loc.latest_expiry ? (
+                        <div style={{ fontSize: '12px' }}>
+                          <div>{new Date(loc.earliest_expiry).toLocaleDateString()}</div>
+                          {loc.earliest_expiry !== loc.latest_expiry && (
+                            <>
+                              <span style={{ color: '#6b7280' }}>to</span>
+                              <div>{new Date(loc.latest_expiry).toLocaleDateString()}</div>
+                            </>
+                          )}
+                        </div>
+                      ) : (
+                        <span style={{ color: '#6b7280' }}>No expiry</span>
+                      )}
+                    </td>
+                    <td>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '12px' }}>
+                        {loc.batches.map((batch, bIdx) => (
+                          <div
+                            key={bIdx}
+                            style={{
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              padding: '4px 8px',
+                              backgroundColor: '#f9fafb',
+                              borderRadius: '4px',
+                              border: '1px solid #e5e7eb'
+                            }}
+                          >
+                            <span>
+                              {batch.expiry_date 
+                                ? new Date(batch.expiry_date).toLocaleDateString()
+                                : 'No expiry'
+                              }
+                            </span>
+                            <span style={{ fontWeight: 500, marginLeft: '8px' }}>
+                              {parseFloat(batch.quantity).toFixed(2)}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           )}

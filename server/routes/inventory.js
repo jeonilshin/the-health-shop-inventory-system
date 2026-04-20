@@ -582,7 +582,7 @@ router.post('/undo-conversion/:auditId', auth, authorize('admin', 'branch_manage
   }
 });
 
-// Get cost batches for a specific item (for transfers and sales)
+// Get cost batches for a specific item (for transfers and sales) - DEPRECATED, use expiry-batches
 router.get('/cost-batches/:locationId/:description/:unit', auth, async (req, res) => {
   try {
     const { locationId, description, unit } = req.params;
@@ -598,6 +598,48 @@ router.get('/cost-batches/:locationId/:description/:unit', auth, async (req, res
        FROM inventory 
        WHERE location_id = $1 AND description = $2 AND unit = $3 AND quantity > 0
        ORDER BY original_batch_date DESC`,
+      [locationId, description, unit]
+    );
+    
+    res.json(result.rows);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get expiry batches for a specific item (for inventory display, transfers, and sales)
+router.get('/expiry-batches/:locationId/:description/:unit', auth, async (req, res) => {
+  try {
+    const { locationId, description, unit } = req.params;
+    
+    // Check if user has access to this location
+    if (req.user.role !== 'admin' && req.user.location_id != locationId) {
+      return res.status(403).json({ error: 'Access denied to this location' });
+    }
+
+    const result = await pool.query(
+      `SELECT id, 
+              expiry_date, 
+              quantity, 
+              unit_cost,
+              suggested_selling_price,
+              batch_number,
+              CASE 
+                WHEN expiry_date IS NULL THEN 'NO_EXPIRY'
+                WHEN expiry_date < CURRENT_DATE THEN 'EXPIRED'
+                WHEN expiry_date <= CURRENT_DATE + INTERVAL '30 days' THEN 'EXPIRING_SOON'
+                WHEN expiry_date <= CURRENT_DATE + INTERVAL '90 days' THEN 'EXPIRING_3_MONTHS'
+                ELSE 'GOOD'
+              END as expiry_status,
+              CASE 
+                WHEN expiry_date IS NULL THEN NULL
+                ELSE expiry_date - CURRENT_DATE
+              END as days_until_expiry
+       FROM inventory 
+       WHERE location_id = $1 AND description = $2 AND unit = $3 AND quantity > 0
+       ORDER BY 
+         CASE WHEN expiry_date IS NULL THEN 1 ELSE 0 END,
+         expiry_date ASC NULLS LAST`,
       [locationId, description, unit]
     );
     
