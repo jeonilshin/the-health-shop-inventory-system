@@ -8,9 +8,10 @@ function CostVariations() {
   const { user } = useContext(AuthContext);
   const [costVariations, setCostVariations] = useState([]);
   const [summary, setSummary] = useState([]);
+  const [multiCostItems, setMultiCostItems] = useState([]);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
-  const [viewMode, setViewMode] = useState('summary'); // 'summary', 'detailed', or 'by-location'
+  const [viewMode, setViewMode] = useState('multi-cost'); // 'multi-cost', 'summary', 'detailed', or 'by-location'
   const [selectedItem, setSelectedItem] = useState(null);
   const [inventoryByLocation, setInventoryByLocation] = useState([]);
   const [formData, setFormData] = useState({
@@ -24,10 +25,20 @@ function CostVariations() {
 
   useEffect(() => {
     if (user.role === 'admin') {
+      fetchMultiCostItems();
       fetchSummary();
       fetchCostVariations();
     }
   }, [user]);
+
+  const fetchMultiCostItems = async () => {
+    try {
+      const response = await api.get('/cost-variations/multi-cost-items');
+      setMultiCostItems(response.data);
+    } catch (error) {
+      console.error('Error fetching multi-cost items:', error);
+    }
+  };
 
   const fetchSummary = async () => {
     try {
@@ -81,6 +92,7 @@ function CostVariations() {
         suggested_selling_price: ''
       });
       
+      fetchMultiCostItems();
       fetchSummary();
       fetchCostVariations();
     } catch (error) {
@@ -128,6 +140,11 @@ function CostVariations() {
     item.unit.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
+  const filteredMultiCostItems = multiCostItems.filter(item =>
+    item.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    item.unit.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
   const filteredVariations = costVariations.filter(item =>
     item.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
     item.unit.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -153,23 +170,29 @@ function CostVariations() {
         </div>
         <div style={{ display: 'flex', gap: '12px' }}>
           <button
+            className={`btn ${viewMode === 'multi-cost' ? 'btn-primary' : 'btn-secondary'}`}
+            onClick={() => setViewMode('multi-cost')}
+          >
+            Multi-Cost Items
+          </button>
+          <button
             className={`btn ${viewMode === 'summary' ? 'btn-primary' : 'btn-secondary'}`}
             onClick={() => setViewMode('summary')}
           >
-            Summary View
+            Cost Points
           </button>
           <button
             className={`btn ${viewMode === 'detailed' ? 'btn-primary' : 'btn-secondary'}`}
             onClick={() => setViewMode('detailed')}
           >
-            Detailed View
+            All Points
           </button>
           {viewMode === 'by-location' && (
             <button
               className="btn btn-secondary"
-              onClick={() => setViewMode('summary')}
+              onClick={() => setViewMode('multi-cost')}
             >
-              ← Back to Summary
+              ← Back
             </button>
           )}
           <button
@@ -194,7 +217,7 @@ function CostVariations() {
       </div>
 
       <div className="alert alert-info" style={{ marginBottom: '24px' }}>
-        <strong>Cost Points:</strong> Track different purchase costs for the same item from various suppliers, bulk purchases, or promotional prices. This helps you understand cost variations and profit margins.
+        <strong>Multi-Cost Items:</strong> View items that have different purchase costs across different locations. This helps identify pricing inconsistencies and optimize purchasing decisions.
       </div>
 
       {/* Search */}
@@ -301,10 +324,119 @@ function CostVariations() {
         </div>
       )}
 
+      {/* Multi-Cost Items View */}
+      {viewMode === 'multi-cost' && (
+        <div className="card">
+          <h3 style={{ marginBottom: '16px' }}>Items with Multiple Costs Across Locations</h3>
+          {filteredMultiCostItems.length === 0 ? (
+            <p style={{ textAlign: 'center', color: '#6b7280', padding: '32px' }}>
+              No items with multiple costs found. All items have consistent pricing across locations.
+            </p>
+          ) : (
+            <table>
+              <thead>
+                <tr>
+                  <th>Item</th>
+                  <th>Unit</th>
+                  <th>Total Qty</th>
+                  <th>Cost Range</th>
+                  <th>Avg Cost</th>
+                  <th>Selling Price Range</th>
+                  <th>Location Details</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredMultiCostItems.map((item, idx) => (
+                  <tr key={idx}>
+                    <td><strong>{item.description}</strong></td>
+                    <td>{item.unit}</td>
+                    <td>
+                      <span style={{ fontWeight: 600, color: '#10b981' }}>
+                        {parseFloat(item.total_quantity).toFixed(2)}
+                      </span>
+                    </td>
+                    <td>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        {formatPrice(item.min_cost)}
+                        <span style={{ color: '#6b7280' }}>→</span>
+                        {formatPrice(item.max_cost)}
+                        <span className="badge" style={{ 
+                          backgroundColor: '#ef444420', 
+                          color: '#ef4444',
+                          marginLeft: '8px'
+                        }}>
+                          {item.cost_count} costs
+                        </span>
+                      </div>
+                    </td>
+                    <td>{formatPrice(item.avg_cost)}</td>
+                    <td>
+                      {item.min_selling_price && item.max_selling_price ? (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          {formatPrice(item.min_selling_price)}
+                          {item.min_selling_price !== item.max_selling_price && (
+                            <>
+                              <span style={{ color: '#6b7280' }}>→</span>
+                              {formatPrice(item.max_selling_price)}
+                            </>
+                          )}
+                        </div>
+                      ) : (
+                        <span style={{ color: '#6b7280' }}>—</span>
+                      )}
+                    </td>
+                    <td>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '12px' }}>
+                        {item.locations.map((loc, locIdx) => (
+                          <div
+                            key={locIdx}
+                            style={{
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              alignItems: 'center',
+                              padding: '6px 10px',
+                              backgroundColor: '#f9fafb',
+                              borderRadius: '4px',
+                              border: '1px solid #e5e7eb',
+                              gap: '12px'
+                            }}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1 }}>
+                              <span className="badge" style={{
+                                backgroundColor: loc.location_type === 'warehouse' ? '#3b82f620' : '#10b98120',
+                                color: loc.location_type === 'warehouse' ? '#3b82f6' : '#10b981',
+                                fontSize: '10px'
+                              }}>
+                                {loc.location_type}
+                              </span>
+                              <span style={{ fontWeight: 500 }}>{loc.location_name}</span>
+                            </div>
+                            <div style={{ display: 'flex', gap: '12px', fontSize: '11px' }}>
+                              <span>Cost: {formatPrice(loc.unit_cost)}</span>
+                              <span style={{ color: '#6b7280' }}>|</span>
+                              <span>Price: {formatPrice(loc.suggested_selling_price)}</span>
+                              <span style={{ color: '#6b7280' }}>|</span>
+                              <span style={{ fontWeight: 600 }}>Qty: {parseFloat(loc.quantity).toFixed(2)}</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
+
       {/* Summary View */}
       {viewMode === 'summary' && (
         <div className="card">
-          <h3 style={{ marginBottom: '16px' }}>Cost Variations Summary</h3>
+          <h3 style={{ marginBottom: '16px' }}>Cost Points Summary</h3>
+          <p style={{ color: '#6b7280', marginBottom: '16px', fontSize: '14px' }}>
+            Track different purchase costs for the same item from various suppliers, bulk purchases, or promotional prices.
+          </p>
           {filteredSummary.length === 0 ? (
             <p style={{ textAlign: 'center', color: '#6b7280', padding: '32px' }}>
               No cost variations found. Add your first cost point to track different purchase prices.

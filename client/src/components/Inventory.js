@@ -2209,10 +2209,10 @@ function Inventory() {
                               )
                             )}
                           </td>
-                          {user.role === 'admin' && (
+                          {user.role === 'admin' && !item.hasMultipleExpiry && (
                             <>
                               <td>
-                                {!item.hasMultipleExpiry && editingBatchId === item.id ? (
+                                {editingBatchId === item.id ? (
                                   <input 
                                     type="number"
                                     step="1"
@@ -2231,19 +2231,12 @@ function Inventory() {
                                   />
                                 ) : inventoryLoading ? (
                                   <PriceSkeleton />
-                                ) : item.hasMultipleExpiry ? (
-                                  <div style={{ fontSize: '11px' }}>
-                                    <div>₱{formatPrice(Math.min(...(item.costBatches?.map(b => b.unit_cost) || [0])))}</div>
-                                    <div style={{ color: 'var(--text-muted)' }}>
-                                      to ₱{formatPrice(Math.max(...(item.costBatches?.map(b => b.unit_cost) || [0])))}
-                                    </div>
-                                  </div>
                                 ) : (
                                   `₱${formatPrice(item.unit_cost)}`
                                 )}
                               </td>
                               <td>
-                                {!item.hasMultipleExpiry && editingBatchId === item.id ? (
+                                {editingBatchId === item.id ? (
                                   <input 
                                     type="number"
                                     step="1"
@@ -2262,13 +2255,6 @@ function Inventory() {
                                   />
                                 ) : inventoryLoading ? (
                                   <PriceSkeleton />
-                                ) : item.hasMultipleExpiry ? (
-                                  <div style={{ fontSize: '11px' }}>
-                                    <div>₱{formatPrice(Math.min(...(item.costBatches?.map(b => b.suggested_selling_price || 0) || [0])))}</div>
-                                    <div style={{ color: 'var(--text-muted)' }}>
-                                      to ₱{formatPrice(Math.max(...(item.costBatches?.map(b => b.suggested_selling_price || 0) || [0])))}
-                                    </div>
-                                  </div>
                                 ) : (
                                   `₱${formatPrice(item.suggested_selling_price || 0)}`
                                 )}

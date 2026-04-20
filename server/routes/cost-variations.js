@@ -146,6 +146,53 @@ router.get('/inventory-by-location/:description/:unit', auth, authorize('admin')
   }
 });
 
+// Get items with multiple costs across locations (MULTI-COST view)
+router.get('/multi-cost-items', auth, authorize('admin'), async (req, res) => {
+  try {
+    const result = await pool.query(`
+      WITH cost_summary AS (
+        SELECT 
+          i.description,
+          i.unit,
+          COUNT(DISTINCT i.unit_cost) as cost_count,
+          MIN(i.unit_cost) as min_cost,
+          MAX(i.unit_cost) as max_cost,
+          AVG(i.unit_cost) as avg_cost,
+          MIN(i.suggested_selling_price) as min_selling_price,
+          MAX(i.suggested_selling_price) as max_selling_price,
+          SUM(i.quantity) as total_quantity
+        FROM inventory i
+        WHERE i.quantity > 0
+        GROUP BY i.description, i.unit
+        HAVING COUNT(DISTINCT i.unit_cost) > 1
+      )
+      SELECT 
+        cs.*,
+        json_agg(
+          json_build_object(
+            'location_id', l.id,
+            'location_name', l.name,
+            'location_type', l.type,
+            'unit_cost', i.unit_cost,
+            'suggested_selling_price', i.suggested_selling_price,
+            'quantity', SUM(i.quantity)
+          ) ORDER BY l.type DESC, l.name, i.unit_cost
+        ) as locations
+      FROM cost_summary cs
+      JOIN inventory i ON cs.description = i.description AND cs.unit = i.unit
+      JOIN locations l ON i.location_id = l.id
+      WHERE i.quantity > 0
+      GROUP BY cs.description, cs.unit, cs.cost_count, cs.min_cost, cs.max_cost, 
+               cs.avg_cost, cs.min_selling_price, cs.max_selling_price, cs.total_quantity
+      ORDER BY cs.description, cs.unit
+    `);
+    
+    res.json(result.rows);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Create cost variation (admin only)
 router.post('/', auth, authorize('admin'), async (req, res) => {
   try {
