@@ -131,7 +131,14 @@ app.use('/api/sales-reports',      apiLimiter, require('./routes/sales-reports')
 app.use('/api/sales-transactions', apiLimiter, require('./routes/sales-transactions'));
 app.use('/api/import',             apiLimiter, require('./routes/import'));
 app.use('/api/delivery-discrepancies', apiLimiter, require('./routes/delivery-discrepancies'));
-app.use('/api/cost-variations',    apiLimiter, require('./routes/cost-variations'));
+
+// Load cost-variations route (optional - may not exist if migrations not run)
+try {
+  app.use('/api/cost-variations',    apiLimiter, require('./routes/cost-variations'));
+} catch (error) {
+  console.warn('[WARN] Cost variations route not loaded - run migrations to enable');
+}
+
 app.use('/api/counts',             apiLimiter, require('./routes/counts'));
 
 // ── 404 Handler ───────────────────────────────────────────────
