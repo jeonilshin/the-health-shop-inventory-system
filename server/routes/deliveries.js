@@ -457,8 +457,8 @@ router.post('/:id/admin-confirm', auth, authorize('admin'), async (req, res) => 
   }
 });
 
-// Branch accepts delivery (completes the transfer)
-router.post('/:id/accept', auth, authorize('admin', 'branch_manager'), async (req, res) => {
+// Branch accepts delivery (completes the transfer) - Admin, Manager, or Staff (with manager confirmation)
+router.post('/:id/accept', auth, authorize('admin', 'branch_manager', 'branch_staff'), async (req, res) => {
   const client = await pool.connect();
   
   try {
@@ -482,9 +482,19 @@ router.post('/:id/accept', auth, authorize('admin', 'branch_manager'), async (re
     const deliveryData = delivery.rows[0];
 
     // Check if user has access to destination location
-    if (req.user.role === 'branch_manager' && req.user.location_id != deliveryData.to_location_id) {
-      await client.query('ROLLBACK');
-      return res.status(403).json({ error: 'Access denied to this delivery' });
+    const { hasLocationAccess } = require('../middleware/auth');
+    
+    if (req.user.role === 'branch_manager') {
+      const hasAccess = await hasLocationAccess(req.user.id, req.user.role, deliveryData.to_location_id);
+      if (!hasAccess) {
+        await client.query('ROLLBACK');
+        return res.status(403).json({ error: 'Access denied to this delivery' });
+      }
+    } else if (req.user.role === 'branch_staff') {
+      if (req.user.location_id != deliveryData.to_location_id) {
+        await client.query('ROLLBACK');
+        return res.status(403).json({ error: 'Access denied to this delivery' });
+      }
     }
 
     // Check delivery status - must be admin_confirmed or in_transit
@@ -495,6 +505,45 @@ router.post('/:id/accept', auth, authorize('admin', 'branch_manager'), async (re
       });
     }
 
+    // If staff is accepting, mark as requiring manager confirmation
+    if (req.user.role === 'branch_staff') {
+      // Update delivery to require manager confirmation
+      await client.query(
+        `UPDATE deliveries 
+         SET requires_manager_approval = true,
+             status = 'pending_manager_confirmation',
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $1`,
+        [id]
+      );
+
+      await client.query('COMMIT');
+      
+      // Log audit
+      await logAudit({
+        userId: req.user.id,
+        username: req.user.username,
+        action: 'DELIVERY_STAFF_ACCEPT',
+        tableName: 'deliveries',
+        recordId: id,
+        ipAddress: req.ip,
+        userAgent: req.get('user-agent'),
+        description: `Staff accepted delivery - Awaiting manager confirmation`
+      });
+      
+      // Notify managers of this branch
+      await notifyLocation(
+        deliveryData.to_location_id,
+        'delivery_pending_manager',
+        'Delivery Needs Manager Confirmation',
+        `Staff has accepted a delivery. Please confirm to complete the transfer.`,
+        '/deliveries'
+      );
+      
+      return res.json({ message: 'Delivery accepted by staff. Awaiting manager confirmation to complete transfer.' });
+    }
+
+    // Manager or Admin accepting - complete the delivery
     // Add items to destination inventory
     for (const item of delivery.rows) {
       if (item.description) {
@@ -543,7 +592,7 @@ router.post('/:id/accept', auth, authorize('admin', 'branch_manager'), async (re
       recordId: id,
       ipAddress: req.ip,
       userAgent: req.get('user-agent'),
-      description: `Branch accepted delivery - Items added to inventory and transfer completed`
+      description: `${req.user.role === 'branch_manager' ? 'Manager' : 'Admin'} accepted delivery - Items added to inventory and transfer completed`
     });
     
     // Notify warehouse about completed delivery
@@ -556,6 +605,120 @@ router.post('/:id/accept', auth, authorize('admin', 'branch_manager'), async (re
     );
     
     res.json({ message: 'Delivery accepted! Items added to your inventory and transfer completed.' });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    res.status(500).json({ error: error.message });
+  } finally {
+    client.release();
+  }
+});
+
+// Manager confirms staff delivery acceptance
+router.post('/:id/manager-confirm', auth, authorize('branch_manager'), async (req, res) => {
+  const client = await pool.connect();
+  
+  try {
+    const { id } = req.params;
+
+    await client.query('BEGIN');
+
+    const delivery = await client.query(
+      `SELECT d.*, di.description, di.unit, di.quantity, di.unit_cost
+       FROM deliveries d
+       LEFT JOIN delivery_items di ON d.id = di.delivery_id
+       WHERE d.id = $1`,
+      [id]
+    );
+
+    if (delivery.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Delivery not found' });
+    }
+
+    const deliveryData = delivery.rows[0];
+
+    // Check if manager has access to destination location
+    const { hasLocationAccess } = require('../middleware/auth');
+    const hasAccess = await hasLocationAccess(req.user.id, req.user.role, deliveryData.to_location_id);
+    
+    if (!hasAccess) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'You do not manage this branch' });
+    }
+
+    if (!deliveryData.requires_manager_approval) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'This delivery does not require manager confirmation' });
+    }
+
+    if (deliveryData.status !== 'pending_manager_confirmation') {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Delivery is not pending manager confirmation' });
+    }
+
+    // Add items to destination inventory
+    for (const item of delivery.rows) {
+      if (item.description) {
+        await client.query(
+          `INSERT INTO inventory (location_id, description, unit, quantity, unit_cost, suggested_selling_price, cost_batch_id) 
+           VALUES ($1, $2, $3, $4, $5, $5, $6) 
+           ON CONFLICT (location_id, description, unit, cost_batch_id) 
+           DO UPDATE SET quantity = inventory.quantity + $4, updated_at = CURRENT_TIMESTAMP`,
+          [deliveryData.to_location_id, item.description, item.unit, item.quantity, item.unit_cost,
+           `DELIVERY-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`]
+        );
+      }
+    }
+
+    // Update delivery status to delivered
+    await client.query(
+      `UPDATE deliveries 
+       SET status = 'delivered', 
+           delivered_date = CURRENT_TIMESTAMP,
+           manager_confirmed_by = $1,
+           manager_confirmed_at = CURRENT_TIMESTAMP,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = $2`,
+      [req.user.id, id]
+    );
+
+    // Update linked transfer status to delivered
+    if (deliveryData.transfer_id) {
+      await client.query(
+        `UPDATE transfers 
+         SET status = 'delivered', 
+             delivered_by = $1,
+             delivered_at = CURRENT_TIMESTAMP,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $2`,
+        [req.user.id, deliveryData.transfer_id]
+      );
+    }
+
+    await client.query('COMMIT');
+    
+    // Log audit
+    await logAudit({
+      userId: req.user.id,
+      username: req.user.username,
+      action: 'DELIVERY_MANAGER_CONFIRM',
+      tableName: 'deliveries',
+      recordId: id,
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+      description: `Manager confirmed staff delivery acceptance - Items added to inventory and transfer completed`
+    });
+    
+    // Notify warehouse about completed delivery
+    await notifyLocation(
+      deliveryData.from_location_id,
+      'delivery_completed',
+      'Delivery Completed',
+      `Delivery to branch has been confirmed by manager and completed`,
+      '/deliveries'
+    );
+    
+    res.json({ message: 'Delivery confirmed by manager! Items added to inventory and transfer completed.' });
   } catch (error) {
     await client.query('ROLLBACK');
     res.status(500).json({ error: error.message });

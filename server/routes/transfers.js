@@ -5,8 +5,8 @@ const { auth, authorize } = require('../middleware/auth');
 const { notifyAdmins, notifyLocation } = require('./notifications');
 const { logAudit } = require('../middleware/auditLog');
 
-// Create transfer request (branch manager requests, warehouse/admin creates)
-router.post('/', auth, authorize('admin', 'warehouse', 'branch_manager'), async (req, res) => {
+// Create transfer request (branch manager requests, warehouse/admin creates, STAFF can also create with manager approval)
+router.post('/', auth, authorize('admin', 'warehouse', 'branch_manager', 'branch_staff'), async (req, res) => {
   const client = await pool.connect();
   
   try {
@@ -18,12 +18,24 @@ router.post('/', auth, authorize('admin', 'warehouse', 'branch_manager'), async 
     }
 
     // Branch managers can create transfers FROM their branch OR request TO their branch from warehouse
+    // Check multi-branch access for managers
     if (req.user.role === 'branch_manager') {
-      const isRequestingFromWarehouse = to_location_id == req.user.location_id;
-      const isTransferringFromOwnBranch = from_location_id == req.user.location_id;
+      const { hasLocationAccess } = require('../middleware/auth');
+      const hasFromAccess = await hasLocationAccess(req.user.id, req.user.role, from_location_id);
+      const hasToAccess = await hasLocationAccess(req.user.id, req.user.role, to_location_id);
+      
+      const isRequestingFromWarehouse = to_location_id == req.user.location_id || hasToAccess;
+      const isTransferringFromOwnBranch = from_location_id == req.user.location_id || hasFromAccess;
       
       if (!isRequestingFromWarehouse && !isTransferringFromOwnBranch) {
-        return res.status(403).json({ error: 'You can only create transfers from your own branch or request items to your branch' });
+        return res.status(403).json({ error: 'You can only create transfers from your managed branches or request items to your branches' });
+      }
+    }
+    
+    // Staff can create transfers FROM their branch (requires manager approval)
+    if (req.user.role === 'branch_staff') {
+      if (req.user.location_id != from_location_id) {
+        return res.status(403).json({ error: 'You can only create transfers from your own branch' });
       }
     }
 
@@ -73,21 +85,32 @@ router.post('/', auth, authorize('admin', 'warehouse', 'branch_manager'), async 
       }
     }
 
-    // Determine initial status - ALL transfers need admin approval
+    // Determine initial status and approval requirements
     let status = 'pending';
     let approved_by = null;
     let approved_at = null;
-    let requires_admin_approval = true; // All transfers require admin approval
+    let requires_admin_approval = true;
+    let requires_manager_approval = false;
+    let manager_approved_by = null;
+    let manager_approved_at = null;
+    
+    // Staff transfers need manager approval first, then admin approval
+    if (req.user.role === 'branch_staff') {
+      requires_manager_approval = true;
+      status = 'pending'; // Pending manager approval
+    }
 
     // Record transfer request (inventory NOT deducted yet)
     const transfer = await client.query(
       `INSERT INTO transfers (
         from_location_id, to_location_id, description, unit, quantity, unit_cost, 
-        transferred_by, notes, status, approved_by, approved_at, requires_admin_approval
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) 
+        transferred_by, notes, status, approved_by, approved_at, requires_admin_approval,
+        requires_manager_approval, manager_approved_by, manager_approved_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) 
       RETURNING *`,
       [from_location_id, to_location_id, description, unit, quantity, unit_cost, 
-       req.user.id, notes, status, approved_by, approved_at, requires_admin_approval]
+       req.user.id, notes, status, approved_by, approved_at, requires_admin_approval,
+       requires_manager_approval, manager_approved_by, manager_approved_at]
     );
 
     await client.query('COMMIT');
@@ -102,25 +125,40 @@ router.post('/', auth, authorize('admin', 'warehouse', 'branch_manager'), async 
       newValues: transfer.rows[0],
       ipAddress: req.ip,
       userAgent: req.get('user-agent'),
-      description: `Created transfer request: ${quantity} ${unit} of ${description}`
+      description: `Created transfer request: ${quantity} ${unit} of ${description}${requires_manager_approval ? ' (requires manager approval)' : ''}`
     });
     
-    // Notify admins about new transfer request (skip if part of multi-item batch)
+    // Notify appropriate approvers (skip if part of multi-item batch)
     if (!skip_notification) {
       const locationInfo = await client.query(
         'SELECT name FROM locations WHERE id = $1',
         [to_location_id]
       );
-      await notifyAdmins(
-        'transfer_pending',
-        'New Transfer Request',
-        `Transfer request to ${locationInfo.rows[0]?.name || 'location'} needs approval`,
-        '/transfers'
-      );
+      
+      if (requires_manager_approval) {
+        // Notify managers of the source branch
+        await notifyLocation(
+          from_location_id,
+          'transfer_pending_manager',
+          'Staff Transfer Request',
+          `Staff transfer request needs manager approval`,
+          '/transfers'
+        );
+      } else {
+        // Notify admins
+        await notifyAdmins(
+          'transfer_pending',
+          'New Transfer Request',
+          `Transfer request to ${locationInfo.rows[0]?.name || 'location'} needs approval`,
+          '/transfers'
+        );
+      }
     }
     
-    // All transfers need admin approval
-    const message = 'Transfer request created. Waiting for admin approval.';
+    // Determine message based on who needs to approve
+    const message = requires_manager_approval 
+      ? 'Transfer request created. Waiting for manager approval.'
+      : 'Transfer request created. Waiting for admin approval.';
     
     res.status(201).json({ ...transfer.rows[0], message });
   } catch (error) {
@@ -153,6 +191,119 @@ router.post('/batch-notify', auth, async (req, res) => {
     res.json({ message: 'Batch notification sent' });
   } catch (error) {
     res.status(500).json({ error: error.message });
+  }
+});
+
+// Manager approves staff transfer (branch_manager only)
+router.post('/:id/manager-approve', auth, authorize('branch_manager'), async (req, res) => {
+  const client = await pool.connect();
+  
+  try {
+    const { id } = req.params;
+
+    await client.query('BEGIN');
+
+    // Get transfer details
+    const transfer = await client.query(
+      'SELECT * FROM transfers WHERE id = $1',
+      [id]
+    );
+
+    if (transfer.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Transfer not found' });
+    }
+
+    const transferData = transfer.rows[0];
+
+    // Check if manager has access to the source location
+    const { hasLocationAccess } = require('../middleware/auth');
+    const hasAccess = await hasLocationAccess(req.user.id, req.user.role, transferData.from_location_id);
+    
+    if (!hasAccess) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'You do not manage this branch' });
+    }
+
+    if (!transferData.requires_manager_approval) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'This transfer does not require manager approval' });
+    }
+
+    if (transferData.manager_approved_by) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Transfer already approved by manager' });
+    }
+
+    // Validate inventory still available
+    const inventory = await client.query(
+      'SELECT quantity FROM inventory WHERE location_id = $1 AND description = $2 AND unit = $3',
+      [transferData.from_location_id, transferData.description, transferData.unit]
+    );
+
+    if (inventory.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ 
+        error: 'Item not found in source location inventory' 
+      });
+    }
+
+    const totalAvailable = inventory.rows.reduce((sum, batch) => sum + parseFloat(batch.quantity || 0), 0);
+    const requiredQty = parseFloat(transferData.quantity);
+
+    if (totalAvailable < requiredQty) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ 
+        error: `Insufficient inventory. Available: ${totalAvailable}, Required: ${requiredQty}` 
+      });
+    }
+
+    // Update transfer with manager approval
+    const result = await client.query(
+      `UPDATE transfers 
+       SET manager_approved_by = $1, 
+           manager_approved_at = CURRENT_TIMESTAMP, 
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = $2 
+       RETURNING *`,
+      [req.user.id, id]
+    );
+
+    await client.query('COMMIT');
+    
+    // Log audit
+    await logAudit({
+      userId: req.user.id,
+      username: req.user.username,
+      action: 'TRANSFER_MANAGER_APPROVE',
+      tableName: 'transfers',
+      recordId: id,
+      newValues: result.rows[0],
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+      description: `Manager approved staff transfer: ${transferData.description} (${transferData.quantity} ${transferData.unit})`
+    });
+    
+    // Notify staff member who created the transfer
+    const staffUser = await client.query('SELECT username FROM users WHERE id = $1', [transferData.transferred_by]);
+    
+    // Notify admins that transfer is ready for their approval
+    await notifyAdmins(
+      'transfer_pending',
+      'Transfer Ready for Admin Approval',
+      `Staff transfer (approved by manager) needs admin approval`,
+      '/transfers'
+    );
+    
+    res.json({ 
+      ...result.rows[0], 
+      message: 'Transfer approved by manager. Now awaiting admin approval.' 
+    });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    res.status(500).json({ error: error.message });
+  } finally {
+    client.release();
   }
 });
 
@@ -189,8 +340,8 @@ router.delete('/clean-history', auth, authorize('admin'), async (req, res) => {
   }
 });
 
-// Approve transfer (admin only)
-router.post('/:id/approve', auth, authorize('admin'), async (req, res) => {
+// Approve transfer (admin or manager can approve based on requirements)
+router.post('/:id/approve', auth, authorize('admin', 'branch_manager'), async (req, res) => {
   const client = await pool.connect();
   
   try {
@@ -216,7 +367,71 @@ router.post('/:id/approve', auth, authorize('admin'), async (req, res) => {
       return res.status(400).json({ error: `Transfer is already ${transferData.status}` });
     }
 
+    // Check if this is a manager trying to approve
+    if (req.user.role === 'branch_manager') {
+      // Managers can only approve staff transfers from their managed branches
+      if (!transferData.requires_manager_approval) {
+        await client.query('ROLLBACK');
+        return res.status(403).json({ error: 'Only admin can approve this transfer' });
+      }
+      
+      // Check if manager has access to the source location
+      const { hasLocationAccess } = require('../middleware/auth');
+      const hasAccess = await hasLocationAccess(req.user.id, req.user.role, transferData.from_location_id);
+      
+      if (!hasAccess) {
+        await client.query('ROLLBACK');
+        return res.status(403).json({ error: 'You do not manage this branch' });
+      }
+      
+      // Manager approval - update manager fields, still needs admin approval
+      const result = await client.query(
+        `UPDATE transfers 
+         SET manager_approved_by = $1, 
+             manager_approved_at = CURRENT_TIMESTAMP, 
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $2 
+         RETURNING *`,
+        [req.user.id, id]
+      );
 
+      await client.query('COMMIT');
+      
+      // Log audit
+      await logAudit({
+        userId: req.user.id,
+        username: req.user.username,
+        action: 'TRANSFER_MANAGER_APPROVE',
+        tableName: 'transfers',
+        recordId: id,
+        newValues: result.rows[0],
+        ipAddress: req.ip,
+        userAgent: req.get('user-agent'),
+        description: `Manager approved staff transfer: ${transferData.description} (${transferData.quantity} ${transferData.unit})`
+      });
+      
+      // Notify admins
+      await notifyAdmins(
+        'transfer_pending',
+        'Transfer Ready for Admin Approval',
+        `Staff transfer (approved by manager) needs admin approval`,
+        '/transfers'
+      );
+      
+      return res.json({ 
+        ...result.rows[0], 
+        message: 'Transfer approved by manager. Now awaiting admin approval.' 
+      });
+    }
+
+    // Admin approval
+    // Check if staff transfer needs manager approval first
+    if (transferData.requires_manager_approval && !transferData.manager_approved_by) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ 
+        error: 'This staff transfer must be approved by a manager first' 
+      });
+    }
 
     // Validate inventory still available - check total across all cost batches
     const inventory = await client.query(
