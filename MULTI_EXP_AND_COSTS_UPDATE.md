@@ -61,6 +61,19 @@
 
 ## Important Notes
 
+### Railway Deployment
+The server should start successfully even without the `cost_variations` table because the route loading is wrapped in a try-catch block. If the healthcheck is still failing, it might be due to:
+
+1. **Database connection timeout** - Check if DATABASE_URL is set correctly in Railway
+2. **Port configuration** - Ensure Railway is using the correct PORT environment variable
+3. **Missing migrations** - The cost_variations table needs to exist for the routes to work
+
+To fix Railway deployment issues:
+1. Check Railway logs for specific error messages
+2. Verify DATABASE_URL environment variable is set
+3. Run the SQL migration to create the cost_variations table
+4. Restart the service
+
 ### Database Migration Still Required
 The inventory batching by expiry date will NOT work correctly until you run this SQL:
 
