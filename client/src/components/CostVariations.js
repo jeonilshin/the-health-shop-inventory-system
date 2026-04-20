@@ -149,7 +149,7 @@ function CostVariations() {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '24px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           <FiDollarSign size={32} color="#10b981" />
-          <h2 style={{ margin: 0 }}>Cost Points</h2>
+          <h2 style={{ margin: 0 }}>Costs</h2>
         </div>
         <div style={{ display: 'flex', gap: '12px' }}>
           <button

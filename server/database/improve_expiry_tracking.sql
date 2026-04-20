@@ -11,14 +11,23 @@ CREATE INDEX IF NOT EXISTS idx_inventory_expiry ON inventory(location_id, descri
 -- Update the unique constraint to use expiry_date instead of cost_batch_id
 -- Drop old constraint if exists
 ALTER TABLE inventory DROP CONSTRAINT IF EXISTS inventory_location_id_description_unit_cost_batch_id_key;
-
--- Add new constraint using expiry_date
--- Allow multiple entries with same item but different expiry dates
 ALTER TABLE inventory DROP CONSTRAINT IF EXISTS inventory_location_id_description_unit_key;
 
--- Create a new unique constraint that allows same item with different expiry dates
+-- Drop the old unique index if it exists
+DROP INDEX IF EXISTS idx_inventory_unique_expiry;
+
+-- Create a new unique constraint that separates batches by expiry date
+-- This allows same item with different expiry dates to be separate batches
 CREATE UNIQUE INDEX IF NOT EXISTS idx_inventory_unique_expiry 
-ON inventory(location_id, description, unit, COALESCE(expiry_date, '9999-12-31'::date), unit_cost);
+ON inventory(
+  location_id, 
+  description, 
+  unit, 
+  unit_cost,
+  COALESCE(expiry_date, '9999-12-31'::date)
+);
+
+COMMENT ON INDEX idx_inventory_unique_expiry IS 'Ensures each combination of location, item, cost, and expiry date is unique - allows multiple batches with different expiry dates';
 
 -- Add expiry_date to sales table to track which batch was sold
 ALTER TABLE sales 

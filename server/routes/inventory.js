@@ -97,24 +97,30 @@ router.post('/', auth, authorize('admin', 'warehouse'), async (req, res) => {
     const timestamp = Date.now();
     const costBatchId = `BATCH-${timestamp}-${Math.random().toString(36).substr(2, 9)}`;
 
-    let shouldCreateNewBatch = is_new_cost || is_new_item;
-    
-    // If not explicitly marked as new cost, check if cost/price/expiry differs from existing
-    if (!shouldCreateNewBatch && existingItems.rows.length > 0) {
-      const hasDifferentCostOrPriceOrExpiry = existingItems.rows.every(item => {
-        const costDiffers = parseFloat(item.unit_cost) !== parseFloat(unit_cost);
-        const priceDiffers = parseFloat(item.suggested_selling_price || 0) !== parseFloat(suggested_selling_price || 0);
-        const expiryDiffers = (item.expiry_date ? new Date(item.expiry_date).toISOString().split('T')[0] : '') !== (expiry_date || '');
-        
-        return costDiffers || priceDiffers || expiryDiffers;
-      });
-      shouldCreateNewBatch = hasDifferentCostOrPriceOrExpiry;
-    }
+    // Check if exact same batch exists (same cost AND expiry date)
+    const exactMatch = existingItems.rows.find(item => {
+      const costMatches = parseFloat(item.unit_cost) === parseFloat(unit_cost);
+      const priceMatches = parseFloat(item.suggested_selling_price || 0) === parseFloat(suggested_selling_price || 0);
+      const expiryMatches = (item.expiry_date ? new Date(item.expiry_date).toISOString().split('T')[0] : null) === (expiry_date || null);
+      
+      return costMatches && priceMatches && expiryMatches;
+    });
 
     let result;
     
-    if (shouldCreateNewBatch || existingItems.rows.length === 0) {
-      // Create new batch entry
+    if (exactMatch) {
+      // Add to existing batch with same cost, price, AND expiry
+      result = await pool.query(
+        `UPDATE inventory 
+         SET quantity = quantity + $1, 
+             max_quantity = GREATEST(max_quantity, quantity + $1),
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $2 
+         RETURNING *`,
+        [quantity, exactMatch.id]
+      );
+    } else {
+      // Create new batch for different cost, price, OR expiry date
       result = await pool.query(
         `INSERT INTO inventory 
          (location_id, description, unit, quantity, unit_cost, suggested_selling_price, 
@@ -122,32 +128,10 @@ router.post('/', auth, authorize('admin', 'warehouse'), async (req, res) => {
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $4, $9, $10, $11) 
          RETURNING *`,
         [location_id, description, unit, quantity, unit_cost, suggested_selling_price, 
-         expiry_date, batch_number, is_new_item, shouldCreateNewBatch, costBatchId]
+         expiry_date, batch_number, is_new_item || (existingItems.rows.length === 0), 
+         is_new_cost || (existingItems.rows.length > 0), costBatchId]
       );
-    } else {
-      // Find matching batch with same cost, price, AND expiry
-      const matchingBatch = existingItems.rows.find(item => {
-        const costMatches = parseFloat(item.unit_cost) === parseFloat(unit_cost);
-        const priceMatches = parseFloat(item.suggested_selling_price || 0) === parseFloat(suggested_selling_price || 0);
-        const expiryMatches = (item.expiry_date ? new Date(item.expiry_date).toISOString().split('T')[0] : '') === (expiry_date || '');
-        
-        return costMatches && priceMatches && expiryMatches;
-      });
-      
-      if (matchingBatch) {
-        // Add to existing batch
-        result = await pool.query(
-          `UPDATE inventory 
-           SET quantity = quantity + $1, 
-               max_quantity = GREATEST(max_quantity, quantity + $1),
-               updated_at = CURRENT_TIMESTAMP
-           WHERE id = $2 
-           RETURNING *`,
-          [quantity, matchingBatch.id]
-        );
-      } else {
-        // Create new batch for different cost/price/expiry
-        result = await pool.query(
+    }
           `INSERT INTO inventory 
            (location_id, description, unit, quantity, unit_cost, suggested_selling_price, 
             expiry_date, batch_number, max_quantity, is_new_item, is_new_cost, cost_batch_id) 

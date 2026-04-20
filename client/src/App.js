@@ -133,6 +133,7 @@ function App() {
             <Route path="/sales" element={user ? <Sales /> : <Navigate to="/login" />} />
             <Route path="/messages" element={user ? <Messages /> : <Navigate to="/login" />} />
             <Route path="/cost-points" element={user?.role === 'admin' ? <CostVariations /> : <Navigate to="/" />} />
+            <Route path="/costs" element={user?.role === 'admin' ? <CostVariations /> : <Navigate to="/" />} />
             <Route path="/admin" element={user?.role === 'admin' ? <Admin /> : <Navigate to="/" />} />
             <Route path="/audit" element={user?.role === 'admin' ? <AuditLog /> : <Navigate to="/" />} />
           </Routes>
