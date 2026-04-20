@@ -51,13 +51,14 @@ function avatarColor(role = '') {
 
 const NAV_ITEMS = [
   { to: '/',                icon: FiHome,        label: 'Dashboard',       roles: ['admin','warehouse','branch_manager','branch_staff'] },
-  { to: '/sales',           icon: FiDollarSign,  label: 'Sales',           roles: ['admin','warehouse','branch_manager','branch_staff'] },
+  { to: '/sales',           icon: FiDollarSign,  label: 'Sales',           roles: ['admin','branch_manager','branch_staff'] },
   { to: '/inventory',       icon: FiPackage,     label: 'Inventory',       roles: ['admin','warehouse','branch_manager','branch_staff'] },
   { to: '/transfers',       icon: FiSend,        label: 'Transfers',       roles: ['admin','warehouse','branch_manager','branch_staff'] },
   { to: '/reports',         icon: FiFileText,    label: 'Reports',         roles: ['admin','branch_manager','branch_staff'] },
   { to: '/analytics',       icon: FiBarChart2,   label: 'Analytics',       roles: ['admin'] },
   { to: '/deliveries',      icon: FiTruck,       label: 'Deliveries',      roles: ['admin','warehouse','branch_manager','branch_staff'] },
   { to: '/discrepancy',     icon: FiAlertTriangle, label: 'Discrepancy',   roles: ['admin','warehouse','branch_manager','branch_staff'] },
+  { to: '/cost-points',     icon: FiDollarSign,  label: 'Cost Points',     roles: ['admin'] },
   { to: '/messages',        icon: FiMessageSquare, label: 'Messages',      roles: ['admin','warehouse','branch_manager','branch_staff'] },
   { to: '/admin',           icon: FiSettings,    label: 'Admin',           roles: ['admin'] },
   { to: '/audit',           icon: FiShield,      label: 'Audit Log',       roles: ['admin'] },
