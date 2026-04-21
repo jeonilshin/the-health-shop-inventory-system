@@ -777,17 +777,6 @@ function Transfers() {
           <FiSend size={32} color="#2563eb" />
           <h2 style={{ margin: 0 }}>Inventory Transfers</h2>
         </div>
-        {user.role === 'admin' && (
-          <button
-            className="btn btn-danger"
-            onClick={handleCleanHistory}
-            disabled={loading}
-            style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
-          >
-            <FiTrash2 size={16} />
-            Clean History
-          </button>
-        )}
       </div>
 
       {/* Pending Approvals Section */}
