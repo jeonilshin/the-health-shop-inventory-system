@@ -1,7 +1,10 @@
 {
   "permissions": {
     "allow": [
-      "Bash(node -e \"require\\('@babel/parser'\\).parse\\(require\\('fs'\\).readFileSync\\('src/components/Admin.js','utf8'\\),{sourceType:'module',plugins:['jsx']}\\); console.log\\('Admin OK'\\)\")"
+      "Bash(node -e \"require\\('@babel/parser'\\).parse\\(require\\('fs'\\).readFileSync\\('src/components/Admin.js','utf8'\\),{sourceType:'module',plugins:['jsx']}\\); console.log\\('Admin OK'\\)\")",
+      "Bash(node --check \"c:\\\\Users\\\\mikos\\\\OneDrive\\\\Desktop\\\\the-health-shop-inventory-system/server/routes/sales-transactions.js\")",
+      "Bash(node --check \"c:\\\\Users\\\\mikos\\\\OneDrive\\\\Desktop\\\\the-health-shop-inventory-system/server/routes/search.js\")",
+      "Bash(node --check \"c:\\\\Users\\\\mikos\\\\OneDrive\\\\Desktop\\\\the-health-shop-inventory-system/server/index.js\")"
     ]
   }
 }

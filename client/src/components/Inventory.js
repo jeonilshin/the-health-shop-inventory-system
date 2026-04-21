@@ -1790,12 +1790,6 @@ function Inventory() {
                   // Group items by location
                   let currentLocation = null;
                   return currentItems.map((item, index) => {
-                    const expiryDate = item.expiry_date ? new Date(item.expiry_date) : null;
-                    const today = new Date();
-                    const daysUntilExpiry = expiryDate ? Math.ceil((expiryDate - today) / (1000 * 60 * 60 * 24)) : null;
-                    const isExpired = daysUntilExpiry !== null && daysUntilExpiry < 0;
-                    const isExpiringSoon = daysUntilExpiry !== null && daysUntilExpiry >= 0 && daysUntilExpiry <= 30;
-                    
                     const showLocationHeader = currentLocation !== item.location_id;
                     currentLocation = item.location_id;
                     
