@@ -741,102 +741,124 @@ router.get('/history', auth, authorize('admin', 'branch_manager'), async (req, r
 router.get('/history/:id', auth, async (req, res) => {
   try {
     const { id } = req.params;
-    
+
     // Get the inventory item details
     const itemResult = await pool.query(
       'SELECT description, unit, location_id FROM inventory WHERE id = $1',
       [id]
     );
-    
+
     if (itemResult.rows.length === 0) {
       return res.status(404).json({ error: 'Item not found' });
     }
-    
+
     const item = itemResult.rows[0];
-    
-    // Get all history for this product (by description and unit)
-    const history = [];
-    
-    // 1. Sales transactions
-    const salesResult = await pool.query(
-      `SELECT 
-        'sale' as type,
-        id,
-        transaction_date as date,
-        quantity_sold as quantity,
-        unit_price,
-        total_amount,
-        payment_method,
-        sold_by_name as user_name,
-        customer_name,
-        location_id,
-        l.name as location_name,
-        created_at
-      FROM sales_transactions st
-      JOIN locations l ON st.location_id = l.id
-      WHERE st.item_description = $1 AND st.item_unit = $2
-      ORDER BY transaction_date DESC, created_at DESC
-      LIMIT 100`,
-      [item.description, item.unit]
-    );
-    
-    // 2. Transfers (both sent and received)
-    const transfersResult = await pool.query(
+    const locationId = item.location_id;
+
+    if (req.user.role !== 'admin' && req.user.location_id != locationId) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    // Items RECEIVED (transfers delivered TO this location) — same source as Inventory History
+    const receivedResult = await pool.query(
       `SELECT
-        'transfer' as type,
+        'received' as type,
         t.id,
-        t.transfer_date as date,
+        COALESCE(t.transfer_date, t.created_at) as date,
+        t.description,
+        t.unit,
         t.quantity,
         t.unit_cost,
-        t.status,
-        COALESCE(u.full_name, u.username) as user_name,
-        t.from_location_id,
-        t.to_location_id,
+        COALESCE(u.full_name, 'Unknown') as by_who,
         fl.name as from_location_name,
-        tl.name as to_location_name,
-        t.created_at
+        fl.type as from_location_type
       FROM transfers t
       JOIN locations fl ON t.from_location_id = fl.id
+      LEFT JOIN users u ON t.transferred_by = u.id
+      WHERE t.to_location_id = $1 AND t.status = 'delivered'
+        AND t.description = $2 AND t.unit = $3
+      ORDER BY COALESCE(t.transfer_date, t.created_at) DESC
+      LIMIT 500`,
+      [locationId, item.description, item.unit]
+    );
+
+    // Items TRANSFERRED OUT (delivered transfers FROM this location)
+    const sentResult = await pool.query(
+      `SELECT
+        'transferred' as type,
+        t.id,
+        COALESCE(t.transfer_date, t.created_at) as date,
+        t.description,
+        t.unit,
+        t.quantity,
+        t.unit_cost,
+        COALESCE(u.full_name, 'Unknown') as by_who,
+        tl.name as to_location_name,
+        tl.type as to_location_type
+      FROM transfers t
       JOIN locations tl ON t.to_location_id = tl.id
       LEFT JOIN users u ON t.transferred_by = u.id
-      WHERE t.description = $1 AND t.unit = $2
-        AND (t.from_location_id = $3 OR t.to_location_id = $3)
-      ORDER BY t.transfer_date DESC, t.created_at DESC
-      LIMIT 100`,
-      [item.description, item.unit, item.location_id]
+      WHERE t.from_location_id = $1 AND t.status = 'delivered'
+        AND t.description = $2 AND t.unit = $3
+      ORDER BY COALESCE(t.transfer_date, t.created_at) DESC
+      LIMIT 500`,
+      [locationId, item.description, item.unit]
     );
-    
-    // 3. Inventory adjustments (from audit log) - including additions
-    const adjustmentsResult = await pool.query(
-      `SELECT 
-        'adjustment' as type,
-        id,
-        created_at as date,
-        action,
-        username as user_name,
-        old_values,
-        new_values,
-        description as audit_description
-      FROM audit_log
-      WHERE table_name = 'inventory'
-        AND action IN ('INVENTORY_ADD', 'INVENTORY_UPDATE', 'INVENTORY_DELETE')
-        AND (
-          (new_values->>'description' = $1 AND new_values->>'unit' = $2)
-          OR
-          (old_values->>'description' = $1 AND old_values->>'unit' = $2)
-        )
-      ORDER BY created_at DESC
-      LIMIT 100`,
-      [item.description, item.unit]
+
+    // Items ADDED manually (from audit log)
+    const addedResult = await pool.query(
+      `SELECT
+        'added' as type,
+        al.id,
+        al.created_at as date,
+        al.new_values->>'description' as description,
+        al.new_values->>'unit' as unit,
+        al.new_values->>'quantity' as quantity,
+        al.new_values->>'unit_cost' as unit_cost,
+        al.username as by_who,
+        al.description as audit_description
+      FROM audit_log al
+      WHERE al.table_name = 'inventory'
+        AND al.action = 'INVENTORY_ADD'
+        AND (al.new_values->>'location_id')::integer = $1
+        AND al.new_values->>'description' = $2
+        AND al.new_values->>'unit' = $3
+      ORDER BY al.created_at DESC
+      LIMIT 500`,
+      [locationId, item.description, item.unit]
     );
-    
-    // Combine and sort all history
+
+    // Sales of this product at this location
+    const salesResult = await pool.query(
+      `SELECT
+        'sale' as type,
+        st.id,
+        COALESCE(st.transaction_date, st.created_at) as date,
+        st.item_description as description,
+        st.item_unit as unit,
+        st.quantity_sold as quantity,
+        st.unit_price as unit_cost,
+        st.total_amount,
+        st.payment_method,
+        st.customer_name,
+        COALESCE(st.sold_by_name, 'Unknown') as by_who,
+        l.name as location_name
+      FROM sales_transactions st
+      JOIN locations l ON st.location_id = l.id
+      WHERE st.location_id = $1
+        AND st.item_description = $2 AND st.item_unit = $3
+      ORDER BY COALESCE(st.transaction_date, st.created_at) DESC
+      LIMIT 500`,
+      [locationId, item.description, item.unit]
+    );
+
     const allHistory = [
-      ...salesResult.rows,
-      ...transfersResult.rows,
-      ...adjustmentsResult.rows
-    ].sort((a, b) => new Date(b.date || b.created_at) - new Date(a.date || a.created_at));
-    
+      ...receivedResult.rows,
+      ...sentResult.rows,
+      ...addedResult.rows,
+      ...salesResult.rows
+    ].sort((a, b) => new Date(b.date) - new Date(a.date));
+
     res.json(allHistory);
   } catch (error) {
     res.status(500).json({ error: error.message });

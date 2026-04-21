@@ -2518,121 +2518,67 @@ function Inventory() {
                   No history found for this product
                 </div>
               ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                  {productHistory
-                    .filter(record => {
-                      // Filter adjustments to only show those for the current location
-                      if (record.type === 'adjustment') {
-                        const locationId = record.new_values?.location_id || record.old_values?.location_id;
-                        return locationId === viewHistory.location_id;
-                      }
-                      return true;
-                    })
-                    .map((record, idx) => (
-                    <div
-                      key={idx}
-                      style={{
-                        padding: '16px',
-                        border: '1px solid var(--border)',
-                        borderRadius: 'var(--radius)',
-                        background: 'var(--bg-secondary)'
-                      }}
-                    >
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          {record.type === 'sale' && (
-                            <span style={{ fontSize: '20px' }}>💰</span>
-                          )}
-                          {record.type === 'transfer' && (
-                            <span style={{ fontSize: '20px' }}>🚚</span>
-                          )}
-                          {record.type === 'adjustment' && (
-                            <span style={{ fontSize: '20px' }}>📝</span>
-                          )}
-                          <div>
-                            <div style={{ fontWeight: '600', fontSize: '14px' }}>
-                              {record.type === 'sale' && 'Sale'}
-                              {record.type === 'transfer' && 'Transfer'}
-                              {record.type === 'adjustment' && record.action}
-                            </div>
-                            <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                              {new Date(record.date || record.created_at).toLocaleString()}
-                            </div>
-                          </div>
-                        </div>
-                        <div style={{ textAlign: 'right' }}>
-                          {record.type === 'sale' && (
-                            <div style={{ fontSize: '16px', fontWeight: '700', color: 'var(--danger)' }}>
-                              -{record.quantity}
-                            </div>
-                          )}
-                          {record.type === 'transfer' && (
-                            <div style={{ fontSize: '16px', fontWeight: '700', color: record.to_location_id === viewHistory.location_id ? 'var(--success)' : 'var(--danger)' }}>
-                              {record.to_location_id === viewHistory.location_id ? '+' : '-'}{record.quantity}
-                            </div>
-                          )}
-                        </div>
-                      </div>
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', fontSize: '14px' }}>
+                    <thead>
+                      <tr style={{ background: 'var(--bg-secondary)' }}>
+                        <th style={{ padding: '10px 8px', textAlign: 'left' }}>Date</th>
+                        <th style={{ padding: '10px 8px', textAlign: 'left' }}>Type</th>
+                        <th style={{ padding: '10px 8px', textAlign: 'left' }}>Qty</th>
+                        <th style={{ padding: '10px 8px', textAlign: 'left' }}>Source / Destination</th>
+                        <th style={{ padding: '10px 8px', textAlign: 'left' }}>By</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {productHistory.map((entry, idx) => {
+                        const isReceived = entry.type === 'received';
+                        const isTransferred = entry.type === 'transferred';
+                        const isSale = entry.type === 'sale';
+                        const typeColor = isReceived ? '#16a34a' : isTransferred ? '#d97706' : isSale ? '#dc2626' : '#2563eb';
+                        const typeLabel = isReceived
+                          ? (entry.from_location_type === 'warehouse' ? 'Received (Warehouse)' : 'Received (Outlet)')
+                          : isTransferred
+                          ? (entry.to_location_type === 'warehouse' ? 'Transferred (Warehouse)' : 'Transferred (Outlet)')
+                          : isSale
+                          ? 'Sale'
+                          : 'Added by Admin';
+                        const sourceDest = isReceived
+                          ? `From: ${entry.from_location_name}`
+                          : isTransferred
+                          ? `To: ${entry.to_location_name}`
+                          : isSale
+                          ? (entry.customer_name ? `Customer: ${entry.customer_name}` : (entry.payment_method || '—'))
+                          : entry.audit_description || '—';
+                        const icon = isReceived ? '⬇ ' : isTransferred ? '⬆ ' : isSale ? '💰 ' : '＋ ';
 
-                      <div style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
-                        {record.type === 'sale' && (
-                          <>
-                            <div>Sold by: {record.user_name}</div>
-                            <div>Price: ₱{formatPrice(record.unit_price)} × {record.quantity} = ₱{formatPrice(record.total_amount)}</div>
-                            <div>Payment: {record.payment_method}</div>
-                            {record.customer_name && <div>Customer: {record.customer_name}</div>}
-                            <div>Location: {record.location_name}</div>
-                          </>
-                        )}
-                        {record.type === 'transfer' && (
-                          <>
-                            <div>From: {record.from_location_name} → To: {record.to_location_name}</div>
-                            <div>Status: <span className={`badge badge-${record.status === 'completed' ? 'success' : record.status === 'pending' ? 'warning' : 'secondary'}`}>{record.status}</span></div>
-                            <div>Transferred by: {record.user_name}</div>
-                            {user.role === 'admin' && (
-                              <div>Unit Cost: ₱{formatPrice(record.unit_cost)}</div>
-                            )}
-                          </>
-                        )}
-                        {record.type === 'adjustment' && (
-                          <>
-                            <div>User: {record.user_name}</div>
-                            {record.audit_description && <div>{record.audit_description}</div>}
-                            {record.action === 'INVENTORY_ADD' && record.new_values && (
-                              <div style={{ marginTop: '8px', fontSize: '12px' }}>
-                                <div style={{ color: 'var(--success)', fontWeight: '600' }}>
-                                  Added: {record.new_values.quantity} {record.new_values.unit}
-                                </div>
-                                {user.role === 'admin' && (
-                                  <>
-                                    <div>Unit Cost: ₱{formatPrice(record.new_values.unit_cost)}</div>
-                                    {record.new_values.suggested_selling_price && (
-                                      <div>Selling Price: ₱{formatPrice(record.new_values.suggested_selling_price)}</div>
-                                    )}
-                                  </>
-                                )}
-                              </div>
-                            )}
-                            {record.action === 'INVENTORY_UPDATE' && record.old_values && record.new_values && (
-                              <div style={{ marginTop: '8px', fontSize: '12px' }}>
-                                {record.old_values.quantity !== record.new_values.quantity && (
-                                  <div>Quantity: {record.old_values.quantity} → {record.new_values.quantity}</div>
-                                )}
-                                {record.old_values.unit_cost !== record.new_values.unit_cost && (
-                                  <div>Cost: ₱{record.old_values.unit_cost} → ₱{record.new_values.unit_cost}</div>
-                                )}
-                              </div>
-                            )}
-                            {record.action === 'INVENTORY_DELETE' && record.old_values && (
-                              <div style={{ marginTop: '8px', fontSize: '12px', color: 'var(--danger)' }}>
-                                Deleted: {record.old_values.quantity} {record.old_values.unit}
-                              </div>
-                            )}
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  ))}
+                        return (
+                          <tr key={idx} style={{ borderBottom: '1px solid var(--border)' }}>
+                            <td style={{ padding: '10px 8px', whiteSpace: 'nowrap' }}>
+                              <div style={{ fontWeight: 600 }}>{new Date(entry.date).toLocaleDateString()}</div>
+                              <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{new Date(entry.date).toLocaleTimeString()}</div>
+                            </td>
+                            <td style={{ padding: '10px 8px' }}>
+                              <span style={{ display: 'inline-block', padding: '3px 10px', borderRadius: '12px', fontSize: '12px', fontWeight: 700, background: typeColor + '18', color: typeColor, whiteSpace: 'nowrap' }}>
+                                {icon}{typeLabel}
+                              </span>
+                            </td>
+                            <td style={{ padding: '10px 8px', fontWeight: 600 }}>
+                              {entry.quantity != null ? formatQuantity(entry.quantity) : '—'}
+                            </td>
+                            <td style={{ padding: '10px 8px', color: 'var(--text-secondary)', fontSize: '13px' }}>
+                              {sourceDest}
+                              {isSale && user.role === 'admin' && entry.total_amount != null && (
+                                <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Total: ₱{formatPrice(entry.total_amount)}</div>
+                              )}
+                            </td>
+                            <td style={{ padding: '10px 8px', fontWeight: 600 }}>
+                              {entry.by_who || '—'}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
                 </div>
               )}
             </div>
