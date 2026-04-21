@@ -53,6 +53,14 @@ function Sales() {
     discount_reason: ''
   });
 
+  // Batch options for the selected item (multi-expiry)
+  const [itemBatches, setItemBatches] = useState([]);
+  // User-chosen per-batch allocations: [{ cost_batch_id, quantity }]
+  const [batchSelections, setBatchSelections] = useState([]);
+
+  // True when the selected item has more than one batch with an expiry date
+  const hasMultipleExpiries = itemBatches.filter(b => b.expiry_date).length > 1;
+
   useEffect(() => {
     fetchLocations();
     fetchSales();
@@ -153,22 +161,68 @@ function Sales() {
       item_description: item.description,
       item_unit: item.unit,
       unit_price: item.suggested_selling_price || item.unit_cost,
-      cost_batch_id: '' // No longer needed
+      cost_batch_id: '',
+      quantity_sold: ''
     });
-    
-    // No need to fetch cost batches anymore - we'll use FIFO automatically
+
+    const batches = Array.isArray(item.batches) ? item.batches : [];
+    setItemBatches(batches);
+    // If multiple expiries, start with a single empty batch allocation row
+    const expiryBatches = batches.filter(b => b.expiry_date);
+    if (expiryBatches.length > 1) {
+      setBatchSelections([{ cost_batch_id: '', quantity: '' }]);
+    } else {
+      setBatchSelections([]);
+    }
   };
+
+  const getBatchTotal = () => batchSelections.reduce(
+    (sum, b) => sum + (parseFloat(b.quantity) || 0), 0
+  );
 
   const handleSubmit = (e) => {
     e.preventDefault();
+
+    if (hasMultipleExpiries) {
+      // Validate batch selections
+      if (batchSelections.length === 0 || batchSelections.some(b => !b.cost_batch_id || !b.quantity)) {
+        alert('Please choose batch(es) and quantity for each.');
+        return;
+      }
+      // Ensure no duplicate batch ids
+      const ids = batchSelections.map(b => String(b.cost_batch_id));
+      if (new Set(ids).size !== ids.length) {
+        alert('Each batch can only be selected once.');
+        return;
+      }
+      // Validate each selected batch quantity does not exceed its available stock
+      for (const sel of batchSelections) {
+        const batch = itemBatches.find(b => String(b.id) === String(sel.cost_batch_id));
+        if (!batch) continue;
+        if (parseFloat(sel.quantity) > parseFloat(batch.quantity)) {
+          alert(`Only ${batch.quantity} available for the selected batch (Exp ${batch.expiry_date ? new Date(batch.expiry_date).toLocaleDateString() : 'N/A'}).`);
+          return;
+        }
+      }
+    }
+
     setShowConfirm1(true);
   };
 
   const executeSale = async () => {
     setConfirmLoading(true);
     try {
-      console.log('Submitting sale with data:', formData);
-      await api.post('/sales-transactions', formData);
+      const payload = { ...formData };
+      if (hasMultipleExpiries) {
+        payload.batch_selections = batchSelections.map(b => ({
+          cost_batch_id: parseInt(b.cost_batch_id, 10),
+          quantity: parseFloat(b.quantity)
+        }));
+        // Sync quantity_sold to the sum of batch selections
+        payload.quantity_sold = getBatchTotal();
+      }
+      console.log('Submitting sale with data:', payload);
+      await api.post('/sales-transactions', payload);
       setShowConfirm2(false);
       setShowConfirm1(false);
       setShowForm(false);
@@ -200,6 +254,8 @@ function Sales() {
       custom_discount_percent: '',
       discount_reason: ''
     });
+    setItemBatches([]);
+    setBatchSelections([]);
   };
 
   const handleDelete = async (id) => {
@@ -611,9 +667,20 @@ function Sales() {
                 </div>
                 <div className="form-group">
                   <label>Location *</label>
-                  <select 
-                    value={formData.location_id} 
-                    onChange={(e) => setFormData({...formData, location_id: e.target.value})} 
+                  <select
+                    value={formData.location_id}
+                    onChange={(e) => {
+                      setFormData({
+                        ...formData,
+                        location_id: e.target.value,
+                        item_description: '',
+                        item_unit: '',
+                        quantity_sold: '',
+                        unit_price: ''
+                      });
+                      setItemBatches([]);
+                      setBatchSelections([]);
+                    }}
                     required
                     disabled={user.role !== 'admin' && user.location_id}
                   >
@@ -646,50 +713,158 @@ function Sales() {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginBottom: '16px' }}>
               <div className="form-group" style={{ marginBottom: 0 }}>
                 <label>Item Description *</label>
-                <input 
-                  type="text" 
-                  value={formData.item_description} 
-                  onChange={(e) => setFormData({...formData, item_description: e.target.value})} 
-                  required 
+                <input
+                  type="text"
+                  value={formData.item_description}
+                  onChange={(e) => setFormData({...formData, item_description: e.target.value})}
+                  required
                   readOnly
                   style={{ backgroundColor: 'var(--bg-secondary)' }}
                 />
               </div>
               <div className="form-group" style={{ marginBottom: 0 }}>
                 <label>Unit *</label>
-                <input 
-                  type="text" 
-                  value={formData.item_unit} 
-                  onChange={(e) => setFormData({...formData, item_unit: e.target.value})} 
-                  required 
+                <input
+                  type="text"
+                  value={formData.item_unit}
+                  onChange={(e) => setFormData({...formData, item_unit: e.target.value})}
+                  required
                   readOnly
                   style={{ backgroundColor: 'var(--bg-secondary)' }}
                 />
               </div>
-              <div className="form-group" style={{ marginBottom: 0 }}>
-                <label>Quantity Sold *</label>
-                <input 
-                  type="number" 
-                  value={formData.quantity_sold} 
-                  onChange={(e) => setFormData({...formData, quantity_sold: e.target.value})} 
-                  required 
-                  min="1"
-                  placeholder="Enter quantity"
-                  onWheel={(e) => e.target.blur()}
-                />
-              </div>
+              {!hasMultipleExpiries && (
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label>Quantity Sold *</label>
+                  <input
+                    type="number"
+                    value={formData.quantity_sold}
+                    onChange={(e) => setFormData({...formData, quantity_sold: e.target.value})}
+                    required
+                    min="1"
+                    placeholder="Enter quantity"
+                    onWheel={(e) => e.target.blur()}
+                  />
+                </div>
+              )}
               <div className="form-group" style={{ marginBottom: 0 }}>
                 <label>Unit Price *</label>
-                <input 
-                  type="number" 
+                <input
+                  type="number"
                   step="0.01"
-                  value={formData.unit_price} 
-                  onChange={(e) => setFormData({...formData, unit_price: e.target.value})} 
-                  required 
+                  value={formData.unit_price}
+                  onChange={(e) => setFormData({...formData, unit_price: e.target.value})}
+                  required
                   min="0.01"
                 />
               </div>
             </div>
+
+            {hasMultipleExpiries && (
+              <div style={{
+                marginBottom: '16px',
+                padding: '16px',
+                border: '2px solid rgba(245, 158, 11, 0.3)',
+                borderRadius: 'var(--radius)',
+                backgroundColor: 'rgba(245, 158, 11, 0.05)'
+              }}>
+                <div style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  marginBottom: '12px'
+                }}>
+                  <h4 style={{ margin: 0, fontSize: '14px', color: 'var(--primary)' }}>
+                    Batches (pick expiry to sell from)
+                  </h4>
+                  <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                    Total: <strong>{getBatchTotal()} {formData.item_unit}</strong>
+                  </div>
+                </div>
+
+                {batchSelections.map((sel, idx) => {
+                  const currentBatch = itemBatches.find(b => String(b.id) === String(sel.cost_batch_id));
+                  const usedIds = new Set(
+                    batchSelections.filter((_, i) => i !== idx).map(s => String(s.cost_batch_id))
+                  );
+                  return (
+                    <div key={idx} style={{
+                      display: 'grid',
+                      gridTemplateColumns: '2fr 1fr auto',
+                      gap: '8px',
+                      alignItems: 'end',
+                      marginBottom: '8px'
+                    }}>
+                      <div className="form-group" style={{ marginBottom: 0 }}>
+                        <label style={{ fontSize: '12px' }}>Expiry Batch *</label>
+                        <select
+                          value={sel.cost_batch_id}
+                          onChange={(e) => {
+                            const next = [...batchSelections];
+                            next[idx] = { ...next[idx], cost_batch_id: e.target.value, quantity: '' };
+                            setBatchSelections(next);
+                          }}
+                          required
+                        >
+                          <option value="">Select expiry</option>
+                          {itemBatches
+                            .filter(b => b.expiry_date && (!usedIds.has(String(b.id)) || String(b.id) === String(sel.cost_batch_id)))
+                            .map(b => (
+                              <option key={b.id} value={b.id}>
+                                Exp {new Date(b.expiry_date).toLocaleDateString()} · {formatQuantity(b.quantity)} left
+                                {b.batch_number ? ` · ${b.batch_number}` : ''}
+                              </option>
+                            ))}
+                        </select>
+                      </div>
+                      <div className="form-group" style={{ marginBottom: 0 }}>
+                        <label style={{ fontSize: '12px' }}>
+                          Qty {currentBatch ? `(max ${formatQuantity(currentBatch.quantity)})` : ''}
+                        </label>
+                        <input
+                          type="number"
+                          min="1"
+                          max={currentBatch ? currentBatch.quantity : undefined}
+                          value={sel.quantity}
+                          onChange={(e) => {
+                            const next = [...batchSelections];
+                            next[idx] = { ...next[idx], quantity: e.target.value };
+                            setBatchSelections(next);
+                          }}
+                          disabled={!sel.cost_batch_id}
+                          required
+                          onWheel={(e) => e.target.blur()}
+                        />
+                      </div>
+                      {batchSelections.length > 1 && (
+                        <button
+                          type="button"
+                          className="btn btn-danger"
+                          style={{ padding: '8px 10px' }}
+                          onClick={() => {
+                            setBatchSelections(batchSelections.filter((_, i) => i !== idx));
+                          }}
+                          title="Remove batch"
+                        >
+                          <FiX size={14} />
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+
+                {batchSelections.length < itemBatches.filter(b => b.expiry_date).length && (
+                  <button
+                    type="button"
+                    className="btn"
+                    style={{ marginTop: '4px', fontSize: '12px', padding: '6px 12px' }}
+                    onClick={() => setBatchSelections([...batchSelections, { cost_batch_id: '', quantity: '' }])}
+                  >
+                    <FiPlus size={14} /> Add Another Batch
+                  </button>
+                )}
+              </div>
+            )}
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginBottom: '16px' }}>
               <div className="form-group" style={{ marginBottom: 0 }}>
@@ -831,10 +1006,13 @@ function Sales() {
               border: '2px solid rgba(16, 185, 129, 0.3)'
             }}>
               {(() => {
-                const grossAmount = (parseFloat(formData.quantity_sold) || 0) * (parseFloat(formData.unit_price) || 0);
+                const effectiveQty = hasMultipleExpiries
+                  ? getBatchTotal()
+                  : (parseFloat(formData.quantity_sold) || 0);
+                const grossAmount = effectiveQty * (parseFloat(formData.unit_price) || 0);
                 let discountAmount = 0;
                 let finalTotal = grossAmount;
-                
+
                 if (formData.discount_type === 'pwd' || formData.discount_type === 'senior') {
                   // Philippine PWD/Senior Citizen Formula:
                   // 1. Remove VAT to get net amount: Price / 1.12
@@ -1118,7 +1296,10 @@ function Sales() {
 
       {/* Step 1: Review sale details */}
       {(() => {
-        const grossAmount = (parseFloat(formData.quantity_sold) || 0) * (parseFloat(formData.unit_price) || 0);
+        const effectiveQty = hasMultipleExpiries
+          ? getBatchTotal()
+          : (parseFloat(formData.quantity_sold) || 0);
+        const grossAmount = effectiveQty * (parseFloat(formData.unit_price) || 0);
         let discountAmount = 0;
         let finalTotal = grossAmount;
         if (formData.discount_type === 'pwd' || formData.discount_type === 'senior') {
@@ -1144,7 +1325,23 @@ function Sales() {
                 <strong>{formData.item_description}</strong>
                 {locationName && <><br /><span style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>Branch: {locationName}</span></>}
                 <br /><br />
-                Qty: <strong>{formData.quantity_sold} {formData.item_unit}</strong>
+                Qty: <strong>{effectiveQty} {formData.item_unit}</strong>
+                {hasMultipleExpiries && (
+                  <>
+                    <br />
+                    <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                      {batchSelections.map((s, i) => {
+                        const b = itemBatches.find(x => String(x.id) === String(s.cost_batch_id));
+                        if (!b) return null;
+                        return (
+                          <span key={i} style={{ display: 'block' }}>
+                            · {s.quantity} {formData.item_unit} from Exp {new Date(b.expiry_date).toLocaleDateString()}
+                          </span>
+                        );
+                      })}
+                    </span>
+                  </>
+                )}
                 <br />
                 Unit Price: <strong>₱{formatPrice(parseFloat(formData.unit_price) || 0)}</strong>
                 <br />

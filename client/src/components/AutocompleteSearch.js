@@ -190,8 +190,8 @@ function AutocompleteSearch({ locationId, onSelect, placeholder = "Search produc
                     }}>
                       {highlightMatch(item.description, searchTerm)}
                     </div>
-                    <div style={{ 
-                      fontSize: '12px', 
+                    <div style={{
+                      fontSize: '12px',
                       color: 'var(--text-secondary)',
                       display: 'flex',
                       gap: '12px',
@@ -204,17 +204,31 @@ function AutocompleteSearch({ locationId, onSelect, placeholder = "Search produc
                       {user.role === 'admin' && item.unit_cost && (
                         <span>₱{formatPrice(item.unit_cost)}</span>
                       )}
-                      {item.batch_number && (
-                        <span>Batch: {item.batch_number}</span>
-                      )}
-                      {item.expiry_date && (
-                        <span style={{ 
-                          color: new Date(item.expiry_date) < new Date() ? '#ef4444' : 
-                                 new Date(item.expiry_date) < new Date(Date.now() + 30*24*60*60*1000) ? '#f59e0b' : 
-                                 'inherit'
+                      {Array.isArray(item.batches) && item.batches.filter(b => b.expiry_date).length > 1 ? (
+                        <span style={{
+                          padding: '1px 8px',
+                          borderRadius: '10px',
+                          backgroundColor: 'rgba(245, 158, 11, 0.15)',
+                          color: '#b45309',
+                          fontWeight: 600
                         }}>
-                          Exp: {new Date(item.expiry_date).toLocaleDateString()}
+                          {item.batches.filter(b => b.expiry_date).length} expiries
                         </span>
+                      ) : (
+                        <>
+                          {item.batch_number && (
+                            <span>Batch: {item.batch_number}</span>
+                          )}
+                          {item.expiry_date && (
+                            <span style={{
+                              color: new Date(item.expiry_date) < new Date() ? '#ef4444' :
+                                     new Date(item.expiry_date) < new Date(Date.now() + 30*24*60*60*1000) ? '#f59e0b' :
+                                     'inherit'
+                            }}>
+                              Exp: {new Date(item.expiry_date).toLocaleDateString()}
+                            </span>
+                          )}
+                        </>
                       )}
                     </div>
                   </div>

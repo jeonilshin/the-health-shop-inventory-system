@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node -e \"require\\('@babel/parser'\\).parse\\(require\\('fs'\\).readFileSync\\('src/components/Admin.js','utf8'\\),{sourceType:'module',plugins:['jsx']}\\); console.log\\('Admin OK'\\)\")"
+    ]
+  }
+}

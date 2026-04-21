@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import api from '../utils/api';
-import { FiMapPin, FiUsers, FiEdit2, FiTrash2, FiShield } from 'react-icons/fi';
+import { FiMapPin, FiUsers, FiEdit2, FiTrash2, FiShield, FiGitBranch, FiX } from 'react-icons/fi';
 
 function Admin() {
   const [activeTab, setActiveTab] = useState('locations');
@@ -25,6 +25,9 @@ function Admin() {
     role: 'branch_staff',
     location_id: ''
   });
+
+  const [branchesManager, setBranchesManager] = useState(null);
+  const [savingBranches, setSavingBranches] = useState(false);
 
   useEffect(() => {
     fetchLocations();
@@ -140,6 +143,48 @@ function Admin() {
       fetchUsers();
     } catch (error) {
       alert(error.response?.data?.error || 'Error deleting user');
+    }
+  };
+
+  const openManageBranches = (manager) => {
+    const assignedIds = new Set((manager.managed_branches || []).map(b => b.location_id));
+    setBranchesManager({ ...manager, assignedIds });
+  };
+
+  const toggleBranchAssignment = (locationId) => {
+    setBranchesManager(prev => {
+      if (!prev) return prev;
+      const next = new Set(prev.assignedIds);
+      if (next.has(locationId)) next.delete(locationId);
+      else next.add(locationId);
+      return { ...prev, assignedIds: next };
+    });
+  };
+
+  const saveBranchAssignments = async () => {
+    if (!branchesManager) return;
+    setSavingBranches(true);
+    try {
+      const originalIds = new Set((branchesManager.managed_branches || []).map(b => b.location_id));
+      const desiredIds = branchesManager.assignedIds;
+
+      const toAdd = [...desiredIds].filter(id => !originalIds.has(id));
+      const toRemove = [...originalIds].filter(id => !desiredIds.has(id));
+
+      for (const locId of toAdd) {
+        await api.post(`/users/${branchesManager.id}/branches`, { location_id: locId });
+      }
+      for (const locId of toRemove) {
+        await api.delete(`/users/${branchesManager.id}/branches/${locId}`);
+      }
+
+      await fetchUsers();
+      setBranchesManager(null);
+      alert('Branch assignments updated.');
+    } catch (error) {
+      alert(error.response?.data?.error || 'Error updating branch assignments');
+    } finally {
+      setSavingBranches(false);
     }
   };
 
@@ -425,12 +470,16 @@ function Admin() {
                 <th>Full Name</th>
                 <th>Role</th>
                 <th>Location</th>
+                <th>Managed Branches</th>
                 <th>Created</th>
                 <th>Actions</th>
               </tr>
             </thead>
             <tbody>
-              {users.map((user) => (
+              {users.map((user) => {
+                const extraBranches = (user.managed_branches || [])
+                  .filter(b => b.location_id && b.location_id !== user.location_id);
+                return (
                 <tr key={user.id}>
                   <td>{user.username}</td>
                   <td>{user.full_name}</td>
@@ -451,9 +500,30 @@ function Admin() {
                     </span>
                   </td>
                   <td>{user.location_name || (user.role === 'admin' ? 'Administrator' : 'N/A')}</td>
+                  <td>
+                    {user.role === 'branch_manager' ? (
+                      extraBranches.length > 0 ? (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                          {extraBranches.map(b => (
+                            <span key={b.location_id} style={{
+                              padding: '2px 8px', borderRadius: '10px',
+                              fontSize: '11px', background: '#e0f2fe', color: '#075985',
+                              border: '1px solid #bae6fd'
+                            }}>
+                              {b.location_name}
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <span style={{ fontSize: '12px', color: '#999', fontStyle: 'italic' }}>None</span>
+                      )
+                    ) : (
+                      <span style={{ fontSize: '12px', color: '#ccc' }}>—</span>
+                    )}
+                  </td>
                   <td>{new Date(user.created_at).toLocaleDateString()}</td>
                   <td>
-                    <div style={{ display: 'flex', gap: '5px' }}>
+                    <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap' }}>
                       <button
                         className="btn btn-primary"
                         style={{ padding: '5px 10px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '5px' }}
@@ -462,6 +532,16 @@ function Admin() {
                         <FiEdit2 size={12} />
                         Edit
                       </button>
+                      {user.role === 'branch_manager' && (
+                        <button
+                          className="btn"
+                          style={{ padding: '5px 10px', fontSize: '12px', backgroundColor: '#0891b2', color: 'white', display: 'flex', alignItems: 'center', gap: '5px' }}
+                          onClick={() => openManageBranches(user)}
+                        >
+                          <FiGitBranch size={12} />
+                          Manage Branches
+                        </button>
+                      )}
                       {user.username !== 'admin' && (
                         <button
                           className="btn"
@@ -481,7 +561,8 @@ function Admin() {
                     </div>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
 
@@ -490,6 +571,91 @@ function Admin() {
               No users yet. Click "Add User" to create your first user.
             </p>
           )}
+        </div>
+      )}
+
+      {/* Manage Branches Modal */}
+      {branchesManager && (
+        <div className="modal-overlay" onClick={() => !savingBranches && setBranchesManager(null)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '520px', width: '95%' }}>
+            <div style={{
+              padding: '20px 24px',
+              borderBottom: '1px solid var(--border)',
+              background: 'linear-gradient(135deg, #0891b2 0%, #0e7490 100%)',
+              color: 'white',
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center'
+            }}>
+              <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <FiGitBranch size={20} />
+                Manage Branches — {branchesManager.full_name}
+              </h3>
+              <button
+                onClick={() => !savingBranches && setBranchesManager(null)}
+                style={{ background: 'rgba(255,255,255,0.2)', border: 'none', color: 'white', width: '32px', height: '32px', borderRadius: 'var(--radius)', cursor: 'pointer' }}
+              >
+                <FiX size={16} />
+              </button>
+            </div>
+
+            <div style={{ padding: '20px 24px' }}>
+              <p style={{ fontSize: '13px', color: '#64748b', marginTop: 0 }}>
+                Select every branch this manager should manage. The primary branch is set under their user profile; all selected branches here will grant access in addition to the primary.
+              </p>
+
+              {locations.filter(l => l.type === 'branch').length === 0 ? (
+                <p style={{ fontStyle: 'italic', color: '#999' }}>No branches available.</p>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '320px', overflowY: 'auto' }}>
+                  {locations.filter(l => l.type === 'branch').map(loc => {
+                    const isPrimary = loc.id === branchesManager.location_id;
+                    const isChecked = branchesManager.assignedIds.has(loc.id) || isPrimary;
+                    return (
+                      <label key={loc.id} style={{
+                        display: 'flex', alignItems: 'center', gap: '10px',
+                        padding: '10px 12px', borderRadius: '8px',
+                        border: '1px solid var(--border)',
+                        background: isPrimary ? '#f0fdf4' : 'transparent',
+                        cursor: isPrimary ? 'not-allowed' : 'pointer',
+                        opacity: isPrimary ? 0.75 : 1
+                      }}>
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          disabled={isPrimary}
+                          onChange={() => toggleBranchAssignment(loc.id)}
+                        />
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontWeight: 600 }}>{loc.name}</div>
+                          {isPrimary && (
+                            <div style={{ fontSize: '11px', color: '#15803d', fontWeight: 600 }}>
+                              Primary branch (set on user profile)
+                            </div>
+                          )}
+                        </div>
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            <div style={{ padding: '16px 24px', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+              <button
+                className="btn btn-secondary"
+                onClick={() => setBranchesManager(null)}
+                disabled={savingBranches}
+              >
+                Cancel
+              </button>
+              <button
+                className="btn btn-success"
+                onClick={saveBranchAssignments}
+                disabled={savingBranches}
+              >
+                {savingBranches ? 'Saving...' : 'Save Assignments'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
