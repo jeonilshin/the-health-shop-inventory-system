@@ -353,7 +353,22 @@ function Reports() {
 
   const canSubmit = ['admin', 'warehouse', 'branch_manager', 'branch_staff'].includes(user.role);
 
-  // Build DSR-style row: 24 columns matching the printable layout
+  // Parse disbursement breakdown stored in notes as JSON block
+  const parseDisbursementBreakdown = (notes) => {
+    if (!notes) return { items: [], cleanNotes: '' };
+    const marker = '\n---DSR_DISBURSEMENTS---\n';
+    const idx = notes.indexOf(marker);
+    if (idx === -1) return { items: [], cleanNotes: notes };
+    const jsonPart = notes.slice(idx + marker.length).trim();
+    try {
+      const items = JSON.parse(jsonPart);
+      return { items: Array.isArray(items) ? items : [], cleanNotes: notes.slice(0, idx).trim() };
+    } catch {
+      return { items: [], cleanNotes: notes };
+    }
+  };
+
+  // Build DSR-style row: columns matching the printable layout
   const buildDsrRow = (r) => {
     const num = (v) => {
       const n = parseFloat(v);
@@ -361,7 +376,21 @@ function Reports() {
     };
     const discReturn = (parseFloat(r.sales_discount || 0) + parseFloat(r.sales_return || 0)) || null;
     const creditDiscReturn = (parseFloat(r.credit_sales_discount || 0) + parseFloat(r.credit_sales_return || 0)) || null;
-    const totalGcashMaya = (parseFloat(r.maya_pos_qr || 0) + parseFloat(r.gcash_qr || 0) + parseFloat(r.gross_credit_sales || 0) - (creditDiscReturn || 0)) || null;
+    const totalGcashMaya = (parseFloat(r.maya_pos_qr || 0) + parseFloat(r.gcash_qr || 0) - (creditDiscReturn || 0)) || null;
+
+    // Pull detailed breakdown; fall back to legacy meals/fare/other_disbursements
+    const { items: breakdown } = parseDisbursementBreakdown(r.notes);
+    const sumCat = (cat) => {
+      const total = breakdown
+        .filter(b => b.category === cat)
+        .reduce((s, b) => s + (parseFloat(b.amount) || 0), 0);
+      return total || null;
+    };
+    const othersItems = breakdown.filter(b => b.category === 'OTHERS');
+
+    // If no breakdown, legacy values: MEALS, TRANSPO (fare), OTHERS (other_disbursements)
+    const hasBreakdown = breakdown.length > 0;
+
     return {
       date: r.report_date ? new Date(r.report_date).toLocaleDateString('en-US', { day: '2-digit', month: 'short', year: '2-digit' }).replace(/ /g, '-') : '',
       cash_on_hand_beg: num(r.cash_beginning),
@@ -372,20 +401,38 @@ function Reports() {
       g_cash_sales: num(r.gcash_qr),
       credit_sales_disc_return: creditDiscReturn,
       total_gcash_maya: totalGcashMaya,
-      permits_licenses: null,
-      freight_in: null,
-      transpo: num(r.fare),
-      repairs_maint: null,
-      communication: null,
-      office_supplies: null,
-      bank_service: null,
-      store_incentive: null,
-      meals: num(r.meals),
-      others: num(r.other_disbursements),
+      permits_licenses: hasBreakdown ? sumCat('PERMITS / LICENSES') : null,
+      freight_in: hasBreakdown ? sumCat('FREIGHT IN') : null,
+      transpo: hasBreakdown ? sumCat('TRANSPO.') : num(r.fare),
+      repairs_maint: hasBreakdown ? sumCat('REPAIRS & MAINT.') : null,
+      communication: hasBreakdown ? sumCat('COMMUNICATION') : null,
+      office_supplies: hasBreakdown ? sumCat('OFFICE SUPPLIES') : null,
+      bank_service: hasBreakdown ? sumCat('BANK SERVICE CHARGES') : null,
+      store_incentive: hasBreakdown ? sumCat('STORE INCENTIVE') : null,
+      meals: hasBreakdown ? sumCat('MEALS') : num(r.meals),
+      others: hasBreakdown
+        ? (othersItems.length > 0 ? othersItems : null)
+        : num(r.other_disbursements),
       total_disbursements: num(r.total_disbursements),
       actual_deposited: num(r.actual_cash_deposited),
       cash_on_hand_next_day: num(r.cash_beginning_next_day)
     };
+  };
+
+  // Render "Others" column: amount + reason per item on separate lines
+  const formatOthersCell = (others, fmt) => {
+    if (others == null) return '-';
+    if (typeof others === 'number') return fmt(others);
+    if (Array.isArray(others)) {
+      return others
+        .map(it => {
+          const amt = fmt(parseFloat(it.amount) || 0);
+          const reason = (it.reason || '').trim();
+          return reason ? `${amt} (${reason})` : amt;
+        })
+        .join(', ');
+    }
+    return '-';
   };
 
   const handleDownloadXLSX = () => {
@@ -396,24 +443,41 @@ function Reports() {
       ? (locations.find(l => l.id === parseInt(filters.location))?.name || 'All')
       : 'All Locations';
 
-    // Header rows (merged-group style). SheetJS AOA + merges.
+    // Others may be an array of {amount, reason} — format as "100 (reason)"
+    const formatOthersForCell = (others) => {
+      if (others == null) return null;
+      if (typeof others === 'number') return others;
+      if (Array.isArray(others)) {
+        return others
+          .map(it => {
+            const amt = (parseFloat(it.amount) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+            const reason = (it.reason || '').trim();
+            return reason ? `${amt} (${reason})` : amt;
+          })
+          .join(', ');
+      }
+      return null;
+    };
+
+    // Header rows — CASH ON HAND BEG. BAL. is its own column, A. CASH SALES starts at CASH SALES EXTERNAL
     const header1 = [
       'Date (DSR)',
-      'A. CASH SALES', '', '', '',
+      'CASH ON HAND BEG. BAL.',
+      'A. CASH SALES', '', '',
       'B. CREDIT SALES', '', '', '',
       'C. DISBURSEMENTS', '', '', '', '', '', '', '', '', '', '',
-      'D. DEPOSITS', '',
+      'D. DEPOSITS',
       'CASH ON HAND AVAILABLE - THE NEXT DAY'
     ];
     const header2 = [
       '',
-      'CASH ON HAND BEG. BAL.', 'CASH SALES EXTERNAL', 'SALES DISCOUNT/ SALES RETURN', 'NET CASH SALES',
+      '',
+      'CASH SALES EXTERNAL', 'SALES DISCOUNT/ SALES RETURN', 'NET CASH SALES',
       'MAYA SALES', 'G CASH SALES', 'SALES DISCOUNT/ SALES RETURNS', 'TOTAL GCASH/MAYA SALES',
       'PERMITS / LICENSES', 'FREIGHT IN', 'TRANSPO.', 'REPAIRS & MAINT.', 'COMMUNICATION',
       'OFFICE SUPPLIES', 'BANK SERVICE CHARGES', 'STORE INCENTIVE', 'MEALS', 'OTHERS',
       'TOTAL DISBURSEMENTS',
       'ACTUAL AMOUNT DEPOSITED FOR THE DAY',
-      '',
       ''
     ];
 
@@ -421,12 +485,13 @@ function Reports() {
       const row = buildDsrRow(r);
       return [
         row.date,
-        row.cash_on_hand_beg, row.cash_sales_external, row.sales_disc_return, row.net_cash_sales,
+        row.cash_on_hand_beg,
+        row.cash_sales_external, row.sales_disc_return, row.net_cash_sales,
         row.maya_sales, row.g_cash_sales, row.credit_sales_disc_return, row.total_gcash_maya,
         row.permits_licenses, row.freight_in, row.transpo, row.repairs_maint, row.communication,
-        row.office_supplies, row.bank_service, row.store_incentive, row.meals, row.others,
+        row.office_supplies, row.bank_service, row.store_incentive, row.meals, formatOthersForCell(row.others),
         row.total_disbursements,
-        row.actual_deposited, null,
+        row.actual_deposited,
         row.cash_on_hand_next_day
       ];
     });
@@ -437,31 +502,34 @@ function Reports() {
 
     const ws = XLSX.utils.aoa_to_sheet(aoa);
 
-    // Merge the grouped header cells on row 4 (header1)
+    // Merge grouped header cells on row 4 (header1 is 0-indexed row 3)
+    // Column layout (0-indexed):
+    // 0 Date | 1 CashBeg | 2-4 A.CASH SALES | 5-8 B.CREDIT SALES |
+    // 9-19 C.DISBURSEMENTS | 20 D.DEPOSITS | 21 Next Day
     ws['!merges'] = [
-      { s: { r: 3, c: 1 }, e: { r: 3, c: 4 } },   // A. CASH SALES
-      { s: { r: 3, c: 5 }, e: { r: 3, c: 8 } },   // B. CREDIT SALES
-      { s: { r: 3, c: 9 }, e: { r: 3, c: 19 } },  // C. DISBURSEMENTS
-      { s: { r: 3, c: 20 }, e: { r: 3, c: 21 } }, // D. DEPOSITS
-      { s: { r: 3, c: 0 }, e: { r: 4, c: 0 } },   // Date col spans both rows
-      { s: { r: 3, c: 22 }, e: { r: 4, c: 22 } }  // Cash next day col spans both rows
+      { s: { r: 3, c: 0 }, e: { r: 4, c: 0 } },    // Date spans both header rows
+      { s: { r: 3, c: 1 }, e: { r: 4, c: 1 } },    // Cash on Hand Beg spans both
+      { s: { r: 3, c: 2 }, e: { r: 3, c: 4 } },    // A. CASH SALES
+      { s: { r: 3, c: 5 }, e: { r: 3, c: 8 } },    // B. CREDIT SALES
+      { s: { r: 3, c: 9 }, e: { r: 3, c: 19 } },   // C. DISBURSEMENTS
+      { s: { r: 3, c: 20 }, e: { r: 4, c: 20 } },  // D. DEPOSITS spans both
+      { s: { r: 3, c: 21 }, e: { r: 4, c: 21 } }   // Cash next day spans both
     ];
 
-    // Column widths for readability
     ws['!cols'] = [
-      { wch: 11 }, { wch: 13 }, { wch: 13 }, { wch: 13 }, { wch: 13 },
+      { wch: 11 }, { wch: 13 },
+      { wch: 13 }, { wch: 13 }, { wch: 13 },
       { wch: 11 }, { wch: 11 }, { wch: 13 }, { wch: 13 },
       { wch: 11 }, { wch: 11 }, { wch: 10 }, { wch: 11 }, { wch: 13 },
-      { wch: 13 }, { wch: 12 }, { wch: 12 }, { wch: 10 }, { wch: 10 },
-      { wch: 13 }, { wch: 13 }, { wch: 13 }, { wch: 15 }
+      { wch: 13 }, { wch: 12 }, { wch: 12 }, { wch: 10 }, { wch: 16 },
+      { wch: 13 }, { wch: 13 }, { wch: 15 }
     ];
 
-    // Format numeric cells as number with commas, 2 decimals
+    // Format numeric body cells as number with commas, 2 decimals
     const numberFmt = '#,##0.00;-#,##0.00;"-"';
-    const firstBodyRow = 5; // 0-indexed row 5 in AOA
+    const firstBodyRow = 5;
     for (let r = firstBodyRow; r < firstBodyRow + body.length; r++) {
-      for (let c = 1; c < 23; c++) {
-        if (c === 21) continue; // blank pairing column
+      for (let c = 1; c < 22; c++) {
         const cellRef = XLSX.utils.encode_cell({ r, c });
         if (ws[cellRef] && typeof ws[cellRef].v === 'number') {
           ws[cellRef].z = numberFmt;
@@ -490,12 +558,28 @@ function Reports() {
       return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     };
 
+    const escapeHtml = (s) => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    const othersHtml = (others) => {
+      if (others == null) return '-';
+      if (typeof others === 'number') return fmt(others);
+      if (Array.isArray(others)) {
+        return others
+          .map(it => {
+            const amt = fmt(parseFloat(it.amount) || 0);
+            const reason = (it.reason || '').trim();
+            return reason ? `${amt} (${escapeHtml(reason)})` : amt;
+          })
+          .join('<br/>');
+      }
+      return '-';
+    };
+
     const rowsHtml = filteredReports.map(r => {
       const row = buildDsrRow(r);
       return `
         <tr>
           <td class="date-cell">${row.date}</td>
-          <td class="cash-a">${fmt(row.cash_on_hand_beg)}</td>
+          <td class="cash-beg">${fmt(row.cash_on_hand_beg)}</td>
           <td class="cash-a">${fmt(row.cash_sales_external)}</td>
           <td class="cash-a">${fmt(row.sales_disc_return)}</td>
           <td class="cash-a">${fmt(row.net_cash_sales)}</td>
@@ -512,7 +596,7 @@ function Reports() {
           <td class="disb">${fmt(row.bank_service)}</td>
           <td class="disb">${fmt(row.store_incentive)}</td>
           <td class="disb">${fmt(row.meals)}</td>
-          <td class="disb">${fmt(row.others)}</td>
+          <td class="disb">${othersHtml(row.others)}</td>
           <td class="disb-total">${fmt(row.total_disbursements)}</td>
           <td class="dep">${fmt(row.actual_deposited)}</td>
           <td class="next-day">${fmt(row.cash_on_hand_next_day)}</td>
