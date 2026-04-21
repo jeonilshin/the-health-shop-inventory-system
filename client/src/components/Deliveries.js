@@ -50,7 +50,7 @@ function Deliveries() {
       }
       if (user.role === 'branch_manager' || user.role === 'branch_staff') {
         setIncomingDeliveries(all.filter(d =>
-          (d.status === 'admin_confirmed' || d.status === 'in_transit') &&
+          (d.status === 'admin_confirmed' || d.status === 'in_transit' || d.status === 'pending_manager_confirmation') &&
           d.to_location_id === user.location_id
         ));
       }
@@ -95,6 +95,17 @@ function Deliveries() {
       await fetchAll();
     } catch (error) {
       alert(error.response?.data?.error || 'Error accepting delivery');
+    }
+  };
+
+  const handleManagerConfirm = async (id) => {
+    if (!window.confirm('Confirm this staff-accepted delivery? Items will be added to inventory.')) return;
+    try {
+      const response = await api.post(`/deliveries/${id}/manager-confirm`);
+      alert(response.data.message || 'Delivery confirmed! Items have been added to inventory.');
+      await fetchAll();
+    } catch (error) {
+      alert(error.response?.data?.error || 'Error confirming delivery');
     }
   };
 
@@ -143,6 +154,7 @@ function Deliveries() {
       awaiting_admin:  { color: '#f59e0b', icon: <FiClock size={12} />,       text: 'Awaiting Admin' },
       admin_confirmed: { color: '#3b82f6', icon: <FiCheck size={12} />,       text: 'Admin Confirmed' },
       in_transit:      { color: '#8b5cf6', icon: <FiTruck size={12} />,       text: 'Shipped' },
+      pending_manager_confirmation: { color: '#f59e0b', icon: <FiClock size={12} />, text: 'Awaiting Manager' },
       delivered:       { color: '#10b981', icon: <FiCheckCircle size={12} />, text: 'Delivered' },
       cancelled:       { color: '#6b7280', icon: <FiAlertCircle size={12} />, text: 'Cancelled' }
     };
@@ -434,7 +446,7 @@ function Deliveries() {
             <thead>
               <tr>
                 <th>Date</th><th>From</th><th>Items</th><th>Status</th>
-                {user.role === 'branch_manager' && <th>Actions</th>}
+                {(user.role === 'branch_manager' || user.role === 'branch_staff') && <th>Actions</th>}
               </tr>
             </thead>
             <tbody>
@@ -455,15 +467,31 @@ function Deliveries() {
                     ))}
                   </td>
                   <td>{getStatusBadge(delivery.status)}</td>
-                  {user.role === 'branch_manager' && (
+                  {(user.role === 'branch_manager' || user.role === 'branch_staff') && (
                     <td>
-                      <button
-                        className="btn btn-success"
-                        style={{ padding: '4px 12px', fontSize: '12px' }}
-                        onClick={() => handleBranchAccept(delivery.id)}
-                      >
-                        <FiCheckCircle size={12} /> Accept Delivery
-                      </button>
+                      {delivery.status === 'pending_manager_confirmation' ? (
+                        user.role === 'branch_manager' ? (
+                          <button
+                            className="btn btn-success"
+                            style={{ padding: '4px 12px', fontSize: '12px' }}
+                            onClick={() => handleManagerConfirm(delivery.id)}
+                          >
+                            <FiCheckCircle size={12} /> Confirm Delivery
+                          </button>
+                        ) : (
+                          <span style={{ fontSize: '12px', color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                            Awaiting manager confirmation
+                          </span>
+                        )
+                      ) : (
+                        <button
+                          className="btn btn-success"
+                          style={{ padding: '4px 12px', fontSize: '12px' }}
+                          onClick={() => handleBranchAccept(delivery.id)}
+                        >
+                          <FiCheckCircle size={12} /> Accept Delivery
+                        </button>
+                      )}
                     </td>
                   )}
                 </tr>

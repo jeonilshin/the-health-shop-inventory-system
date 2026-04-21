@@ -300,11 +300,13 @@ function Transfers() {
       if (user.role === 'admin' || user.role === 'warehouse') {
         fetchPendingApprovals();
       }
-      alert(formData.items.length > 1 
+      alert(formData.items.length > 1
         ? `Successfully created ${formData.items.length} transfers!`
-        : user.role === 'branch_manager' 
-          ? 'Transfer request submitted! Awaiting approval from warehouse.' 
-          : 'Transfer created successfully!');
+        : user.role === 'branch_staff'
+          ? 'Transfer request submitted! Awaiting manager approval.'
+          : user.role === 'branch_manager'
+            ? 'Transfer request submitted! Awaiting approval from warehouse.'
+            : 'Transfer created successfully!');
     } catch (error) {
       alert(error.response?.data?.error || 'Error creating transfer');
     } finally {
@@ -456,7 +458,16 @@ function Transfers() {
   };
 
   const canApprove = (transfer) => {
-    return user.role === 'admin' && transfer.status === 'pending';
+    if (transfer.status !== 'pending') return false;
+    if (user.role === 'admin') return true;
+    // Managers can approve staff transfers from their branch (first-stage approval)
+    if (user.role === 'branch_manager'
+        && transfer.requires_manager_approval
+        && !transfer.manager_approved_by
+        && String(transfer.from_location_id) === String(user.location_id)) {
+      return true;
+    }
+    return false;
   };
 
   const canShip = (transfer) => {
@@ -852,10 +863,10 @@ function Transfers() {
                 {showRequestForm ? 'Cancel' : 'Request from Warehouse'}
               </button>
             )}
-            {(user.role === 'admin' || user.role === 'warehouse' || user.role === 'branch_manager') && (
+            {(user.role === 'admin' || user.role === 'warehouse' || user.role === 'branch_manager' || user.role === 'branch_staff') && (
               <button className="btn btn-primary" onClick={() => { setShowForm(!showForm); setShowRequestForm(false); }}>
                 <FiSend size={16} />
-                {showForm ? 'Cancel' : (user.role === 'branch_manager' ? 'Transfer to Branch' : 'New Transfer')}
+                {showForm ? 'Cancel' : (user.role === 'branch_manager' ? 'Transfer to Branch' : user.role === 'branch_staff' ? 'Request Transfer' : 'New Transfer')}
               </button>
             )}
             {user.role === 'admin' && (
@@ -1030,7 +1041,7 @@ function Transfers() {
           <form onSubmit={handleSubmit} style={{ marginBottom: '20px', padding: '24px', backgroundColor: 'var(--bg-primary)', borderRadius: 'var(--radius-md)', border: '2px solid var(--border)' }}>
             <h4 style={{ marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '8px' }}>
               <FiSend size={18} />
-              {user.role === 'branch_manager' ? 'Request Transfer' : 'Create Transfer'}
+              {(user.role === 'branch_manager' || user.role === 'branch_staff') ? 'Request Transfer' : 'Create Transfer'}
             </h4>
             
             <div className="form-group">
@@ -1205,14 +1216,16 @@ function Transfers() {
                             fontSize: '13px',
                             border: '1px solid rgba(37, 99, 235, 0.2)'
                           }}>
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: user.role === 'admin' ? '1fr 1fr 1fr' : '1fr', gap: '12px' }}>
                               <div>
                                 <strong>Available:</strong> <span style={{ color: 'var(--success)' }}>{formatQuantity(item.selectedItem.quantity)} {item.selectedItem.unit}</span>
                               </div>
-                              <div>
-                                <strong>Unit Cost:</strong> ₱{formatPrice(item.selectedItem.unit_cost)}
-                              </div>
-                              {item.quantity && (
+                              {user.role === 'admin' && (
+                                <div>
+                                  <strong>Unit Cost:</strong> ₱{formatPrice(item.selectedItem.unit_cost)}
+                                </div>
+                              )}
+                              {user.role === 'admin' && item.quantity && (
                                 <div>
                                   <strong>Subtotal:</strong> <span style={{ fontWeight: 600 }}>₱{formatPrice(parseFloat(item.quantity) * parseFloat(item.selectedItem.unit_cost))}</span>
                                 </div>
@@ -1240,11 +1253,11 @@ function Transfers() {
                       Add Another Item
                     </button>
 
-                    {formData.items.some(i => i.selectedItem && i.quantity) && (
-                      <div style={{ 
-                        padding: '16px', 
-                        backgroundColor: 'rgba(16, 185, 129, 0.1)', 
-                        borderRadius: 'var(--radius)', 
+                    {formData.items.some(i => i.selectedItem && i.quantity) && user.role === 'admin' && (
+                      <div style={{
+                        padding: '16px',
+                        backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                        borderRadius: 'var(--radius)',
                         marginBottom: '16px',
                         border: '2px solid rgba(16, 185, 129, 0.3)'
                       }}>
@@ -1288,7 +1301,7 @@ function Transfers() {
                       ) : (
                         <>
                           <FiCheck size={16} />
-                          {user.role === 'branch_manager' ? 'Submit Request' : `Create ${formData.items.length} Transfer(s)`}
+                          {(user.role === 'branch_manager' || user.role === 'branch_staff') ? 'Submit Request' : `Create ${formData.items.length} Transfer(s)`}
                         </>
                       )}
                     </button>

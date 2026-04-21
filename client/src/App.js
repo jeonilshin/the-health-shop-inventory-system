@@ -121,13 +121,13 @@ function App() {
                   : <Navigate to="/" />
               }
             />
-            <Route 
-              path="/deliveries" 
+            <Route
+              path="/deliveries"
               element={
-                user && (user.role === 'admin' || user.role === 'warehouse' || user.role === 'branch_manager')
-                  ? <Deliveries /> 
+                user && (user.role === 'admin' || user.role === 'warehouse' || user.role === 'branch_manager' || user.role === 'branch_staff')
+                  ? <Deliveries />
                   : <Navigate to="/" />
-              } 
+              }
             />
             <Route path="/discrepancy" element={user ? <Discrepancy /> : <Navigate to="/login" />} />
             <Route path="/sales" element={user ? <Sales /> : <Navigate to="/login" />} />

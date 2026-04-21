@@ -2,15 +2,17 @@ import { useState } from 'react';
 import { formatQuantity, formatPrice } from '../utils/formatNumber';
 import { FiPlus, FiX, FiCheck, FiAlertCircle, FiPackage } from 'react-icons/fi';
 
-function MultiItemTransferForm({ 
-  locations, 
-  inventory, 
-  loading, 
-  userLocationId, 
-  onSubmit, 
+function MultiItemTransferForm({
+  locations,
+  inventory,
+  loading,
+  userLocationId,
+  userRole,
+  onSubmit,
   onCancel,
-  onLocationChange 
+  onLocationChange
 }) {
+  const isAdmin = userRole === 'admin';
   const [formData, setFormData] = useState({
     from_location_id: userLocationId || '',
     to_location_id: '',
@@ -185,7 +187,7 @@ function MultiItemTransferForm({
                         <option value="">Select an item</option>
                         {inventory.map((invItem) => (
                           <option key={invItem.id} value={invItem.id}>
-                            {invItem.description} - {formatQuantity(invItem.quantity)} {invItem.unit} @ ₱{formatPrice(invItem.unit_cost)}
+                            {invItem.description} - {formatQuantity(invItem.quantity)} {invItem.unit}{isAdmin ? ` @ ₱${formatPrice(invItem.unit_cost)}` : ''}
                           </option>
                         ))}
                       </select>
@@ -228,14 +230,16 @@ function MultiItemTransferForm({
                       fontSize: '13px',
                       border: '1px solid rgba(37, 99, 235, 0.2)'
                     }}>
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: isAdmin ? '1fr 1fr 1fr' : '1fr', gap: '12px' }}>
                         <div>
                           <strong>Available:</strong> <span style={{ color: 'var(--success)' }}>{formatQuantity(item.selectedItem.quantity)} {item.selectedItem.unit}</span>
                         </div>
-                        <div>
-                          <strong>Unit Cost:</strong> ₱{formatPrice(item.selectedItem.unit_cost)}
-                        </div>
-                        {item.quantity && (
+                        {isAdmin && (
+                          <div>
+                            <strong>Unit Cost:</strong> ₱{formatPrice(item.selectedItem.unit_cost)}
+                          </div>
+                        )}
+                        {isAdmin && item.quantity && (
                           <div>
                             <strong>Subtotal:</strong> <span style={{ fontWeight: 600 }}>₱{formatPrice(parseFloat(item.quantity) * parseFloat(item.selectedItem.unit_cost))}</span>
                           </div>
@@ -263,8 +267,8 @@ function MultiItemTransferForm({
                 Add Another Item
               </button>
 
-              {getTotalValue() > 0 && (
-                <div style={{ 
+              {getTotalValue() > 0 && isAdmin && (
+                <div style={{
                   padding: '16px', 
                   backgroundColor: 'rgba(16, 185, 129, 0.1)', 
                   borderRadius: 'var(--radius)', 
