@@ -1,8 +1,9 @@
 import { useState, useEffect, useContext } from 'react';
+import * as XLSX from 'xlsx';
 import api from '../utils/api';
 import { AuthContext } from '../context/AuthContext';
 import { formatPrice } from '../utils/formatNumber';
-import { FiFileText, FiPlus, FiEye, FiCheck, FiX, FiTrash2, FiFilter } from 'react-icons/fi';
+import { FiFileText, FiPlus, FiEye, FiCheck, FiX, FiTrash2, FiFilter, FiDownload } from 'react-icons/fi';
 
 function Reports() {
   const { user } = useContext(AuthContext);
@@ -352,72 +353,256 @@ function Reports() {
 
   const canSubmit = ['admin', 'warehouse', 'branch_manager', 'branch_staff'].includes(user.role);
 
+  // Build DSR-style row: 24 columns matching the printable layout
+  const buildDsrRow = (r) => {
+    const num = (v) => {
+      const n = parseFloat(v);
+      return isNaN(n) || n === 0 ? null : n;
+    };
+    const discReturn = (parseFloat(r.sales_discount || 0) + parseFloat(r.sales_return || 0)) || null;
+    const creditDiscReturn = (parseFloat(r.credit_sales_discount || 0) + parseFloat(r.credit_sales_return || 0)) || null;
+    const totalGcashMaya = (parseFloat(r.maya_pos_qr || 0) + parseFloat(r.gcash_qr || 0) + parseFloat(r.gross_credit_sales || 0) - (creditDiscReturn || 0)) || null;
+    return {
+      date: r.report_date ? new Date(r.report_date).toLocaleDateString('en-US', { day: '2-digit', month: 'short', year: '2-digit' }).replace(/ /g, '-') : '',
+      cash_on_hand_beg: num(r.cash_beginning),
+      cash_sales_external: num(r.cash_sales_external),
+      sales_disc_return: discReturn,
+      net_cash_sales: num(r.total_net_cash_sales),
+      maya_sales: num(r.maya_pos_qr),
+      g_cash_sales: num(r.gcash_qr),
+      credit_sales_disc_return: creditDiscReturn,
+      total_gcash_maya: totalGcashMaya,
+      permits_licenses: null,
+      freight_in: null,
+      transpo: num(r.fare),
+      repairs_maint: null,
+      communication: null,
+      office_supplies: null,
+      bank_service: null,
+      store_incentive: null,
+      meals: num(r.meals),
+      others: num(r.other_disbursements),
+      total_disbursements: num(r.total_disbursements),
+      actual_deposited: num(r.actual_cash_deposited),
+      cash_on_hand_next_day: num(r.cash_beginning_next_day)
+    };
+  };
+
+  const handleDownloadXLSX = () => {
+    const filteredReports = [...getFilteredReports()].sort(
+      (a, b) => new Date(a.report_date) - new Date(b.report_date)
+    );
+    const locName = filters.location
+      ? (locations.find(l => l.id === parseInt(filters.location))?.name || 'All')
+      : 'All Locations';
+
+    // Header rows (merged-group style). SheetJS AOA + merges.
+    const header1 = [
+      'Date (DSR)',
+      'A. CASH SALES', '', '', '',
+      'B. CREDIT SALES', '', '', '',
+      'C. DISBURSEMENTS', '', '', '', '', '', '', '', '', '', '',
+      'D. DEPOSITS', '',
+      'CASH ON HAND AVAILABLE - THE NEXT DAY'
+    ];
+    const header2 = [
+      '',
+      'CASH ON HAND BEG. BAL.', 'CASH SALES EXTERNAL', 'SALES DISCOUNT/ SALES RETURN', 'NET CASH SALES',
+      'MAYA SALES', 'G CASH SALES', 'SALES DISCOUNT/ SALES RETURNS', 'TOTAL GCASH/MAYA SALES',
+      'PERMITS / LICENSES', 'FREIGHT IN', 'TRANSPO.', 'REPAIRS & MAINT.', 'COMMUNICATION',
+      'OFFICE SUPPLIES', 'BANK SERVICE CHARGES', 'STORE INCENTIVE', 'MEALS', 'OTHERS',
+      'TOTAL DISBURSEMENTS',
+      'ACTUAL AMOUNT DEPOSITED FOR THE DAY',
+      '',
+      ''
+    ];
+
+    const body = filteredReports.map(r => {
+      const row = buildDsrRow(r);
+      return [
+        row.date,
+        row.cash_on_hand_beg, row.cash_sales_external, row.sales_disc_return, row.net_cash_sales,
+        row.maya_sales, row.g_cash_sales, row.credit_sales_disc_return, row.total_gcash_maya,
+        row.permits_licenses, row.freight_in, row.transpo, row.repairs_maint, row.communication,
+        row.office_supplies, row.bank_service, row.store_incentive, row.meals, row.others,
+        row.total_disbursements,
+        row.actual_deposited, null,
+        row.cash_on_hand_next_day
+      ];
+    });
+
+    const titleRow = [`Daily Sales Report — ${locName}`];
+    const generatedRow = [`Generated: ${new Date().toLocaleString()}`];
+    const aoa = [titleRow, generatedRow, [], header1, header2, ...body];
+
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+
+    // Merge the grouped header cells on row 4 (header1)
+    ws['!merges'] = [
+      { s: { r: 3, c: 1 }, e: { r: 3, c: 4 } },   // A. CASH SALES
+      { s: { r: 3, c: 5 }, e: { r: 3, c: 8 } },   // B. CREDIT SALES
+      { s: { r: 3, c: 9 }, e: { r: 3, c: 19 } },  // C. DISBURSEMENTS
+      { s: { r: 3, c: 20 }, e: { r: 3, c: 21 } }, // D. DEPOSITS
+      { s: { r: 3, c: 0 }, e: { r: 4, c: 0 } },   // Date col spans both rows
+      { s: { r: 3, c: 22 }, e: { r: 4, c: 22 } }  // Cash next day col spans both rows
+    ];
+
+    // Column widths for readability
+    ws['!cols'] = [
+      { wch: 11 }, { wch: 13 }, { wch: 13 }, { wch: 13 }, { wch: 13 },
+      { wch: 11 }, { wch: 11 }, { wch: 13 }, { wch: 13 },
+      { wch: 11 }, { wch: 11 }, { wch: 10 }, { wch: 11 }, { wch: 13 },
+      { wch: 13 }, { wch: 12 }, { wch: 12 }, { wch: 10 }, { wch: 10 },
+      { wch: 13 }, { wch: 13 }, { wch: 13 }, { wch: 15 }
+    ];
+
+    // Format numeric cells as number with commas, 2 decimals
+    const numberFmt = '#,##0.00;-#,##0.00;"-"';
+    const firstBodyRow = 5; // 0-indexed row 5 in AOA
+    for (let r = firstBodyRow; r < firstBodyRow + body.length; r++) {
+      for (let c = 1; c < 23; c++) {
+        if (c === 21) continue; // blank pairing column
+        const cellRef = XLSX.utils.encode_cell({ r, c });
+        if (ws[cellRef] && typeof ws[cellRef].v === 'number') {
+          ws[cellRef].z = numberFmt;
+        }
+      }
+    }
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Sales Report');
+    const fileName = `Sales_Report_${locName.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.xlsx`;
+    XLSX.writeFile(wb, fileName);
+  };
+
   const handlePrintReportsList = () => {
     const printWindow = window.open('', '_blank');
-    const filteredReports = getFilteredReports();
-    
+    const filteredReports = [...getFilteredReports()].sort(
+      (a, b) => new Date(a.report_date) - new Date(b.report_date)
+    );
+    const locName = filters.location
+      ? (locations.find(l => l.id === parseInt(filters.location))?.name || 'All')
+      : 'All Locations';
+
+    const fmt = (v) => {
+      const n = parseFloat(v);
+      if (isNaN(n) || n === 0) return '-';
+      return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    };
+
+    const rowsHtml = filteredReports.map(r => {
+      const row = buildDsrRow(r);
+      return `
+        <tr>
+          <td class="date-cell">${row.date}</td>
+          <td class="cash-a">${fmt(row.cash_on_hand_beg)}</td>
+          <td class="cash-a">${fmt(row.cash_sales_external)}</td>
+          <td class="cash-a">${fmt(row.sales_disc_return)}</td>
+          <td class="cash-a">${fmt(row.net_cash_sales)}</td>
+          <td class="cash-b">${fmt(row.maya_sales)}</td>
+          <td class="cash-b">${fmt(row.g_cash_sales)}</td>
+          <td class="cash-b">${fmt(row.credit_sales_disc_return)}</td>
+          <td class="cash-b">${fmt(row.total_gcash_maya)}</td>
+          <td class="disb">${fmt(row.permits_licenses)}</td>
+          <td class="disb">${fmt(row.freight_in)}</td>
+          <td class="disb">${fmt(row.transpo)}</td>
+          <td class="disb">${fmt(row.repairs_maint)}</td>
+          <td class="disb">${fmt(row.communication)}</td>
+          <td class="disb">${fmt(row.office_supplies)}</td>
+          <td class="disb">${fmt(row.bank_service)}</td>
+          <td class="disb">${fmt(row.store_incentive)}</td>
+          <td class="disb">${fmt(row.meals)}</td>
+          <td class="disb">${fmt(row.others)}</td>
+          <td class="disb-total">${fmt(row.total_disbursements)}</td>
+          <td class="dep">${fmt(row.actual_deposited)}</td>
+          <td class="next-day">${fmt(row.cash_on_hand_next_day)}</td>
+        </tr>
+      `;
+    }).join('');
+
     printWindow.document.write(`
       <!DOCTYPE html>
       <html>
       <head>
-        <title>Sales Reports Summary</title>
+        <title>Daily Sales Report</title>
         <style>
-          body { font-family: Arial, sans-serif; padding: 20px; }
-          h1 { text-align: center; margin-bottom: 10px; }
-          .info { text-align: center; margin-bottom: 20px; color: #666; }
-          table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-          th, td { border: 1px solid #ddd; padding: 8px; text-align: left; font-size: 12px; }
-          th { background-color: #2563eb; color: white; }
-          tr:nth-child(even) { background-color: #f9f9f9; }
-          .status-approved { color: #10b981; font-weight: bold; }
-          .status-pending { color: #f59e0b; font-weight: bold; }
-          .status-rejected { color: #ef4444; font-weight: bold; }
-          @media print {
-            button { display: none; }
-          }
+          @page { size: landscape; margin: 10mm; }
+          body { font-family: Arial, sans-serif; padding: 12px; color: #111; }
+          h1 { text-align: center; margin: 0 0 4px 0; font-size: 18px; }
+          .info { text-align: center; margin-bottom: 12px; color: #555; font-size: 12px; }
+          table { width: 100%; border-collapse: collapse; font-size: 10px; table-layout: fixed; }
+          th, td { border: 1px solid #333; padding: 4px 5px; text-align: right; }
+          th { text-align: center; font-weight: 700; vertical-align: middle; }
+          td.date-cell { text-align: center; font-weight: 600; background: #fde68a; }
+          th.date-col { background: #fde68a; color: #111; }
+          th.group-a { background: #60a5fa; color: white; }
+          th.group-b { background: #60a5fa; color: white; }
+          th.group-c { background: #fde68a; color: #111; }
+          th.group-d { background: #f9a8d4; color: #111; }
+          th.sub-a { background: #fbcfe8; color: #111; }
+          th.sub-b { background: #fef3c7; color: #111; }
+          th.sub-c { background: #fef3c7; color: #111; }
+          th.sub-d { background: #fbcfe8; color: #111; }
+          th.next-day-col { background: #fbcfe8; color: #111; }
+          td.cash-a { background: #fce7f3; }
+          td.cash-b { background: #fef9c3; }
+          td.disb { background: #fef9c3; }
+          td.disb-total { background: #fce7f3; font-weight: 600; }
+          td.dep { background: #fbcfe8; }
+          td.next-day { background: #fce7f3; font-weight: 600; }
+          .buttons { margin-top: 20px; text-align: center; }
+          .buttons button { padding: 8px 18px; border: none; border-radius: 4px; cursor: pointer; font-size: 13px; margin: 0 5px; }
+          .btn-print { background: #2563eb; color: white; }
+          .btn-close { background: #6b7280; color: white; }
+          @media print { .buttons { display: none; } }
         </style>
       </head>
       <body>
-        <h1>Sales Reports Summary</h1>
+        <h1>Daily Sales Report</h1>
         <div class="info">
-          <div><strong>Generated:</strong> ${new Date().toLocaleString()}</div>
-          ${filters.location ? `<div><strong>Location:</strong> ${locations.find(l => l.id === parseInt(filters.location))?.name || 'All'}</div>` : ''}
+          <strong>${locName}</strong> &middot; Generated ${new Date().toLocaleString()}
+          ${filters.startDate || filters.endDate ? ` &middot; ${filters.startDate || '...'} → ${filters.endDate || '...'}` : ''}
         </div>
-        
         <table>
           <thead>
             <tr>
-              <th>Date</th>
-              <th>Type</th>
-              ${user.role === 'admin' ? '<th>Location</th>' : ''}
-              <th>Net Sales</th>
-              <th>Total Receipts</th>
-              <th>Disbursements</th>
-              <th>Net Cash</th>
-              <th>Status</th>
-              <th>Submitted By</th>
+              <th rowspan="2" class="date-col" style="width:70px;">Date (DSR)</th>
+              <th colspan="4" class="group-a">A. CASH SALES</th>
+              <th colspan="4" class="group-b">B. CREDIT SALES</th>
+              <th colspan="11" class="group-c">C. DISBURSEMENTS</th>
+              <th colspan="1" class="group-d">D. DEPOSITS</th>
+              <th rowspan="2" class="next-day-col" style="width:90px;">CASH ON HAND AVAILABLE - THE NEXT DAY</th>
+            </tr>
+            <tr>
+              <th class="sub-a">CASH ON HAND BEG. BAL.</th>
+              <th class="sub-a">CASH SALES EXTERNAL</th>
+              <th class="sub-a">SALES DISCOUNT/ SALES RETURN</th>
+              <th class="sub-a">NET CASH SALES</th>
+              <th class="sub-b">MAYA SALES</th>
+              <th class="sub-b">G CASH SALES</th>
+              <th class="sub-b">SALES DISCOUNT/ SALES RETURNS</th>
+              <th class="sub-b">TOTAL GCASH/MAYA SALES</th>
+              <th class="sub-c">PERMITS / LICENSES</th>
+              <th class="sub-c">FREIGHT IN</th>
+              <th class="sub-c">TRANSPO.</th>
+              <th class="sub-c">REPAIRS &amp; MAINT.</th>
+              <th class="sub-c">COMMUNICATION</th>
+              <th class="sub-c">OFFICE SUPPLIES</th>
+              <th class="sub-c">BANK SERVICE CHARGES</th>
+              <th class="sub-c">STORE INCENTIVE</th>
+              <th class="sub-c">MEALS</th>
+              <th class="sub-c">OTHERS</th>
+              <th class="sub-c">TOTAL DISBURSEMENTS</th>
+              <th class="sub-d">ACTUAL AMOUNT DEPOSITED FOR THE DAY</th>
             </tr>
           </thead>
           <tbody>
-            ${filteredReports.map(report => `
-              <tr>
-                <td>${new Date(report.report_date).toLocaleDateString()}</td>
-                <td>${report.report_type}</td>
-                ${user.role === 'admin' ? `<td>${report.location_name || ''}</td>` : ''}
-                <td>₱${formatPrice(report.net_sales || 0)}</td>
-                <td>₱${formatPrice(report.total_cash_receipts || 0)}</td>
-                <td>₱${formatPrice(report.total_disbursements || 0)}</td>
-                <td>₱${formatPrice(report.net_cash_receipts || 0)}</td>
-                <td class="status-${report.status}">${report.status.toUpperCase()}</td>
-                <td>${report.submitted_by_name || ''}</td>
-              </tr>
-            `).join('')}
+            ${rowsHtml || '<tr><td colspan="23" style="text-align:center;padding:20px;">No reports found</td></tr>'}
           </tbody>
         </table>
-        
-        <div style="margin-top: 30px; text-align: center;">
-          <button onclick="window.print()" style="padding: 10px 20px; background: #2563eb; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 14px;">Print Report</button>
-          <button onclick="window.close()" style="padding: 10px 20px; background: #6b7280; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 14px; margin-left: 10px;">Close</button>
+        <div class="buttons">
+          <button class="btn-print" onclick="window.print()">Print</button>
+          <button class="btn-close" onclick="window.close()">Close</button>
         </div>
       </body>
       </html>
@@ -799,6 +984,10 @@ function Reports() {
             <button className="btn btn-primary" onClick={handlePrintReportsList}>
               <FiFileText size={16} />
               Print Reports
+            </button>
+            <button className="btn btn-success" onClick={handleDownloadXLSX}>
+              <FiDownload size={16} />
+              Download XLSX
             </button>
           </div>
         </div>
