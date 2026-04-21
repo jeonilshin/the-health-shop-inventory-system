@@ -858,7 +858,7 @@ function Transfers() {
                 {showForm ? 'Cancel' : (user.role === 'branch_manager' ? 'Transfer to Branch' : user.role === 'branch_staff' ? 'Request Transfer' : 'New Transfer')}
               </button>
             )}
-            {user.role === 'admin' && (
+            {user.role === 'admin' || user.role === 'warehouse' && (
               <>
                 <button className="btn btn-info" onClick={() => setShowCdrImport(true)}>
                   <FiTruck size={16} />
