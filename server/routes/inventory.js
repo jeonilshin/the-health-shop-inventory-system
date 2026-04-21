@@ -782,14 +782,14 @@ router.get('/history/:id', auth, async (req, res) => {
     
     // 2. Transfers (both sent and received)
     const transfersResult = await pool.query(
-      `SELECT 
+      `SELECT
         'transfer' as type,
         t.id,
         t.transfer_date as date,
         t.quantity,
         t.unit_cost,
         t.status,
-        t.transferred_by_name as user_name,
+        COALESCE(u.full_name, u.username) as user_name,
         t.from_location_id,
         t.to_location_id,
         fl.name as from_location_name,
@@ -798,6 +798,7 @@ router.get('/history/:id', auth, async (req, res) => {
       FROM transfers t
       JOIN locations fl ON t.from_location_id = fl.id
       JOIN locations tl ON t.to_location_id = tl.id
+      LEFT JOIN users u ON t.transferred_by = u.id
       WHERE t.description = $1 AND t.unit = $2
         AND (t.from_location_id = $3 OR t.to_location_id = $3)
       ORDER BY t.transfer_date DESC, t.created_at DESC
