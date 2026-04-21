@@ -132,17 +132,7 @@ router.post('/', auth, authorize('admin', 'warehouse'), async (req, res) => {
          is_new_cost || (existingItems.rows.length > 0), costBatchId]
       );
     }
-          `INSERT INTO inventory 
-           (location_id, description, unit, quantity, unit_cost, suggested_selling_price, 
-            expiry_date, batch_number, max_quantity, is_new_item, is_new_cost, cost_batch_id) 
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $4, $9, true, $10) 
-           RETURNING *`,
-          [location_id, description, unit, quantity, unit_cost, suggested_selling_price, 
-           expiry_date, batch_number, is_new_item, costBatchId]
-        );
-      }
-    }
-    
+
     // Log audit
     await logAudit({
       userId: req.user.id,
