@@ -350,22 +350,6 @@ function Transfers() {
     }
   };
 
-  const handleCleanHistory = async () => {
-    if (!window.confirm('⚠️ WARNING: This will permanently delete ALL transfer history. This action cannot be undone. Are you sure?')) return;
-    
-    try {
-      setLoading(true);
-      const response = await api.delete('/transfers/clean-history');
-      await fetchTransfers();
-      await fetchPendingApprovals();
-      alert(response.data.message || 'Transfer history cleaned successfully');
-    } catch (error) {
-      alert(error.response?.data?.error || 'Error cleaning transfer history');
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handleShip = async (id) => {
     if (!window.confirm('Mark this transfer as shipped? Inventory will be deducted from source.')) return;
     try {
@@ -858,7 +842,7 @@ function Transfers() {
                 {showForm ? 'Cancel' : (user.role === 'branch_manager' ? 'Transfer to Branch' : user.role === 'branch_staff' ? 'Request Transfer' : 'New Transfer')}
               </button>
             )}
-            {user.role === 'admin' || user.role === 'warehouse' && (
+            {(user.role === 'admin' || user.role === 'warehouse') && (
               <>
                 <button className="btn btn-info" onClick={() => setShowCdrImport(true)}>
                   <FiTruck size={16} />
