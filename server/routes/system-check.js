@@ -17,7 +17,7 @@ router.get('/', auth, authorize('admin'), async (req, res) => {
     // Check notifications table
     try {
       const notifCheck = await pool.query(
-        "SELECT column_name FROM information_schema.columns WHERE table_name = 'notifications'"
+        "SELECT column_name FROM information_schema.columns WHERE table_schema = 'thehealthshop' AND table_name = 'notifications'"
       );
       checks.tables.notifications = notifCheck.rows.length > 0 ? 'exists' : 'missing';
       checks.columns.notifications = notifCheck.rows.map(r => r.column_name);
@@ -29,7 +29,7 @@ router.get('/', auth, authorize('admin'), async (req, res) => {
     // Check deliveries columns
     try {
       const delivCheck = await pool.query(
-        "SELECT column_name FROM information_schema.columns WHERE table_name = 'deliveries'"
+        "SELECT column_name FROM information_schema.columns WHERE table_schema = 'thehealthshop' AND table_name = 'deliveries'"
       );
       checks.columns.deliveries = delivCheck.rows.map(r => r.column_name);
       
@@ -48,7 +48,7 @@ router.get('/', auth, authorize('admin'), async (req, res) => {
     // Check delivery_items unit_cost column
     try {
       const itemCheck = await pool.query(
-        "SELECT column_name FROM information_schema.columns WHERE table_name = 'delivery_items' AND column_name = 'unit_cost'"
+        "SELECT column_name FROM information_schema.columns WHERE table_schema = 'thehealthshop' AND table_name = 'delivery_items' AND column_name = 'unit_cost'"
       );
       checks.columns.delivery_items_unit_cost = itemCheck.rows.length > 0 ? 'exists' : 'missing';
       
@@ -63,7 +63,7 @@ router.get('/', auth, authorize('admin'), async (req, res) => {
     // Check deliveries status constraint
     try {
       const constraintCheck = await pool.query(
-        "SELECT constraint_name FROM information_schema.table_constraints WHERE table_name = 'deliveries' AND constraint_type = 'CHECK'"
+        "SELECT constraint_name FROM information_schema.table_constraints WHERE table_schema = 'thehealthshop' AND table_name = 'deliveries' AND constraint_type = 'CHECK'"
       );
       checks.constraints = constraintCheck.rows.map(r => r.constraint_name);
     } catch (error) {

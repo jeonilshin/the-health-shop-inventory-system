@@ -13,6 +13,8 @@ const pool = new Pool({
   ssl: process.env.DATABASE_SSL === 'true'
     ? { rejectUnauthorized: false }
     : undefined,
+  // Set default schema for all queries
+  options: '-c search_path=thehealthshop,public',
 });
 
 // Log pool errors (unhandled errors from idle clients)
