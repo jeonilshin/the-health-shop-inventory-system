@@ -54,7 +54,7 @@ function Transfers() {
     fetchLocations();
     fetchTransfers();
     fetchDiscrepancies();
-    if (user.role === 'admin') {
+    if (user.role === 'admin' || user.role === 'branch_manager') {
       fetchPendingApprovals();
     }
 
@@ -62,7 +62,7 @@ function Transfers() {
     const interval = setInterval(() => {
       fetchTransfers();
       fetchDiscrepancies();
-      if (user.role === 'admin') {
+      if (user.role === 'admin' || user.role === 'branch_manager') {
         fetchPendingApprovals();
       }
     }, 5000);
@@ -444,12 +444,14 @@ function Transfers() {
   const canApprove = (transfer) => {
     if (transfer.status !== 'pending') return false;
     if (user.role === 'admin') return true;
-    // Managers can approve staff transfers from their branch (first-stage approval)
-    if (user.role === 'branch_manager'
-        && transfer.requires_manager_approval
-        && !transfer.manager_approved_by
-        && String(transfer.from_location_id) === String(user.location_id)) {
-      return true;
+    // Managers can approve transfers from their managed branches
+    if (user.role === 'branch_manager') {
+      // For staff transfers requiring manager approval
+      if (transfer.requires_manager_approval && !transfer.manager_approved_by) {
+        return true; // Backend will check if manager has access to the branch
+      }
+      // For regular transfers from managed branches
+      return true; // Backend will check if manager has access to the branch
     }
     return false;
   };
@@ -764,7 +766,7 @@ function Transfers() {
       </div>
 
       {/* Pending Approvals Section */}
-      {user.role === 'admin' && pendingApprovals.length > 0 && (
+      {(user.role === 'admin' || user.role === 'branch_manager') && pendingApprovals.length > 0 && (
         <div className="card" style={{ borderLeft: '4px solid #f59e0b', marginBottom: '24px' }}>
           <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#f59e0b' }}>
             <FiClock size={20} />

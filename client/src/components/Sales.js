@@ -64,11 +64,11 @@ function Sales() {
   useEffect(() => {
     fetchLocations();
     fetchSales();
-    if (user.role === 'admin') fetchPendingCancellations();
+    if (user.role === 'admin' || user.role === 'branch_manager') fetchPendingCancellations();
 
     const handleTabVisible = () => {
       fetchSales();
-      if (user.role === 'admin') fetchPendingCancellations();
+      if (user.role === 'admin' || user.role === 'branch_manager') fetchPendingCancellations();
     };
 
     window.addEventListener('tab-visible', handleTabVisible);
@@ -79,7 +79,24 @@ function Sales() {
   const fetchLocations = async () => {
     try {
       const response = await api.get('/locations');
-      setLocations(response.data);
+      let availableLocations = response.data;
+      
+      // For branch managers, get their managed branches
+      if (user.role === 'branch_manager') {
+        try {
+          const managerBranchesRes = await api.get(`/users/${user.id}/branches`);
+          const managerBranchIds = managerBranchesRes.data.map(b => b.location_id);
+          
+          // Include primary location and managed branches
+          const allManagerLocationIds = [...new Set([user.location_id, ...managerBranchIds])];
+          availableLocations = response.data.filter(loc => allManagerLocationIds.includes(loc.id));
+        } catch (error) {
+          // Fallback to primary location if can't fetch managed branches
+          availableLocations = response.data.filter(loc => loc.id === user.location_id);
+        }
+      }
+      
+      setLocations(availableLocations);
     } catch (error) {
       console.error('Error fetching locations:', error);
     }
@@ -450,8 +467,8 @@ function Sales() {
         )}
       </div>
 
-      {/* ── Admin: Pending Sale Cancellation Requests ── */}
-      {user.role === 'admin' && pendingCancellations.length > 0 && (
+      {/* ── Admin/Manager: Pending Sale Cancellation Requests ── */}
+      {(user.role === 'admin' || user.role === 'branch_manager') && pendingCancellations.length > 0 && (
         <div className="card" style={{ borderLeft: '4px solid #ef4444', marginBottom: '24px' }}>
           <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#ef4444', marginBottom: '16px' }}>
             <FiAlertTriangle size={20} />
@@ -603,7 +620,7 @@ function Sales() {
                   style={{ fontSize: '14px' }}
                 />
               </div>
-              {user.role === 'admin' && (
+              {(user.role === 'admin' || user.role === 'branch_manager') && (
                 <div className="form-group" style={{ marginBottom: 0, minWidth: '180px' }}>
                   <label style={{ fontSize: '12px', marginBottom: '4px' }}>Location</label>
                   <select 
@@ -611,7 +628,7 @@ function Sales() {
                     onChange={(e) => setFilters({...filters, locationId: e.target.value})}
                     style={{ fontSize: '14px' }}
                   >
-                    <option value="all">All Branches</option>
+                    <option value="all">{user.role === 'admin' ? 'All Branches' : 'All My Branches'}</option>
                     {locations.map(loc => (
                       <option key={loc.id} value={loc.id}>{loc.name}</option>
                     ))}

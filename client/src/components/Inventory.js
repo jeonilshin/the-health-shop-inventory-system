@@ -113,14 +113,46 @@ function Inventory() {
   const fetchLocations = async () => {
     try {
       const response = await api.get('/locations');
-      setLocations(response.data);
+      let availableLocations = response.data;
       
-      if (user.role !== 'admin' && user.location_id) {
+      // For branch managers, get their managed branches
+      if (user.role === 'branch_manager') {
+        try {
+          const managerBranchesRes = await api.get(`/users/${user.id}/branches`);
+          const managerBranchIds = managerBranchesRes.data.map(b => b.location_id);
+          
+          // Include primary location and managed branches
+          const allManagerLocationIds = [...new Set([user.location_id, ...managerBranchIds])];
+          availableLocations = response.data.filter(loc => allManagerLocationIds.includes(loc.id));
+          
+          // If manager has multiple branches, add "All My Branches" option
+          if (availableLocations.length > 1) {
+            setLocations([{ id: 'all', name: 'All My Branches', type: 'group' }, ...availableLocations]);
+            setSelectedLocation('all');
+          } else {
+            setLocations(availableLocations);
+            setSelectedLocation(availableLocations[0]?.id || user.location_id);
+          }
+        } catch (error) {
+          // Fallback to primary location if can't fetch managed branches
+          availableLocations = response.data.filter(loc => loc.id === user.location_id);
+          setLocations(availableLocations);
+          setSelectedLocation(user.location_id);
+        }
+      } else if (user.role === 'branch_staff') {
+        // Staff can only see their assigned location
+        availableLocations = response.data.filter(loc => loc.id === user.location_id);
+        setLocations(availableLocations);
         setSelectedLocation(user.location_id);
       } else if (user.role === 'admin') {
+        // Admin sees all locations with "All Locations" option
+        setLocations([{ id: 'all', name: 'All Locations', type: 'group' }, ...response.data]);
         setSelectedLocation('all');
-      } else if (response.data.length > 0) {
-        setSelectedLocation(response.data[0].id);
+      } else if (user.role === 'warehouse') {
+        // Warehouse sees only their warehouse
+        availableLocations = response.data.filter(loc => loc.id === user.location_id);
+        setLocations(availableLocations);
+        setSelectedLocation(user.location_id);
       }
     } catch (error) {
       alert('Error loading locations: ' + (error.response?.data?.error || error.message));
