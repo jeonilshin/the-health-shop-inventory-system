@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import Login from './components/Login';
 import Dashboard from './components/Dashboard';
-import ManagerDashboard from './components/ManagerDashboard';
 import Inventory from './components/Inventory';
 import Transfers from './components/Transfers';
 import Reports from './components/Reports';
@@ -104,14 +103,6 @@ function App() {
           <Routes>
             <Route path="/login" element={!user ? <Login /> : <Navigate to="/" />} />
             <Route path="/" element={user ? <Dashboard /> : <Navigate to="/login" />} />
-            <Route 
-              path="/manager" 
-              element={
-                user && user.role === 'branch_manager' 
-                  ? <ManagerDashboard /> 
-                  : <Navigate to="/" />
-              } 
-            />
             <Route path="/inventory" element={user ? <Inventory /> : <Navigate to="/login" />} />
             <Route path="/transfers" element={user ? <Transfers /> : <Navigate to="/login" />} />
             <Route 

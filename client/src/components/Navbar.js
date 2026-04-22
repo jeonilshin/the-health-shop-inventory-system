@@ -51,7 +51,6 @@ function avatarColor(role = '') {
 
 const NAV_ITEMS = [
   { to: '/',                icon: FiHome,        label: 'Dashboard',       roles: ['admin','warehouse','branch_manager','branch_staff'] },
-  { to: '/manager',         icon: FiActivity,    label: 'Manager Dashboard', roles: ['branch_manager'] },
   { to: '/sales',           icon: FiDollarSign,  label: 'Sales',           roles: ['admin','branch_manager','branch_staff'] },
   { to: '/inventory',       icon: FiPackage,     label: 'Inventory',       roles: ['admin','warehouse','branch_manager','branch_staff'] },
   { to: '/transfers',       icon: FiSend,        label: 'Transfers',       roles: ['admin','warehouse','branch_manager','branch_staff'] },
