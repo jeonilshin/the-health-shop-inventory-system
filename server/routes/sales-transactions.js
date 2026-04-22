@@ -63,19 +63,40 @@ router.get('/', auth, async (req, res) => {
   }
 });
 
-// Get pending cancellation requests (admin only)
-router.get('/pending-cancellations', auth, authorize('admin'), async (req, res) => {
+// Get pending cancellation requests (admin and branch managers)
+router.get('/pending-cancellations', auth, authorize('admin', 'branch_manager'), async (req, res) => {
   try {
-    const result = await pool.query(
-      `SELECT st.*,
-              l.name as location_name, l.type as location_type,
-              cb.full_name as cancelled_by_name
-       FROM sales_transactions st
-       JOIN locations l ON st.location_id = l.id
-       LEFT JOIN users cb ON st.cancelled_by = cb.id
-       WHERE st.cancellation_status = 'pending'
-       ORDER BY st.cancelled_at DESC`
-    );
+    let query = `
+      SELECT st.*,
+             l.name as location_name, l.type as location_type,
+             cb.full_name as cancelled_by_name
+      FROM sales_transactions st
+      JOIN locations l ON st.location_id = l.id
+      LEFT JOIN users cb ON st.cancelled_by = cb.id
+      WHERE st.cancellation_status = 'pending'
+    `;
+    
+    const params = [];
+    
+    // Branch managers can only see cancellations from their managed branches
+    if (req.user.role === 'branch_manager') {
+      const { getManagerLocations } = require('../middleware/auth');
+      const managerLocations = await getManagerLocations(req.user.id);
+      const locationIds = managerLocations.map(l => l.id);
+      
+      if (locationIds.length > 0) {
+        query += ` AND st.location_id = ANY($1)`;
+        params.push(locationIds);
+      } else {
+        // Fallback to primary location
+        query += ` AND st.location_id = $1`;
+        params.push(req.user.location_id);
+      }
+    }
+    
+    query += ' ORDER BY st.cancelled_at DESC';
+    
+    const result = await pool.query(query, params);
     res.json(result.rows);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -539,10 +560,30 @@ router.post('/:id/cancel', auth, authorize('admin', 'branch_manager', 'branch_st
 });
 
 // ── PUT /:id/cancel/approve ───────────────────────────────────────────────────
-// Admin acknowledges/approves the cancellation (inventory was already restored)
-router.put('/:id/cancel/approve', auth, authorize('admin'), async (req, res) => {
+// Admin/Manager acknowledges/approves the cancellation (inventory was already restored)
+router.put('/:id/cancel/approve', auth, authorize('admin', 'branch_manager'), async (req, res) => {
   try {
     const { id } = req.params;
+    
+    // Get the sale to check location access for managers
+    const saleCheck = await pool.query(
+      'SELECT location_id FROM sales_transactions WHERE id = $1',
+      [id]
+    );
+    
+    if (saleCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Sale not found' });
+    }
+    
+    // Check if manager has access to this location
+    if (req.user.role === 'branch_manager') {
+      const { hasLocationAccess } = require('../middleware/auth');
+      const hasAccess = await hasLocationAccess(req.user.id, req.user.role, saleCheck.rows[0].location_id);
+      
+      if (!hasAccess) {
+        return res.status(403).json({ error: 'You do not manage this branch' });
+      }
+    }
     const { admin_note } = req.body;
 
     const saleResult = await pool.query(
@@ -589,8 +630,8 @@ router.put('/:id/cancel/approve', auth, authorize('admin'), async (req, res) => 
 });
 
 // ── PUT /:id/cancel/reject ───────────────────────────────────────────────────
-// Admin rejects the cancellation — re-deducts inventory, sale becomes active again
-router.put('/:id/cancel/reject', auth, authorize('admin'), async (req, res) => {
+// Admin/Manager rejects the cancellation — re-deducts inventory, sale becomes active again
+router.put('/:id/cancel/reject', auth, authorize('admin', 'branch_manager'), async (req, res) => {
   const client = await pool.connect();
   try {
     const { id } = req.params;
@@ -606,6 +647,24 @@ router.put('/:id/cancel/reject', auth, authorize('admin'), async (req, res) => {
       'SELECT * FROM sales_transactions WHERE id = $1',
       [id]
     );
+    
+    if (saleResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Sale not found' });
+    }
+    
+    const sale = saleResult.rows[0];
+    
+    // Check if manager has access to this location
+    if (req.user.role === 'branch_manager') {
+      const { hasLocationAccess } = require('../middleware/auth');
+      const hasAccess = await hasLocationAccess(req.user.id, req.user.role, sale.location_id);
+      
+      if (!hasAccess) {
+        await client.query('ROLLBACK');
+        return res.status(403).json({ error: 'You do not manage this branch' });
+      }
+    }
 
     if (saleResult.rows.length === 0) {
       await client.query('ROLLBACK');

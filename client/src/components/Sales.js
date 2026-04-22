@@ -118,10 +118,13 @@ function Sales() {
 
   const fetchPendingCancellations = async () => {
     try {
+      console.log('[Sales] Fetching pending cancellations for role:', user.role);
       const res = await api.get('/sales-transactions/pending-cancellations');
+      console.log('[Sales] Pending cancellations received:', res.data.length);
       setPendingCancellations(res.data);
     } catch (error) {
       console.error('Error fetching pending cancellations:', error);
+      console.error('Error response:', error.response?.data);
     }
   };
 
