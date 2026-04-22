@@ -20,8 +20,21 @@ router.get('/inventory-summary', auth, async (req, res) => {
     
     const params = [];
     
-    // Branch managers can only see their own branch
-    if (req.user.role === 'branch_manager' || req.user.role === 'branch_staff') {
+    // Branch managers can see all their managed branches
+    if (req.user.role === 'branch_manager') {
+      const { getManagerLocations } = require('../middleware/auth');
+      const managerLocations = await getManagerLocations(req.user.id);
+      const locationIds = managerLocations.map(l => l.id);
+      
+      if (locationIds.length > 0) {
+        query += ' WHERE l.id = ANY($1)';
+        params.push(locationIds);
+      } else {
+        // Fallback to primary location
+        query += ' WHERE l.id = $1';
+        params.push(req.user.location_id);
+      }
+    } else if (req.user.role === 'branch_staff') {
       query += ' WHERE l.id = $1';
       params.push(req.user.location_id);
     }
@@ -56,8 +69,23 @@ router.get('/sales-summary', auth, async (req, res) => {
     const params = [];
     let paramCount = 1;
 
-    // Branch managers can only see their own branch
-    if (req.user.role === 'branch_manager' || req.user.role === 'branch_staff') {
+    // Branch managers can see all their managed branches
+    if (req.user.role === 'branch_manager') {
+      const { getManagerLocations } = require('../middleware/auth');
+      const managerLocations = await getManagerLocations(req.user.id);
+      const locationIds = managerLocations.map(l => l.id);
+      
+      if (locationIds.length > 0) {
+        query += ` AND l.id = ANY($${paramCount})`;
+        params.push(locationIds);
+        paramCount++;
+      } else {
+        // Fallback to primary location
+        query += ` AND l.id = $${paramCount}`;
+        params.push(req.user.location_id);
+        paramCount++;
+      }
+    } else if (req.user.role === 'branch_staff') {
       query += ` AND l.id = $${paramCount}`;
       params.push(req.user.location_id);
       paramCount++;
@@ -105,8 +133,21 @@ router.get('/low-stock', auth, async (req, res) => {
     
     const params = [threshold];
     
-    // Branch managers can only see their own branch
-    if (req.user.role === 'branch_manager' || req.user.role === 'branch_staff') {
+    // Branch managers can see all their managed branches
+    if (req.user.role === 'branch_manager') {
+      const { getManagerLocations } = require('../middleware/auth');
+      const managerLocations = await getManagerLocations(req.user.id);
+      const locationIds = managerLocations.map(l => l.id);
+      
+      if (locationIds.length > 0) {
+        query += ' AND i.location_id = ANY($2)';
+        params.push(locationIds);
+      } else {
+        // Fallback to primary location
+        query += ' AND i.location_id = $2';
+        params.push(req.user.location_id);
+      }
+    } else if (req.user.role === 'branch_staff') {
       query += ' AND i.location_id = $2';
       params.push(req.user.location_id);
     }

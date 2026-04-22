@@ -78,16 +78,16 @@ const hasLocationAccess = async (userId, userRole, locationId) => {
 /**
  * Get all locations a manager has access to (including primary and assigned branches)
  */
-const getManagerLocations = async (userId, userRole) => {
+const getManagerLocations = async (userId, userRole = null) => {
+  const pool = require('../config/database');
+  
   if (userRole === 'admin') {
     // Admin has access to all locations
-    const pool = require('../config/database');
-    const result = await pool.query('SELECT id FROM locations');
-    return result.rows.map(r => r.id);
+    const result = await pool.query('SELECT * FROM locations ORDER BY name');
+    return result.rows;
   }
   
-  const pool = require('../config/database');
-  const locations = [];
+  const locationIds = [];
   
   // Get primary location
   const userCheck = await pool.query(
@@ -96,19 +96,31 @@ const getManagerLocations = async (userId, userRole) => {
   );
   
   if (userCheck.rows.length > 0 && userCheck.rows[0].location_id) {
-    locations.push(userCheck.rows[0].location_id);
+    locationIds.push(userCheck.rows[0].location_id);
   }
   
   // Get assigned branches for managers
-  if (userRole === 'branch_manager') {
+  if (userRole === 'branch_manager' || !userRole) {
     const branchCheck = await pool.query(
       'SELECT location_id FROM manager_branches WHERE user_id = $1',
       [userId]
     );
-    locations.push(...branchCheck.rows.map(r => r.location_id));
+    locationIds.push(...branchCheck.rows.map(r => r.location_id));
   }
   
-  return [...new Set(locations)]; // Remove duplicates
+  // Remove duplicates and get full location details
+  const uniqueLocationIds = [...new Set(locationIds)];
+  
+  if (uniqueLocationIds.length === 0) {
+    return [];
+  }
+  
+  const locationsResult = await pool.query(
+    'SELECT * FROM locations WHERE id = ANY($1) ORDER BY name',
+    [uniqueLocationIds]
+  );
+  
+  return locationsResult.rows;
 };
 
 /**

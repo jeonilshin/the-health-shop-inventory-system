@@ -623,6 +623,55 @@ router.get('/expiry-batches/:locationId/:description/:unit', auth, async (req, r
   }
 });
 
+// Get inventory for current user's location(s) - MAIN ROUTE
+router.get('/', auth, async (req, res) => {
+  try {
+    let query = `
+      SELECT i.*, l.name as location_name, l.type as location_type
+      FROM inventory i
+      JOIN locations l ON i.location_id = l.id
+      WHERE 1=1
+    `;
+    
+    const params = [];
+    let paramCount = 1;
+    
+    // Filter by user role
+    if (req.user.role === 'branch_manager') {
+      // Get all locations this manager has access to
+      const { getManagerLocations } = require('../middleware/auth');
+      const managerLocations = await getManagerLocations(req.user.id);
+      const locationIds = managerLocations.map(l => l.id);
+      
+      if (locationIds.length > 0) {
+        query += ` AND i.location_id = ANY($${paramCount})`;
+        params.push(locationIds);
+        paramCount++;
+      } else {
+        // Fallback to primary location if no branches assigned
+        query += ` AND i.location_id = $${paramCount}`;
+        params.push(req.user.location_id);
+        paramCount++;
+      }
+    } else if (req.user.role === 'branch_staff') {
+      query += ` AND i.location_id = $${paramCount}`;
+      params.push(req.user.location_id);
+      paramCount++;
+    } else if (req.user.role === 'warehouse') {
+      query += ` AND i.location_id = $${paramCount}`;
+      params.push(req.user.location_id);
+      paramCount++;
+    }
+    
+    query += ' ORDER BY l.name, i.description, i.unit';
+    
+    const result = await pool.query(query, params);
+    res.json(result.rows);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 module.exports = router;
 
 
