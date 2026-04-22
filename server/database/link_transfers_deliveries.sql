@@ -14,5 +14,5 @@ CREATE INDEX IF NOT EXISTS idx_deliveries_transfer ON deliveries(transfer_id);
 
 -- Update status check to include new statuses
 ALTER TABLE deliveries DROP CONSTRAINT IF EXISTS deliveries_status_check;
-ALTER TABLE deliveries ADD CONSTRAINT deliveries_status_check 
-  CHECK (status IN ('pending', 'awaiting_admin', 'admin_confirmed', 'in_transit', 'delivered', 'cancelled'));
+ALTER TABLE deliveries ADD CONSTRAINT deliveries_status_check
+  CHECK (status IN ('pending', 'awaiting_admin', 'admin_confirmed', 'in_transit', 'pending_manager_confirmation', 'delivered', 'cancelled'));
