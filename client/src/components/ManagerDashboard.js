@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useContext } from 'react';
+import React, { useState, useEffect, useContext, useCallback } from 'react';
 import { AuthContext } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import api from '../utils/api';
@@ -23,13 +23,7 @@ const ManagerDashboard = () => {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('overview');
 
-  useEffect(() => {
-    if (user?.role === 'branch_manager') {
-      fetchDashboardData();
-    }
-  }, [user]);
-
-  const fetchDashboardData = async () => {
+  const fetchDashboardData = useCallback(async () => {
     try {
       setLoading(true);
       const [overviewRes, approvalsRes] = await Promise.all([
@@ -45,7 +39,13 @@ const ManagerDashboard = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [showToast]);
+
+  useEffect(() => {
+    if (user?.role === 'branch_manager') {
+      fetchDashboardData();
+    }
+  }, [user, fetchDashboardData]);
 
   const handleApproveTransfer = async (transferId) => {
     try {
