@@ -13,20 +13,24 @@ const pool = new Pool({
   ssl: process.env.DATABASE_SSL === 'true'
     ? { rejectUnauthorized: false }
     : undefined,
-  // Set default schema for all queries
-  options: '-c search_path=thehealthshop,public',
+});
+
+// Set search_path on every new connection
+pool.on('connect', async (client) => {
+  try {
+    // Set the schema search path for this connection
+    await client.query("SET search_path TO thehealthshop, public");
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('[DB] Schema search_path set to: thehealthshop, public');
+    }
+  } catch (err) {
+    console.error('[DB] Error setting search_path:', err.message);
+  }
 });
 
 // Log pool errors (unhandled errors from idle clients)
 pool.on('error', (err) => {
   console.error('[DB] Unexpected error on idle client:', err.message);
-});
-
-// Optional: log when the pool connects for the first time
-pool.on('connect', () => {
-  if (process.env.NODE_ENV !== 'production') {
-    // Only log first connection to avoid noise
-  }
 });
 
 /**
