@@ -460,21 +460,6 @@ function Reports() {
     };
   };
 
-  // Render "Others" column: amount + reason per item on separate lines
-  const formatOthersCell = (others, fmt) => {
-    if (others == null) return '-';
-    if (typeof others === 'number') return fmt(others);
-    if (Array.isArray(others)) {
-      return others
-        .map(it => {
-          const amt = fmt(parseFloat(it.amount) || 0);
-          const reason = (it.reason || '').trim();
-          return reason ? `${amt} (${reason})` : amt;
-        })
-        .join(', ');
-    }
-    return '-';
-  };
 
   const handleDownloadXLSX = () => {
     const filteredReports = [...getFilteredReports()].sort(
