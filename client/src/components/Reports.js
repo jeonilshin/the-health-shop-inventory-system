@@ -21,6 +21,14 @@ function Reports() {
   const [salesAutoFetching, setSalesAutoFetching] = useState(false);
   const [cashBeginAutoFilled, setCashBeginAutoFilled] = useState(false);
 
+  // C. DISBURSEMENTS: detailed line items — {category, amount, reason}
+  const DISBURSEMENT_CATEGORIES = [
+    'PERMITS / LICENSES', 'FREIGHT IN', 'TRANSPO.', 'REPAIRS & MAINT.',
+    'COMMUNICATION', 'OFFICE SUPPLIES', 'BANK SERVICE CHARGES',
+    'STORE INCENTIVE', 'MEALS', 'OTHERS'
+  ];
+  const [disbursementItems, setDisbursementItems] = useState([]);
+
   // Track which auto-calculated fields have been manually edited
   const [manualOverrides, setManualOverrides] = useState({
     gross_sales: false,
@@ -164,11 +172,16 @@ function Reports() {
     const grossCredit = mayaPOS + gcashQR;
     const netCredit = grossCredit - creditDisc - creditRet;
     
+    // Sum all detailed disbursement items; fall back to legacy meals/fare/other fields if list empty
+    const detailedDisbTotal = disbursementItems.reduce(
+      (sum, it) => sum + (parseFloat(parseFormattedNumber(it.amount)) || 0),
+      0
+    );
     const mealsAmt = parseFloat(parseFormattedNumber(formData.meals) || 0);
     const fareAmt = parseFloat(parseFormattedNumber(formData.fare) || 0);
     const otherDisb = parseFloat(parseFormattedNumber(formData.other_disbursements) || 0);
-    
-    const totalDisb = mealsAmt + fareAmt + otherDisb;
+    const legacyTotal = mealsAmt + fareAmt + otherDisb;
+    const totalDisb = disbursementItems.length > 0 ? detailedDisbTotal : legacyTotal;
     
     const actualDeposit = parseFloat(parseFormattedNumber(formData.actual_cash_deposited) || 0);
     const cashOverShort = parseFloat(parseFormattedNumber(formData.cash_overage_shortage) || 0);
@@ -200,7 +213,7 @@ function Reports() {
     formData.delivery_fee, formData.other_income, formData.maya_pos_qr, formData.gcash_qr,
     formData.credit_sales_discount, formData.credit_sales_return, formData.meals, formData.fare,
     formData.other_disbursements, formData.actual_cash_deposited, formData.cash_overage_shortage,
-    manualOverrides
+    disbursementItems, manualOverrides
   ]);
 
   // Auto-fill cash_beginning from previous day's cash_beginning_next_day
@@ -281,14 +294,41 @@ function Reports() {
       const cleanedData = {};
       Object.keys(formData).forEach(key => {
         const value = formData[key];
-        // For numeric fields, remove commas and extract numbers
         if (typeof value === 'string' && value && key !== 'notes' && key !== 'report_date' && key !== 'report_type') {
           cleanedData[key] = parseFormattedNumber(value);
         } else {
           cleanedData[key] = value;
         }
       });
-      
+
+      // If detailed disbursement items exist, aggregate them into legacy columns
+      // (MEALS / TRANSPO → fare / all others → other_disbursements) and embed
+      // the full breakdown as a JSON block in notes so the DSR can render it.
+      const cleanItems = disbursementItems
+        .filter(it => it.category && parseFloat(parseFormattedNumber(it.amount)) > 0)
+        .map(it => ({
+          category: it.category,
+          amount: parseFloat(parseFormattedNumber(it.amount)) || 0,
+          reason: it.category === 'OTHERS' ? (it.reason || '').trim() : ''
+        }));
+
+      if (cleanItems.length > 0) {
+        const sumCat = (cat) => cleanItems
+          .filter(i => i.category === cat)
+          .reduce((s, i) => s + i.amount, 0);
+        cleanedData.meals = sumCat('MEALS');
+        cleanedData.fare = sumCat('TRANSPO.');
+        const nonLegacyTotal = cleanItems
+          .filter(i => i.category !== 'MEALS' && i.category !== 'TRANSPO.')
+          .reduce((s, i) => s + i.amount, 0);
+        cleanedData.other_disbursements = nonLegacyTotal;
+        cleanedData.total_disbursements = cleanItems.reduce((s, i) => s + i.amount, 0);
+
+        const marker = '\n---DSR_DISBURSEMENTS---\n';
+        const baseNotes = (cleanedData.notes || '').split(marker)[0].trim();
+        cleanedData.notes = (baseNotes ? baseNotes + '\n' : '') + marker + JSON.stringify(cleanItems);
+      }
+
       await api.post('/sales-reports', cleanedData);
       alert('Sales report submitted successfully!');
       setShowForm(false);
@@ -314,6 +354,7 @@ function Reports() {
       cash_overage_shortage: '', cash_beginning_next_day: '',
       net_sales: '', notes: ''
     });
+    setDisbursementItems([]);
     setCashBeginAutoFilled(false);
     // Reset manual overrides
     setManualOverrides({
@@ -619,15 +660,16 @@ function Reports() {
           th { text-align: center; font-weight: 700; vertical-align: middle; }
           td.date-cell { text-align: center; font-weight: 600; background: #fde68a; }
           th.date-col { background: #fde68a; color: #111; }
+          th.cash-beg-col { background: #fbcfe8; color: #111; }
           th.group-a { background: #60a5fa; color: white; }
           th.group-b { background: #60a5fa; color: white; }
           th.group-c { background: #fde68a; color: #111; }
-          th.group-d { background: #f9a8d4; color: #111; }
+          th.group-d { background: #fbcfe8; color: #111; }
           th.sub-a { background: #fbcfe8; color: #111; }
           th.sub-b { background: #fef3c7; color: #111; }
           th.sub-c { background: #fef3c7; color: #111; }
-          th.sub-d { background: #fbcfe8; color: #111; }
           th.next-day-col { background: #fbcfe8; color: #111; }
+          td.cash-beg { background: #fce7f3; font-weight: 600; }
           td.cash-a { background: #fce7f3; }
           td.cash-b { background: #fef9c3; }
           td.disb { background: #fef9c3; }
@@ -651,14 +693,14 @@ function Reports() {
           <thead>
             <tr>
               <th rowspan="2" class="date-col" style="width:70px;">Date (DSR)</th>
-              <th colspan="4" class="group-a">A. CASH SALES</th>
+              <th rowspan="2" class="cash-beg-col" style="width:90px;">CASH ON HAND BEG. BAL.</th>
+              <th colspan="3" class="group-a">A. CASH SALES</th>
               <th colspan="4" class="group-b">B. CREDIT SALES</th>
               <th colspan="11" class="group-c">C. DISBURSEMENTS</th>
-              <th colspan="1" class="group-d">D. DEPOSITS</th>
+              <th rowspan="2" class="group-d" style="width:110px;">D. DEPOSITS<br/><span style="font-weight:normal;font-size:9px;">ACTUAL AMOUNT DEPOSITED FOR THE DAY</span></th>
               <th rowspan="2" class="next-day-col" style="width:90px;">CASH ON HAND AVAILABLE - THE NEXT DAY</th>
             </tr>
             <tr>
-              <th class="sub-a">CASH ON HAND BEG. BAL.</th>
               <th class="sub-a">CASH SALES EXTERNAL</th>
               <th class="sub-a">SALES DISCOUNT/ SALES RETURN</th>
               <th class="sub-a">NET CASH SALES</th>
@@ -677,11 +719,10 @@ function Reports() {
               <th class="sub-c">MEALS</th>
               <th class="sub-c">OTHERS</th>
               <th class="sub-c">TOTAL DISBURSEMENTS</th>
-              <th class="sub-d">ACTUAL AMOUNT DEPOSITED FOR THE DAY</th>
             </tr>
           </thead>
           <tbody>
-            ${rowsHtml || '<tr><td colspan="23" style="text-align:center;padding:20px;">No reports found</td></tr>'}
+            ${rowsHtml || '<tr><td colspan="22" style="text-align:center;padding:20px;">No reports found</td></tr>'}
           </tbody>
         </table>
         <div class="buttons">
@@ -937,33 +978,89 @@ function Reports() {
             </div>
 
             <div style={{ border: '1px solid var(--border)', borderRadius: '8px', padding: '16px', marginBottom: '16px' }}>
-              <h4 style={{ marginTop: 0, color: 'var(--primary)' }}>C. DISBURSEMENTS</h4>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}>
-                <div className="form-group" style={{ marginBottom: 0 }}>
-                  <label>Meals</label>
-                  <input type="text" value={formatNumberInput(formData.meals)} onChange={(e) => handleCurrencyChange('meals', e.target.value)} placeholder="0.00" />
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                <h4 style={{ margin: 0, color: 'var(--primary)' }}>C. DISBURSEMENTS</h4>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  style={{ padding: '6px 12px', fontSize: '13px' }}
+                  onClick={() => setDisbursementItems(prev => [...prev, { category: '', amount: '', reason: '' }])}
+                >
+                  <FiPlus size={14} /> Add Disbursement
+                </button>
+              </div>
+
+              {disbursementItems.length === 0 ? (
+                <div style={{ padding: '16px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px', border: '1px dashed var(--border)', borderRadius: '6px' }}>
+                  No disbursements yet. Click "Add Disbursement" to add one.
                 </div>
-                <div className="form-group" style={{ marginBottom: 0 }}>
-                  <label>Fare</label>
-                  <input type="text" value={formatNumberInput(formData.fare)} onChange={(e) => handleCurrencyChange('fare', e.target.value)} placeholder="0.00" />
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '12px' }}>
+                  {disbursementItems.map((item, idx) => (
+                    <div key={idx} style={{ display: 'grid', gridTemplateColumns: '1fr 140px 1fr 40px', gap: '8px', alignItems: 'center' }}>
+                      <select
+                        value={item.category}
+                        onChange={(e) => {
+                          const next = [...disbursementItems];
+                          next[idx] = { ...next[idx], category: e.target.value, reason: e.target.value === 'OTHERS' ? next[idx].reason : '' };
+                          setDisbursementItems(next);
+                        }}
+                        required
+                      >
+                        <option value="">Select category...</option>
+                        {DISBURSEMENT_CATEGORIES.map(cat => (
+                          <option key={cat} value={cat}>{cat}</option>
+                        ))}
+                      </select>
+                      <input
+                        type="text"
+                        placeholder="Amount"
+                        value={formatNumberInput(item.amount)}
+                        onChange={(e) => {
+                          const next = [...disbursementItems];
+                          next[idx] = { ...next[idx], amount: parseFormattedNumber(e.target.value) };
+                          setDisbursementItems(next);
+                        }}
+                      />
+                      <input
+                        type="text"
+                        placeholder={item.category === 'OTHERS' ? 'Reason (required for Others)' : 'Reason (optional)'}
+                        value={item.reason}
+                        onChange={(e) => {
+                          const next = [...disbursementItems];
+                          next[idx] = { ...next[idx], reason: e.target.value };
+                          setDisbursementItems(next);
+                        }}
+                        disabled={item.category !== 'OTHERS'}
+                        required={item.category === 'OTHERS'}
+                        style={{ opacity: item.category === 'OTHERS' ? 1 : 0.5 }}
+                      />
+                      <button
+                        type="button"
+                        className="btn btn-danger"
+                        style={{ padding: '6px 8px' }}
+                        onClick={() => setDisbursementItems(prev => prev.filter((_, i) => i !== idx))}
+                        title="Remove"
+                      >
+                        <FiTrash2 size={14} />
+                      </button>
+                    </div>
+                  ))}
                 </div>
-                <div className="form-group" style={{ marginBottom: 0 }}>
-                  <label>Others</label>
-                  <input type="text" value={formatNumberInput(formData.other_disbursements)} onChange={(e) => handleCurrencyChange('other_disbursements', e.target.value)} placeholder="0.00" />
-                </div>
-                <div className="form-group" style={{ marginBottom: 0 }}>
-                  <label>Total Disbursements (Auto)</label>
-                  <input 
-                    type="text" 
-                    value={formatNumberInput(formData.total_disbursements)} 
-                    onChange={(e) => {
-                      handleCurrencyChange('total_disbursements', e.target.value);
-                      setManualOverrides(prev => ({ ...prev, total_disbursements: true }));
-                    }}
-                    style={{ backgroundColor: manualOverrides.total_disbursements ? 'var(--bg-primary)' : 'var(--bg-secondary)', fontWeight: 600 }} 
-                    placeholder="Auto-calculated (editable)"
-                  />
-                </div>
+              )}
+
+              <div className="form-group" style={{ marginBottom: 0, maxWidth: '300px' }}>
+                <label>Total Disbursements (Auto)</label>
+                <input
+                  type="text"
+                  value={formatNumberInput(formData.total_disbursements)}
+                  onChange={(e) => {
+                    handleCurrencyChange('total_disbursements', e.target.value);
+                    setManualOverrides(prev => ({ ...prev, total_disbursements: true }));
+                  }}
+                  style={{ backgroundColor: manualOverrides.total_disbursements ? 'var(--bg-primary)' : 'var(--bg-secondary)', fontWeight: 600 }}
+                  placeholder="Auto-calculated (editable)"
+                />
               </div>
             </div>
 
