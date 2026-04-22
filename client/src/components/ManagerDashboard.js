@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useContext } from 'react';
 import { AuthContext } from '../context/AuthContext';
-import { ToastContext } from '../context/ToastContext';
+import { useToast } from '../context/ToastContext';
 import api from '../utils/api';
 
 const ManagerDashboard = () => {
   const { user } = useContext(AuthContext);
-  const { showToast } = useContext(ToastContext);
+  const showToast = useToast();
   
   const [overview, setOverview] = useState({
     branches: [],
@@ -41,7 +41,7 @@ const ManagerDashboard = () => {
       setPendingApprovals(approvalsRes.data);
     } catch (error) {
       console.error('Error fetching dashboard data:', error);
-      showToast('Error loading dashboard data', 'error');
+      showToast().error('Error', 'Failed to load dashboard data');
     } finally {
       setLoading(false);
     }
@@ -53,11 +53,11 @@ const ManagerDashboard = () => {
         notes: 'Approved by manager'
       });
       
-      showToast('Transfer approved successfully', 'success');
+      showToast().success('Success', 'Transfer approved successfully');
       fetchDashboardData(); // Refresh data
     } catch (error) {
       console.error('Error approving transfer:', error);
-      showToast(error.response?.data?.error || 'Error approving transfer', 'error');
+      showToast().error('Error', error.response?.data?.error || 'Failed to approve transfer');
     }
   };
 
@@ -67,11 +67,11 @@ const ManagerDashboard = () => {
         notes: 'Confirmed by manager'
       });
       
-      showToast('Delivery confirmed successfully', 'success');
+      showToast().success('Success', 'Delivery confirmed successfully');
       fetchDashboardData(); // Refresh data
     } catch (error) {
       console.error('Error confirming delivery:', error);
-      showToast(error.response?.data?.error || 'Error confirming delivery', 'error');
+      showToast().error('Error', error.response?.data?.error || 'Failed to confirm delivery');
     }
   };
 
