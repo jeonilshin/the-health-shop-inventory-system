@@ -179,10 +179,10 @@ function Navbar() {
             // Determine badge count for this item
             let badgeCount = 0;
             if (item.to === '/messages') badgeCount = counts.messages;
-            else if (item.to === '/transfers' && user.role === 'admin') badgeCount = counts.transfers;
+            else if (item.to === '/transfers' && (user.role === 'admin' || user.role === 'branch_manager')) badgeCount = counts.transfers;
             else if (item.to === '/deliveries') badgeCount = counts.deliveries;
             else if (item.to === '/discrepancy' && user.role === 'admin') badgeCount = counts.discrepancies;
-            else if (item.to === '/sales' && user.role === 'admin') badgeCount = counts.sale_cancellations;
+            else if (item.to === '/sales' && (user.role === 'admin' || user.role === 'branch_manager')) badgeCount = counts.sale_cancellations;
 
             return (
               <NavLink

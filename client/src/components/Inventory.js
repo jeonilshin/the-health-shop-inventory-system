@@ -125,10 +125,10 @@ function Inventory() {
           const allManagerLocationIds = [...new Set([user.location_id, ...managerBranchIds])];
           availableLocations = response.data.filter(loc => allManagerLocationIds.includes(loc.id));
           
-          // If manager has multiple branches, add "All My Branches" option
+          // If manager has multiple branches, don't auto-select - show branch selector
           if (availableLocations.length > 1) {
-            setLocations([{ id: 'all', name: 'All My Branches', type: 'group' }, ...availableLocations]);
-            setSelectedLocation('all');
+            setLocations(availableLocations);
+            setSelectedLocation(''); // Empty means show branch selector
           } else {
             setLocations(availableLocations);
             setSelectedLocation(availableLocations[0]?.id || user.location_id);
@@ -145,9 +145,9 @@ function Inventory() {
         setLocations(availableLocations);
         setSelectedLocation(user.location_id);
       } else if (user.role === 'admin') {
-        // Admin sees all locations with "All Locations" option
-        setLocations([{ id: 'all', name: 'All Locations', type: 'group' }, ...response.data]);
-        setSelectedLocation('all');
+        // Admin sees all locations, start with branch selector
+        setLocations(response.data);
+        setSelectedLocation(''); // Empty means show branch selector
       } else if (user.role === 'warehouse') {
         // Warehouse sees only their warehouse
         availableLocations = response.data.filter(loc => loc.id === user.location_id);
@@ -171,75 +171,58 @@ function Inventory() {
   const fetchInventory = async () => {
     try {
       setInventoryLoading(true);
-      const endpoint = selectedLocation === 'all' 
-        ? '/inventory/all' 
-        : `/inventory/location/${selectedLocation}`;
-      const response = await api.get(endpoint);
+      // Always fetch for a specific location (no 'all' option anymore)
+      const response = await api.get(`/inventory/location/${selectedLocation}`);
       
-      if (selectedLocation === 'all') {
-        // For 'all' view, don't group - keep items separate by location
-        setInventory(response.data);
-        setFilteredInventory(response.data);
+      // Group items by description and unit for better display
+      const groupedInventory = {};
+      response.data.forEach(item => {
+        const key = `${item.description}-${item.unit}`;
+        if (!groupedInventory[key]) {
+          groupedInventory[key] = {
+            ...item,
+            costBatches: [],
+            totalQuantity: 0,
+            hasMultipleExpiry: false
+          };
+        }
         
-        // Extract unique categories
-        const categories = new Set();
-        response.data.forEach(item => {
-          if (item.main_category) {
-            categories.add(item.main_category);
-          }
-        });
-        setAvailableCategories(Array.from(categories).sort());
-      } else {
-        // For single location view, group items by description and unit for better display
-        const groupedInventory = {};
-        response.data.forEach(item => {
-          const key = `${item.description}-${item.unit}`;
-          if (!groupedInventory[key]) {
-            groupedInventory[key] = {
-              ...item,
-              costBatches: [],
-              totalQuantity: 0,
-              hasMultipleExpiry: false
-            };
-          }
-          
-          groupedInventory[key].costBatches.push({
-            id: item.id,
-            cost_batch_id: item.cost_batch_id,
-            unit_cost: item.unit_cost,
-            suggested_selling_price: item.suggested_selling_price,
-            quantity: item.quantity,
-            batch_number: item.batch_number,
-            expiry_date: item.expiry_date,
-            is_new_cost: item.is_new_cost,
-            is_new_item: item.is_new_item,
-            original_batch_date: item.original_batch_date
-          });
-          
-          groupedInventory[key].totalQuantity += parseFloat(item.quantity);
-          
-          // Check if there are multiple different expiry dates
-          const uniqueExpiry = new Set(groupedInventory[key].costBatches.map(b => b.expiry_date ? new Date(b.expiry_date).toISOString().split('T')[0] : null));
-          groupedInventory[key].hasMultipleExpiry = uniqueExpiry.size > 1;
-          
-          // Update main category if not set
-          if (item.main_category) {
-            groupedInventory[key].main_category = item.main_category;
-          }
+        groupedInventory[key].costBatches.push({
+          id: item.id,
+          cost_batch_id: item.cost_batch_id,
+          unit_cost: item.unit_cost,
+          suggested_selling_price: item.suggested_selling_price,
+          quantity: item.quantity,
+          batch_number: item.batch_number,
+          expiry_date: item.expiry_date,
+          is_new_cost: item.is_new_cost,
+          is_new_item: item.is_new_item,
+          original_batch_date: item.original_batch_date
         });
         
-        setInventory(Object.values(groupedInventory));
-        setFilteredInventory(Object.values(groupedInventory));
+        groupedInventory[key].totalQuantity += parseFloat(item.quantity);
         
-        // Extract unique categories
-        const categories = new Set();
-        Object.values(groupedInventory).forEach(item => {
-          if (item.main_category) {
-            categories.add(item.main_category);
-          }
-        });
-        setAvailableCategories(Array.from(categories).sort());
-      }
+        // Check if there are multiple different expiry dates
+        const uniqueExpiry = new Set(groupedInventory[key].costBatches.map(b => b.expiry_date ? new Date(b.expiry_date).toISOString().split('T')[0] : null));
+        groupedInventory[key].hasMultipleExpiry = uniqueExpiry.size > 1;
+        
+        // Update main category if not set
+        if (item.main_category) {
+          groupedInventory[key].main_category = item.main_category;
+        }
+      });
+      
+      setInventory(Object.values(groupedInventory));
+      setFilteredInventory(Object.values(groupedInventory));
+      
+      // Extract unique categories
+      const categories = new Set();
+      Object.values(groupedInventory).forEach(item => {
+        if (item.main_category) {
+          categories.add(item.main_category);
+        }
+      });
+      setAvailableCategories(Array.from(categories).sort());
     } catch (error) {
       // Error fetching inventory
       console.error('Error fetching inventory:', error);
@@ -928,50 +911,50 @@ function Inventory() {
         </div>
       )}
       
-      <div className="card">
-        {/* Breadcrumb Navigation */}
-        {selectedLocation && selectedLocation !== 'all' && (user.role === 'admin' || user.role === 'branch_manager') && (
-          <div style={{ 
-            marginBottom: '20px', 
-            padding: '12px 16px', 
-            background: 'var(--bg-secondary)', 
-            borderRadius: 'var(--radius)',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            fontSize: '14px'
-          }}>
-            <button 
-              className="btn btn-secondary"
-              onClick={() => setSelectedLocation('all')}
-              style={{ padding: '6px 12px', fontSize: '13px' }}
-            >
-              ← Back
-            </button>
-            <span style={{ color: 'var(--text-muted)' }}>/</span>
-            <button 
-              onClick={() => setSelectedLocation('all')}
-              style={{ 
-                background: 'none', 
-                border: 'none', 
-                color: 'var(--primary)', 
-                cursor: 'pointer',
-                textDecoration: 'underline',
-                padding: 0,
-                font: 'inherit'
-              }}
-            >
-              {user.role === 'admin' ? 'All Locations' : 'All My Branches'}
-            </button>
-            <span style={{ color: 'var(--text-muted)' }}>/</span>
-            <span style={{ fontWeight: '600' }}>
-              {locations.find(l => l.id === parseInt(selectedLocation))?.name}
-            </span>
-          </div>
-        )}
+      {/* Breadcrumb Navigation */}
+      {selectedLocation && (user.role === 'admin' || user.role === 'branch_manager') && locations.length > 1 && (
+        <div style={{ 
+          marginBottom: '20px', 
+          padding: '12px 16px', 
+          background: 'var(--bg-secondary)', 
+          borderRadius: 'var(--radius)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+          fontSize: '14px'
+        }}>
+          <button 
+            className="btn btn-secondary"
+            onClick={() => setSelectedLocation('')}
+            style={{ padding: '6px 12px', fontSize: '13px' }}
+          >
+            ← Back
+          </button>
+          <span style={{ color: 'var(--text-muted)' }}>/</span>
+          <button 
+            onClick={() => setSelectedLocation('')}
+            style={{ 
+              background: 'none', 
+              border: 'none', 
+              color: 'var(--primary)', 
+              cursor: 'pointer',
+              textDecoration: 'underline',
+              padding: 0,
+              font: 'inherit'
+            }}
+          >
+            {user.role === 'admin' ? 'All Locations' : 'All My Branches'}
+          </button>
+          <span style={{ color: 'var(--text-muted)' }}>/</span>
+          <span style={{ fontWeight: '600' }}>
+            {locations.find(l => l.id === parseInt(selectedLocation))?.name}
+          </span>
+        </div>
+      )}
 
-        {/* Location Cards View (when "all" is selected) */}
-        {selectedLocation === 'all' && (user.role === 'admin' || user.role === 'branch_manager') ? (
+      <div className="card">
+        {/* Branch Selector for Multi-Branch Users */}
+        {!selectedLocation && (user.role === 'admin' || user.role === 'branch_manager') && locations.length > 1 && (
           <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
               <h3 style={{ margin: 0 }}>Select a Location</h3>
@@ -1271,7 +1254,10 @@ function Inventory() {
               </div>
             )}
           </div>
-        ) : (
+        )}
+
+        {/* Inventory Content - Only show when location is selected */}
+        {selectedLocation && (
           <>
             {/* Regular Inventory View */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '10px' }}>
@@ -1292,7 +1278,7 @@ function Inventory() {
                     {showForm ? 'Cancel' : 'Add Item'}
                   </button>
                 )}
-                {(user.role === 'admin' || user.role === 'branch_manager' || user.role === 'branch_staff') && selectedLocation !== 'all' && (
+                {(user.role === 'admin' || user.role === 'branch_manager' || user.role === 'branch_staff') && (
                   <>
                     <button className="btn btn-info" onClick={() => setShowConversionModal(true)}>
                       🔄 Convert Units
@@ -2499,9 +2485,6 @@ function Inventory() {
           )}
         </div>
       )}
-          </>
-        )}
-      </div>
 
       {/* Product History Modal */}
       {viewHistory && (
@@ -3240,6 +3223,9 @@ function Inventory() {
           </div>
         </div>
       )}
+      </>
+      )}
+      </div>
     </div>
   );
 }
