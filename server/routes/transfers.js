@@ -695,7 +695,7 @@ router.post('/:id/ship', auth, authorize('admin', 'warehouse'), async (req, res)
 
 // Confirm delivery (branch receives transfer)
 // SIMPLIFIED WORKFLOW: Destination branch receives approved transfer and inventory is added
-router.post('/:id/deliver', auth, authorize('admin', 'branch_manager'), async (req, res) => {
+router.post('/:id/deliver', auth, authorize('admin', 'branch_manager', 'branch_staff'), async (req, res) => {
   const client = await pool.connect();
   
   try {
@@ -728,6 +728,14 @@ router.post('/:id/deliver', auth, authorize('admin', 'branch_manager'), async (r
       if (!hasAccess) {
         await client.query('ROLLBACK');
         return res.status(403).json({ error: 'You do not manage the destination branch' });
+      }
+    }
+    
+    // Check if staff user is at the destination location
+    if (req.user.role === 'branch_staff') {
+      if (req.user.location_id !== transferData.to_location_id) {
+        await client.query('ROLLBACK');
+        return res.status(403).json({ error: 'You can only receive transfers to your own branch' });
       }
     }
 

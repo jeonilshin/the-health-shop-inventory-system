@@ -73,6 +73,11 @@ pending → approved → delivered
 
 ## Who Can Do What
 
+### Staff:
+- ✅ Create transfer requests (requires manager/admin approval)
+- ✅ **Receive transfers to their own branch** ⭐ NEW!
+- ❌ Cannot approve transfers
+
 ### Manager:
 - ✅ Approve transfers from their managed branches
 - ✅ Receive transfers to their managed branches
@@ -82,10 +87,6 @@ pending → approved → delivered
 - ✅ Approve any transfer
 - ✅ Receive any transfer
 - ✅ Cancel/undo transfers
-
-### Branch Staff:
-- ✅ Create transfer requests (requires manager/admin approval)
-- ❌ Cannot approve or receive
 
 ---
 
@@ -131,6 +132,8 @@ pending → approved → delivered
 ### As Staff:
 - [ ] Create transfer → Shows in manager's "Pending Approvals"
 - [ ] After manager approves → Status changes to `approved`, inventory deducted
+- [ ] **See "Receive" button for approved transfers to my branch** ⭐ NEW!
+- [ ] **Click "Receive" → Inventory added to my branch** ⭐ NEW!
 
 ### As Manager:
 - [ ] See pending transfers in "Pending Approvals"

@@ -466,8 +466,7 @@ function Transfers() {
   };
 
   const canDeliver = (transfer) => {
-    // Managers can receive transfers to their managed branches
-    // Admin can receive any transfer
+    // Staff, Managers, and Admin can receive transfers to their location
     // Transfer must be approved (not in_transit anymore - simplified workflow)
     if (transfer.status !== 'approved') return false;
     
@@ -477,6 +476,11 @@ function Transfers() {
       // Check if this transfer is going to one of manager's branches
       const managerLocationIds = locations.map(loc => loc.id);
       return managerLocationIds.includes(transfer.to_location_id);
+    }
+    
+    if (user.role === 'branch_staff') {
+      // Staff can receive transfers to their own branch
+      return transfer.to_location_id === user.location_id;
     }
     
     return false;
