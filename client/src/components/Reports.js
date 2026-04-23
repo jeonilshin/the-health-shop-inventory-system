@@ -3,12 +3,14 @@ import * as XLSX from 'xlsx';
 import api from '../utils/api';
 import { AuthContext } from '../context/AuthContext';
 import { formatPrice } from '../utils/formatNumber';
-import { FiFileText, FiPlus, FiEye, FiCheck, FiX, FiTrash2, FiFilter, FiDownload } from 'react-icons/fi';
+import { FiFileText, FiPlus, FiEye, FiCheck, FiX, FiTrash2, FiFilter, FiDownload, FiGrid, FiList, FiArrowLeft } from 'react-icons/fi';
 
 function Reports() {
   const { user } = useContext(AuthContext);
   const [reports, setReports] = useState([]);
   const [locations, setLocations] = useState([]);
+  const [selectedLocation, setSelectedLocation] = useState('');
+  const [viewMode, setViewMode] = useState('list'); // 'list' or 'cards'
   const [showForm, setShowForm] = useState(false);
   const [viewReport, setViewReport] = useState(null);
   const [filters, setFilters] = useState({
@@ -80,7 +82,7 @@ function Reports() {
   const [formData, setFormData] = useState({
     report_date: new Date().toISOString().split('T')[0],
     report_type: 'daily',
-    location_id: user.location_id || '',
+    location_id: selectedLocation || user.location_id || '',
     // A. CASH SALES
     cash_beginning: '',
     cash_sales_external: '',
@@ -140,7 +142,42 @@ function Reports() {
   const fetchLocations = async () => {
     try {
       const response = await api.get('/locations');
-      setLocations(response.data);
+      let availableLocations = response.data;
+      
+      // For branch managers, get their managed branches
+      if (user.role === 'branch_manager') {
+        try {
+          const managerBranchesRes = await api.get(`/users/${user.id}/branches`);
+          const managerBranchIds = managerBranchesRes.data.map(b => b.location_id);
+          
+          // Include primary location and managed branches
+          const allManagerLocationIds = [...new Set([user.location_id, ...managerBranchIds])];
+          availableLocations = response.data.filter(loc => allManagerLocationIds.includes(loc.id));
+          
+          // If manager has multiple branches, don't auto-select
+          if (availableLocations.length > 1) {
+            setLocations(availableLocations);
+            setSelectedLocation(''); // Show branch selector
+          } else {
+            setLocations(availableLocations);
+            setSelectedLocation(availableLocations[0]?.id || user.location_id);
+          }
+        } catch (error) {
+          // Fallback to primary location if can't fetch managed branches
+          availableLocations = response.data.filter(loc => loc.id === user.location_id);
+          setLocations(availableLocations);
+          setSelectedLocation(user.location_id);
+        }
+      } else if (user.role === 'admin') {
+        // Admin sees all locations, start with branch selector
+        setLocations(response.data);
+        setSelectedLocation(''); // Show branch selector
+      } else {
+        // Staff/warehouse see only their location
+        availableLocations = response.data.filter(loc => loc.id === user.location_id);
+        setLocations(availableLocations);
+        setSelectedLocation(user.location_id);
+      }
     } catch (error) {
       console.error('Error fetching locations:', error);
     }
@@ -393,6 +430,7 @@ function Reports() {
   };
 
   const canSubmit = ['admin', 'warehouse', 'branch_manager', 'branch_staff'].includes(user.role);
+  const canConfirm = user.role === 'admin' || user.role === 'branch_manager';
 
   // Parse disbursement breakdown stored in notes as JSON block
   const parseDisbursementBreakdown = (notes) => {
@@ -722,6 +760,8 @@ function Reports() {
 
   const getFilteredReports = () => {
     return reports.filter(report => {
+      // Filter by selected location
+      if (selectedLocation && report.location_id !== parseInt(selectedLocation)) return false;
       if (filters.type && report.report_type !== filters.type) return false;
       if (filters.status && report.status !== filters.status) return false;
       if (filters.location && report.location_id !== parseInt(filters.location)) return false;
@@ -738,6 +778,177 @@ function Reports() {
         <h2 style={{ margin: 0 }}>Sales Reports</h2>
       </div>
 
+      {/* Branch Selector for Admin and Multi-Branch Managers */}
+      {!selectedLocation && (user.role === 'admin' || user.role === 'branch_manager') && locations.length > 1 && (
+        <div className="card">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+            <h3 style={{ margin: 0 }}>Select a Branch</h3>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button 
+                className={`btn ${viewMode === 'list' ? 'btn-primary' : 'btn-secondary'}`}
+                onClick={() => setViewMode('list')}
+                style={{ padding: '8px 12px', fontSize: '14px' }}
+                title="List View"
+              >
+                <FiList size={16} />
+              </button>
+              <button 
+                className={`btn ${viewMode === 'cards' ? 'btn-primary' : 'btn-secondary'}`}
+                onClick={() => setViewMode('cards')}
+                style={{ padding: '8px 12px', fontSize: '14px' }}
+                title="Card View"
+              >
+                <FiGrid size={16} />
+              </button>
+            </div>
+          </div>
+          
+          {viewMode === 'list' ? (
+            // List View
+            <div style={{ overflowX: 'auto' }}>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Branch Name</th>
+                    <th>Type</th>
+                    <th>Reports</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {locations.map(location => {
+                    const locationReports = reports.filter(r => r.location_id === location.id);
+                    return (
+                      <tr key={location.id}>
+                        <td style={{ fontWeight: 600 }}>{location.name}</td>
+                        <td>
+                          <span className={`badge ${location.type === 'warehouse' ? 'badge-primary' : 'badge-success'}`}>
+                            {location.type}
+                          </span>
+                        </td>
+                        <td>{locationReports.length} report{locationReports.length !== 1 ? 's' : ''}</td>
+                        <td>
+                          <button
+                            className="btn btn-primary"
+                            style={{ padding: '6px 12px', fontSize: '13px' }}
+                            onClick={() => setSelectedLocation(location.id)}
+                          >
+                            View Reports
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            // Card View
+            <div style={{ 
+              display: 'grid', 
+              gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', 
+              gap: '16px' 
+            }}>
+              {locations.map(location => {
+                const locationReports = reports.filter(r => r.location_id === location.id);
+                const pendingCount = locationReports.filter(r => r.status === 'submitted').length;
+                
+                return (
+                  <div
+                    key={location.id}
+                    style={{
+                      padding: '20px',
+                      border: '2px solid var(--border)',
+                      borderRadius: 'var(--radius-lg)',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s',
+                      backgroundColor: 'var(--card-bg)',
+                    }}
+                    onClick={() => setSelectedLocation(location.id)}
+                    onMouseEnter={e => {
+                      e.currentTarget.style.borderColor = 'var(--primary)';
+                      e.currentTarget.style.transform = 'translateY(-2px)';
+                      e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.1)';
+                    }}
+                    onMouseLeave={e => {
+                      e.currentTarget.style.borderColor = 'var(--border)';
+                      e.currentTarget.style.transform = 'translateY(0)';
+                      e.currentTarget.style.boxShadow = 'none';
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
+                      <h4 style={{ margin: 0, fontSize: '16px', fontWeight: 700 }}>{location.name}</h4>
+                      <span className={`badge ${location.type === 'warehouse' ? 'badge-primary' : 'badge-success'}`}>
+                        {location.type}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: '14px', color: 'var(--text-secondary)', marginBottom: '8px' }}>
+                      <strong>{locationReports.length}</strong> report{locationReports.length !== 1 ? 's' : ''}
+                    </div>
+                    {pendingCount > 0 && (
+                      <div style={{ 
+                        padding: '6px 10px', 
+                        backgroundColor: 'rgba(245, 158, 11, 0.1)', 
+                        borderRadius: 'var(--radius)', 
+                        fontSize: '12px',
+                        color: '#f59e0b',
+                        fontWeight: 600
+                      }}>
+                        {pendingCount} pending confirmation
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Breadcrumb Navigation */}
+      {selectedLocation && (user.role === 'admin' || user.role === 'branch_manager') && locations.length > 1 && (
+        <div style={{ 
+          marginBottom: '20px', 
+          padding: '12px 16px', 
+          background: 'var(--bg-secondary)', 
+          borderRadius: 'var(--radius)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+          fontSize: '14px'
+        }}>
+          <button 
+            className="btn btn-secondary"
+            onClick={() => setSelectedLocation('')}
+            style={{ padding: '6px 12px', fontSize: '13px' }}
+          >
+            <FiArrowLeft size={14} /> Back
+          </button>
+          <span style={{ color: 'var(--text-muted)' }}>/</span>
+          <button 
+            onClick={() => setSelectedLocation('')}
+            style={{ 
+              background: 'none', 
+              border: 'none', 
+              color: 'var(--primary)', 
+              cursor: 'pointer',
+              textDecoration: 'underline',
+              padding: 0,
+              font: 'inherit'
+            }}
+          >
+            {user.role === 'admin' ? 'All Branches' : 'All My Branches'}
+          </button>
+          <span style={{ color: 'var(--text-muted)' }}>/</span>
+          <span style={{ fontWeight: '600' }}>
+            {locations.find(l => l.id === parseInt(selectedLocation))?.name}
+          </span>
+        </div>
+      )}
+
+      {/* Show filters and reports only when a location is selected */}
+      {selectedLocation && (
+        <>
       <div className="card" style={{ marginBottom: '20px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '16px' }}>
           <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center', flex: 1 }}>
@@ -1215,16 +1426,19 @@ function Reports() {
                                 <FiEye size={12} />
                                 View
                               </button>
-                              {user.role === 'admin' && (
+                              {canConfirm && (
                                 <>
                                   {report.status !== 'approved' && (
                                     <button className="btn btn-success" style={{ padding: '6px 12px', fontSize: '12px' }} onClick={() => handleStatusUpdate(report.id, 'approved')}>
                                       <FiCheck size={12} />
+                                      {user.role === 'admin' ? 'Approve' : 'Confirm'}
                                     </button>
                                   )}
-                                  <button className="btn btn-danger" style={{ padding: '6px 12px', fontSize: '12px' }} onClick={() => handleDelete(report.id)}>
-                                    <FiTrash2 size={12} />
-                                  </button>
+                                  {user.role === 'admin' && (
+                                    <button className="btn btn-danger" style={{ padding: '6px 12px', fontSize: '12px' }} onClick={() => handleDelete(report.id)}>
+                                      <FiTrash2 size={12} />
+                                    </button>
+                                  )}
                                 </>
                               )}
                             </div>
@@ -1257,16 +1471,19 @@ function Reports() {
                             <FiEye size={12} />
                             View
                           </button>
-                          {user.role === 'admin' && (
+                          {canConfirm && (
                             <>
                               {report.status !== 'approved' && (
                                 <button className="btn btn-success" style={{ padding: '6px 12px', fontSize: '12px' }} onClick={() => handleStatusUpdate(report.id, 'approved')}>
                                   <FiCheck size={12} />
+                                  {user.role === 'admin' ? 'Approve' : 'Confirm'}
                                 </button>
                               )}
-                              <button className="btn btn-danger" style={{ padding: '6px 12px', fontSize: '12px' }} onClick={() => handleDelete(report.id)}>
-                                <FiTrash2 size={12} />
-                              </button>
+                              {user.role === 'admin' && (
+                                <button className="btn btn-danger" style={{ padding: '6px 12px', fontSize: '12px' }} onClick={() => handleDelete(report.id)}>
+                                  <FiTrash2 size={12} />
+                                </button>
+                              )}
                             </>
                           )}
                         </div>
@@ -1279,6 +1496,8 @@ function Reports() {
           </tbody>
         </table>
       </div>
+        </>
+      )}
 
       {viewReport && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '20px' }}>

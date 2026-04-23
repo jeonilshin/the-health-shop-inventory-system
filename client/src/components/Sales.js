@@ -702,7 +702,7 @@ function Sales() {
                       setBatchSelections([]);
                     }}
                     required
-                    disabled={user.role !== 'admin' && user.location_id}
+                    disabled={user.role === 'branch_staff' || user.role === 'warehouse'}
                   >
                     <option value="">Select location</option>
                     {locations.map(loc => (
@@ -1134,7 +1134,7 @@ function Sales() {
           <thead>
             <tr>
               <th>Date</th>
-              {user.role === 'admin' && <th>Branch</th>}
+              {(user.role === 'admin' || user.role === 'branch_manager') && <th>Branch</th>}
               <th>Item</th>
               <th>Qty</th>
               <th>Unit Price</th>
@@ -1148,7 +1148,7 @@ function Sales() {
           <tbody>
             {sales.length === 0 ? (
               <tr>
-                <td colSpan={user.role === 'admin' ? "10" : isBranchUser ? "9" : "8"} style={{ textAlign: 'center', padding: '20px' }}>
+                <td colSpan={(user.role === 'admin' || user.role === 'branch_manager') ? "10" : isBranchUser ? "9" : "8"} style={{ textAlign: 'center', padding: '20px' }}>
                   No sales recorded for this period
                 </td>
               </tr>
@@ -1169,7 +1169,7 @@ function Sales() {
                         new Date(sale.transaction_date).toLocaleDateString()
                       )}
                     </td>
-                    {user.role === 'admin' && (
+                    {(user.role === 'admin' || user.role === 'branch_manager') && (
                       <td>
                         <span className={`badge ${sale.location_type === 'warehouse' ? 'badge-primary' : 'badge-info'}`}>
                           {sale.location_name}

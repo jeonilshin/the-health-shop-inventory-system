@@ -83,7 +83,24 @@ function Transfers() {
   const fetchLocations = async () => {
     try {
       const response = await api.get('/locations');
-      setLocations(response.data);
+      let availableLocations = response.data;
+      
+      // For branch managers, get their managed branches
+      if (user.role === 'branch_manager') {
+        try {
+          const managerBranchesRes = await api.get(`/users/${user.id}/branches`);
+          const managerBranchIds = managerBranchesRes.data.map(b => b.location_id);
+          
+          // Include primary location and managed branches
+          const allManagerLocationIds = [...new Set([user.location_id, ...managerBranchIds])];
+          availableLocations = response.data.filter(loc => allManagerLocationIds.includes(loc.id));
+        } catch (error) {
+          // Fallback to primary location if can't fetch managed branches
+          availableLocations = response.data.filter(loc => loc.id === user.location_id);
+        }
+      }
+      
+      setLocations(availableLocations);
       
       if (user.location_id) {
         setFormData(prev => ({ ...prev, from_location_id: user.location_id }));
@@ -589,6 +606,19 @@ function Transfers() {
       if (user.role === 'admin' && transfer.status === 'pending') {
         return false;
       }
+      
+      // For branch managers, only show transfers involving their managed branches
+      if (user.role === 'branch_manager') {
+        const managerLocationIds = locations.map(loc => loc.id);
+        const isFromManagerBranch = managerLocationIds.includes(transfer.from_location_id);
+        const isToManagerBranch = managerLocationIds.includes(transfer.to_location_id);
+        
+        // Show transfer if either from or to location is one of manager's branches
+        if (!isFromManagerBranch && !isToManagerBranch) {
+          return false;
+        }
+      }
+      
       return true;
     });
 

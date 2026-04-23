@@ -930,7 +930,7 @@ function Inventory() {
       
       <div className="card">
         {/* Breadcrumb Navigation */}
-        {selectedLocation && selectedLocation !== 'all' && user.role === 'admin' && (
+        {selectedLocation && selectedLocation !== 'all' && (user.role === 'admin' || user.role === 'branch_manager') && (
           <div style={{ 
             marginBottom: '20px', 
             padding: '12px 16px', 
@@ -961,7 +961,7 @@ function Inventory() {
                 font: 'inherit'
               }}
             >
-              All Locations
+              {user.role === 'admin' ? 'All Locations' : 'All My Branches'}
             </button>
             <span style={{ color: 'var(--text-muted)' }}>/</span>
             <span style={{ fontWeight: '600' }}>
@@ -971,7 +971,7 @@ function Inventory() {
         )}
 
         {/* Location Cards View (when "all" is selected) */}
-        {selectedLocation === 'all' && user.role === 'admin' ? (
+        {selectedLocation === 'all' && (user.role === 'admin' || user.role === 'branch_manager') ? (
           <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
               <h3 style={{ margin: 0 }}>Select a Location</h3>
