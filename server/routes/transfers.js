@@ -1082,11 +1082,13 @@ router.get('/', auth, async (req, res) => {
     if (req.user.role === 'branch_manager') {
       // Get all managed branches for the manager
       const { getManagerLocations } = require('../middleware/auth');
-      const managerLocations = await getManagerLocations(req.user.id, req.user.location_id);
+      const managerLocations = await getManagerLocations(req.user.id, req.user.role);
       
       if (managerLocations.length > 0) {
+        // Extract just the IDs from the location objects
+        const locationIds = managerLocations.map(loc => loc.id);
         query += ` AND (t.from_location_id = ANY($${paramCount}) OR t.to_location_id = ANY($${paramCount}))`;
-        params.push(managerLocations);
+        params.push(locationIds);
         paramCount++;
       } else {
         // Manager has no branches assigned, return empty
@@ -1193,13 +1195,15 @@ router.get('/pending', auth, async (req, res) => {
     // For branch managers, only show transfers from their managed branches
     if (req.user.role === 'branch_manager') {
       const { getManagerLocations } = require('../middleware/auth');
-      const managerLocations = await getManagerLocations(req.user.id, req.user.location_id);
+      const managerLocations = await getManagerLocations(req.user.id, req.user.role);
       
       if (managerLocations.length > 0) {
+        // Extract just the IDs from the location objects
+        const locationIds = managerLocations.map(loc => loc.id);
         query += ` AND (t.from_location_id = ANY($1) OR t.to_location_id = ANY($1))`;
         query += ' ORDER BY t.created_at ASC';
         
-        const result = await pool.query(query, [managerLocations]);
+        const result = await pool.query(query, [locationIds]);
         return res.json(result.rows);
       } else {
         // Manager has no branches assigned

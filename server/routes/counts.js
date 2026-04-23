@@ -31,14 +31,16 @@ router.get('/', auth, async (req, res) => {
     } else if (req.user.role === 'branch_manager') {
       // Branch manager: count pending transfers for their managed branches
       const { getManagerLocations } = require('../middleware/auth');
-      const managerLocations = await getManagerLocations(req.user.id, req.user.location_id);
+      const managerLocations = await getManagerLocations(req.user.id, req.user.role);
       
       if (managerLocations.length > 0) {
+        // Extract just the IDs from the location objects
+        const locationIds = managerLocations.map(loc => loc.id);
         const transfersResult = await pool.query(
           `SELECT COUNT(*) FROM transfers 
            WHERE status = 'pending' 
            AND to_location_id = ANY($1)`,
-          [managerLocations]
+          [locationIds]
         );
         counts.transfers = parseInt(transfersResult.rows[0].count);
       }
@@ -79,14 +81,16 @@ router.get('/', auth, async (req, res) => {
     } else if (req.user.role === 'branch_manager') {
       // Branch manager: count pending cancellations for their managed branches
       const { getManagerLocations } = require('../middleware/auth');
-      const managerLocations = await getManagerLocations(req.user.id, req.user.location_id);
+      const managerLocations = await getManagerLocations(req.user.id, req.user.role);
       
       if (managerLocations.length > 0) {
+        // Extract just the IDs from the location objects
+        const locationIds = managerLocations.map(loc => loc.id);
         const cancelResult = await pool.query(
           `SELECT COUNT(*) FROM sales_transactions 
            WHERE cancellation_status = 'pending' 
            AND location_id = ANY($1)`,
-          [managerLocations]
+          [locationIds]
         );
         counts.sale_cancellations = parseInt(cancelResult.rows[0].count);
       }
