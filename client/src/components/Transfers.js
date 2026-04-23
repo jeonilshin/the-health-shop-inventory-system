@@ -476,14 +476,21 @@ function Transfers() {
     return false;
   };
 
-  const canShip = (transfer) => {
-    return (user.role === 'admin' || user.role === 'warehouse') && 
-           transfer.status === 'approved';
-  };
-
   const canDeliver = (transfer) => {
-    return user.role === 'admin' && 
-           transfer.status === 'in_transit';
+    // Managers can receive transfers to their managed branches
+    // Admin can receive any transfer
+    // Transfer must be approved (not in_transit anymore - simplified workflow)
+    if (transfer.status !== 'approved') return false;
+    
+    if (user.role === 'admin') return true;
+    
+    if (user.role === 'branch_manager') {
+      // Check if this transfer is going to one of manager's branches
+      const managerLocationIds = locations.map(loc => loc.id);
+      return managerLocationIds.includes(transfer.to_location_id);
+    }
+    
+    return false;
   };
 
   const canUnreceive = (transfer) => {
@@ -818,6 +825,7 @@ function Transfers() {
                 <th>Item</th>
                 <th>Quantity</th>
                 <th>Value</th>
+                <th>Status</th>
                 <th>Actions</th>
               </tr>
             </thead>
@@ -831,15 +839,32 @@ function Transfers() {
                   <td>{formatQuantity(transfer.quantity)} {transfer.unit}</td>
                   <td>₱{formatPrice(parseFloat(transfer.quantity) * parseFloat(transfer.unit_cost))}</td>
                   <td>
+                    {transfer.requires_manager_approval && transfer.manager_approved_by ? (
+                      <span className="badge badge-success" style={{ fontSize: '11px' }}>
+                        ✓ Manager Approved
+                      </span>
+                    ) : transfer.requires_manager_approval ? (
+                      <span className="badge badge-warning" style={{ fontSize: '11px' }}>
+                        Awaiting Manager
+                      </span>
+                    ) : (
+                      <span className="badge badge-info" style={{ fontSize: '11px' }}>
+                        Ready for Admin
+                      </span>
+                    )}
+                  </td>
+                  <td>
                     <div style={{ display: 'flex', gap: '5px' }}>
-                      <button
-                        className="btn btn-success"
-                        style={{ padding: '4px 12px', fontSize: '12px' }}
-                        onClick={() => handleApprove(transfer.id)}
-                      >
-                        <FiCheck size={12} />
-                        Approve
-                      </button>
+                      {canApprove(transfer) && (
+                        <button
+                          className="btn btn-success"
+                          style={{ padding: '4px 12px', fontSize: '12px' }}
+                          onClick={() => handleApprove(transfer.id)}
+                        >
+                          <FiCheck size={12} />
+                          Approve
+                        </button>
+                      )}
                       <button
                         className="btn btn-danger"
                         style={{ padding: '4px 12px', fontSize: '12px' }}
@@ -1465,16 +1490,6 @@ function Transfers() {
                             </button>
                           </>
                         )}
-                        {canShip(transfer) && (
-                          <button
-                            className="btn"
-                            style={{ padding: '4px 8px', fontSize: '12px', backgroundColor: '#8b5cf6', color: 'white' }}
-                            onClick={() => handleShip(transfer.id)}
-                          >
-                            <FiTruck size={12} />
-                            Ship
-                          </button>
-                        )}
                         {canDeliver(transfer) && (
                           <button
                             className="btn btn-success"
@@ -1482,7 +1497,7 @@ function Transfers() {
                             onClick={() => handleDeliver(transfer.id)}
                           >
                             <FiCheckCircle size={12} />
-                            Received
+                            Receive
                           </button>
                         )}
                         {canUnreceive(transfer) && (

@@ -341,6 +341,7 @@ router.delete('/clean-history', auth, authorize('admin'), async (req, res) => {
 });
 
 // Approve transfer (admin or manager can approve based on requirements)
+// SIMPLIFIED WORKFLOW: Approval changes status to 'approved' and deducts inventory immediately
 router.post('/:id/approve', auth, authorize('admin', 'branch_manager'), async (req, res) => {
   const client = await pool.connect();
   
@@ -369,12 +370,6 @@ router.post('/:id/approve', auth, authorize('admin', 'branch_manager'), async (r
 
     // Check if this is a manager trying to approve
     if (req.user.role === 'branch_manager') {
-      // Managers can only approve staff transfers from their managed branches
-      if (!transferData.requires_manager_approval) {
-        await client.query('ROLLBACK');
-        return res.status(403).json({ error: 'Only admin can approve this transfer' });
-      }
-      
       // Check if manager has access to the source location
       const { hasLocationAccess } = require('../middleware/auth');
       const hasAccess = await hasLocationAccess(req.user.id, req.user.role, transferData.from_location_id);
@@ -383,62 +378,11 @@ router.post('/:id/approve', auth, authorize('admin', 'branch_manager'), async (r
         await client.query('ROLLBACK');
         return res.status(403).json({ error: 'You do not manage this branch' });
       }
-      
-      // Manager approval - update manager fields, still needs admin approval
-      const result = await client.query(
-        `UPDATE transfers 
-         SET manager_approved_by = $1, 
-             manager_approved_at = CURRENT_TIMESTAMP, 
-             updated_at = CURRENT_TIMESTAMP
-         WHERE id = $2 
-         RETURNING *`,
-        [req.user.id, id]
-      );
-
-      await client.query('COMMIT');
-      
-      // Log audit
-      await logAudit({
-        userId: req.user.id,
-        username: req.user.username,
-        action: 'TRANSFER_MANAGER_APPROVE',
-        tableName: 'transfers',
-        recordId: id,
-        newValues: result.rows[0],
-        ipAddress: req.ip,
-        userAgent: req.get('user-agent'),
-        description: `Manager approved staff transfer: ${transferData.description} (${transferData.quantity} ${transferData.unit})`
-      });
-      
-      // Notify admins
-      await notifyAdmins(
-        'transfer_pending',
-        'Transfer Ready for Admin Approval',
-        `Staff transfer (approved by manager) needs admin approval`,
-        '/transfers'
-      );
-      
-      return res.json({ 
-        ...result.rows[0], 
-        message: 'Transfer approved by manager. Now awaiting admin approval.' 
-      });
-    }
-
-    // Admin approval
-    // Admin can approve anything directly (bypass manager approval requirement)
-    if (req.user.role !== 'admin') {
-      // Non-admin (like manager) - check if staff transfer needs manager approval first
-      if (transferData.requires_manager_approval && !transferData.manager_approved_by) {
-        await client.query('ROLLBACK');
-        return res.status(400).json({ 
-          error: 'This staff transfer must be approved by a manager first' 
-        });
-      }
     }
 
     // Validate inventory still available - check total across all cost batches
     const inventory = await client.query(
-      'SELECT quantity FROM inventory WHERE location_id = $1 AND description = $2 AND unit = $3',
+      'SELECT * FROM inventory WHERE location_id = $1 AND description = $2 AND unit = $3 ORDER BY created_at ASC',
       [transferData.from_location_id, transferData.description, transferData.unit]
     );
 
@@ -460,10 +404,31 @@ router.post('/:id/approve', auth, authorize('admin', 'branch_manager'), async (r
       });
     }
 
-    // Update transfer to approved
+    // DEDUCT from source inventory using FIFO (First In First Out)
+    let remainingToDeduct = requiredQty;
+    for (const batch of inventory.rows) {
+      if (remainingToDeduct <= 0) break;
+      
+      const batchQty = parseFloat(batch.quantity);
+      if (batchQty <= 0) continue; // Skip empty batches
+      
+      const deductFromThisBatch = Math.min(batchQty, remainingToDeduct);
+      
+      await client.query(
+        'UPDATE inventory SET quantity = quantity - $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+        [deductFromThisBatch, batch.id]
+      );
+      
+      remainingToDeduct -= deductFromThisBatch;
+    }
+
+    // Update transfer to approved (inventory already deducted)
     const result = await client.query(
       `UPDATE transfers 
-       SET status = 'approved', approved_by = $1, approved_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+       SET status = 'approved', 
+           approved_by = $1, 
+           approved_at = CURRENT_TIMESTAMP, 
+           updated_at = CURRENT_TIMESTAMP
        WHERE id = $2 
        RETURNING *`,
       [req.user.id, id]
@@ -481,28 +446,19 @@ router.post('/:id/approve', auth, authorize('admin', 'branch_manager'), async (r
       newValues: result.rows[0],
       ipAddress: req.ip,
       userAgent: req.get('user-agent'),
-      description: `Approved transfer: ${transferData.description} (${transferData.quantity} ${transferData.unit})`
+      description: `Approved transfer: ${transferData.description} (${transferData.quantity} ${transferData.unit}) - Inventory deducted from source`
     });
     
-    // Notify requester about approval
-    await notifyLocation(
-      transferData.from_location_id,
-      'transfer_approved',
-      'Transfer Approved',
-      `Your transfer request has been approved and is ready to ship`,
-      '/transfers'
-    );
-    
-    // Notify destination branch that transfer is approved and will arrive soon
+    // Notify destination branch that transfer is approved and ready to receive
     await notifyLocation(
       transferData.to_location_id,
-      'transfer_incoming',
-      'Transfer Approved - Arriving Soon',
-      `A transfer from ${transferData.from_location_name || 'warehouse'} has been approved and will be arriving soon`,
+      'transfer_approved',
+      'Transfer Approved - Ready to Receive',
+      `A transfer of ${transferData.description} has been approved. Please receive it when it arrives.`,
       '/transfers'
     );
     
-    const message = 'Transfer approved. Ready to ship.';
+    const message = 'Transfer approved! Inventory deducted from source. Destination branch can now receive it.';
     
     res.json({ ...result.rows[0], message });
   } catch (error) {
@@ -737,9 +693,8 @@ router.post('/:id/ship', auth, authorize('admin', 'warehouse'), async (req, res)
   }
 });
 
-// Confirm delivery (branch manager confirms arrival)
-// NOTE: This endpoint is DEPRECATED - Use /deliveries/:id/accept instead
-// This is kept for backward compatibility but should check if delivery exists first
+// Confirm delivery (branch receives transfer)
+// SIMPLIFIED WORKFLOW: Destination branch receives approved transfer and inventory is added
 router.post('/:id/deliver', auth, authorize('admin', 'branch_manager'), async (req, res) => {
   const client = await pool.connect();
   
@@ -760,36 +715,25 @@ router.post('/:id/deliver', auth, authorize('admin', 'branch_manager'), async (r
 
     const transferData = transfer.rows[0];
 
-    if (transferData.status !== 'in_transit') {
+    if (transferData.status !== 'approved') {
       await client.query('ROLLBACK');
-      return res.status(400).json({ error: 'Transfer must be in transit before delivery confirmation' });
+      return res.status(400).json({ error: 'Transfer must be approved before receiving. Current status: ' + transferData.status });
     }
 
     // Check if user has access to destination location
-    if (req.user.role === 'branch_manager' && req.user.location_id != transferData.to_location_id) {
-      await client.query('ROLLBACK');
-      return res.status(403).json({ error: 'Access denied to destination location' });
+    if (req.user.role === 'branch_manager') {
+      const { hasLocationAccess } = require('../middleware/auth');
+      const hasAccess = await hasLocationAccess(req.user.id, req.user.role, transferData.to_location_id);
+      
+      if (!hasAccess) {
+        await client.query('ROLLBACK');
+        return res.status(403).json({ error: 'You do not manage the destination branch' });
+      }
     }
 
-    // Check if there's a linked delivery - if so, redirect to use delivery acceptance
-    const deliveryCheck = await client.query(
-      'SELECT id, status FROM deliveries WHERE transfer_id = $1',
-      [id]
-    );
-
-    if (deliveryCheck.rows.length > 0) {
-      const delivery = deliveryCheck.rows[0];
-      await client.query('ROLLBACK');
-      return res.status(400).json({ 
-        error: 'This transfer has a linked delivery. Please use the Deliveries page to accept it.',
-        deliveryId: delivery.id,
-        deliveryStatus: delivery.status
-      });
-    }
-
-    // Get the source inventory item to copy batch_number and expiry_date
+    // Get the source inventory item to copy batch_number and expiry_date (if still exists)
     const sourceInventory = await client.query(
-      'SELECT batch_number, expiry_date FROM inventory WHERE location_id = $1 AND description = $2 AND unit = $3',
+      'SELECT batch_number, expiry_date FROM inventory WHERE location_id = $1 AND description = $2 AND unit = $3 LIMIT 1',
       [transferData.from_location_id, transferData.description, transferData.unit]
     );
 
@@ -797,6 +741,8 @@ router.post('/:id/deliver', auth, authorize('admin', 'branch_manager'), async (r
     const expiryDate = sourceInventory.rows[0]?.expiry_date || null;
 
     // ADD to destination inventory with batch_number and expiry_date
+    const costBatchId = `BATCH-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    
     await client.query(
       `INSERT INTO inventory 
        (location_id, description, unit, quantity, unit_cost, suggested_selling_price, 
@@ -817,7 +763,7 @@ router.post('/:id/deliver', auth, authorize('admin', 'branch_manager'), async (r
         transferData.unit_cost, // suggested_selling_price same as unit_cost for transfers
         batchNumber, 
         expiryDate,
-        `BATCH-${Date.now()}-${Math.random().toString(36).substr(2, 9)}` // cost_batch_id
+        costBatchId
       ]
     );
 
@@ -842,10 +788,10 @@ router.post('/:id/deliver', auth, authorize('admin', 'branch_manager'), async (r
       newValues: result.rows[0],
       ipAddress: req.ip,
       userAgent: req.get('user-agent'),
-      description: `Delivered transfer: ${transferData.description} (${transferData.quantity} ${transferData.unit}) - Inventory added`
+      description: `Received transfer: ${transferData.description} (${transferData.quantity} ${transferData.unit}) - Inventory added to destination`
     });
     
-    // Notify source location (warehouse) that transfer is complete
+    // Notify source location that transfer is complete
     await notifyLocation(
       transferData.from_location_id,
       'transfer_completed',
