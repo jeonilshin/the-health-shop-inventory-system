@@ -107,6 +107,7 @@ router.post('/', auth, authorize('admin', 'warehouse'), async (req, res) => {
     });
 
     let result;
+    let createdNewBatch = false;
     
     if (exactMatch) {
       // Add to existing batch with same cost, price, AND expiry
@@ -119,6 +120,7 @@ router.post('/', auth, authorize('admin', 'warehouse'), async (req, res) => {
          RETURNING *`,
         [quantity, exactMatch.id]
       );
+      createdNewBatch = false;
     } else {
       // Create new batch for different cost, price, OR expiry date
       result = await pool.query(
@@ -131,6 +133,7 @@ router.post('/', auth, authorize('admin', 'warehouse'), async (req, res) => {
          expiry_date, batch_number, is_new_item || (existingItems.rows.length === 0), 
          is_new_cost || (existingItems.rows.length > 0), costBatchId]
       );
+      createdNewBatch = true;
     }
 
     // Log audit
@@ -143,7 +146,7 @@ router.post('/', auth, authorize('admin', 'warehouse'), async (req, res) => {
       newValues: result.rows[0],
       ipAddress: req.ip,
       userAgent: req.get('user-agent'),
-      description: `Added ${quantity} ${unit} of ${description} to inventory${shouldCreateNewBatch ? ' (new cost batch)' : ''}`
+      description: `Added ${quantity} ${unit} of ${description} to inventory${createdNewBatch ? ' (new cost batch)' : ''}`
     });
     
     res.status(201).json(result.rows[0]);
