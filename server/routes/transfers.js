@@ -405,6 +405,11 @@ router.post('/:id/approve', auth, authorize('admin', 'branch_manager'), async (r
     }
 
     // DEDUCT from source inventory using FIFO (First In First Out)
+    console.log(`[TRANSFER APPROVE] Starting inventory deduction for transfer #${id}`);
+    console.log(`[TRANSFER APPROVE] Need to deduct: ${requiredQty} ${transferData.unit} of ${transferData.description}`);
+    console.log(`[TRANSFER APPROVE] From location: ${transferData.from_location_id}`);
+    console.log(`[TRANSFER APPROVE] Found ${inventory.rows.length} batches at source`);
+    
     let remainingToDeduct = requiredQty;
     for (const batch of inventory.rows) {
       if (remainingToDeduct <= 0) break;
@@ -414,12 +419,24 @@ router.post('/:id/approve', auth, authorize('admin', 'branch_manager'), async (r
       
       const deductFromThisBatch = Math.min(batchQty, remainingToDeduct);
       
-      await client.query(
-        'UPDATE inventory SET quantity = quantity - $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+      console.log(`[TRANSFER APPROVE] Deducting ${deductFromThisBatch} from batch #${batch.id} (had ${batchQty})`);
+      
+      const updateResult = await client.query(
+        'UPDATE inventory SET quantity = quantity - $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 RETURNING *',
         [deductFromThisBatch, batch.id]
       );
       
+      console.log(`[TRANSFER APPROVE] After deduction, batch #${batch.id} now has: ${updateResult.rows[0].quantity}`);
+      
       remainingToDeduct -= deductFromThisBatch;
+    }
+    
+    console.log(`[TRANSFER APPROVE] Deduction complete. Remaining: ${remainingToDeduct} (should be 0)`);
+    
+    if (remainingToDeduct > 0) {
+      console.error(`[TRANSFER APPROVE] ERROR: Could not deduct full quantity! Remaining: ${remainingToDeduct}`);
+      await client.query('ROLLBACK');
+      return res.status(500).json({ error: 'Failed to deduct full quantity from inventory' });
     }
 
     // Update transfer to approved (inventory already deducted)
