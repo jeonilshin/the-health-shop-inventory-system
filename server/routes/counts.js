@@ -22,12 +22,26 @@ router.get('/', auth, async (req, res) => {
     );
     counts.messages = parseInt(messagesResult.rows[0].count);
 
-    // 2. Pending transfers count (admin only)
+    // 2. Pending transfers count (admin and branch_manager)
     if (req.user.role === 'admin') {
       const transfersResult = await pool.query(
         `SELECT COUNT(*) FROM transfers WHERE status = 'pending'`
       );
       counts.transfers = parseInt(transfersResult.rows[0].count);
+    } else if (req.user.role === 'branch_manager') {
+      // Branch manager: count pending transfers for their managed branches
+      const { getManagerLocations } = require('../middleware/auth');
+      const managerLocations = await getManagerLocations(req.user.id, req.user.location_id);
+      
+      if (managerLocations.length > 0) {
+        const transfersResult = await pool.query(
+          `SELECT COUNT(*) FROM transfers 
+           WHERE status = 'pending' 
+           AND to_location_id = ANY($1)`,
+          [managerLocations]
+        );
+        counts.transfers = parseInt(transfersResult.rows[0].count);
+      }
     }
 
     // 3. Deliveries count
@@ -56,12 +70,26 @@ router.get('/', auth, async (req, res) => {
       counts.discrepancies = parseInt(discrepanciesResult.rows[0].count);
     }
 
-    // 5. Pending sale cancellation requests (admin only)
+    // 5. Pending sale cancellation requests (admin and branch_manager)
     if (req.user.role === 'admin') {
       const cancelResult = await pool.query(
         `SELECT COUNT(*) FROM sales_transactions WHERE cancellation_status = 'pending'`
       );
       counts.sale_cancellations = parseInt(cancelResult.rows[0].count);
+    } else if (req.user.role === 'branch_manager') {
+      // Branch manager: count pending cancellations for their managed branches
+      const { getManagerLocations } = require('../middleware/auth');
+      const managerLocations = await getManagerLocations(req.user.id, req.user.location_id);
+      
+      if (managerLocations.length > 0) {
+        const cancelResult = await pool.query(
+          `SELECT COUNT(*) FROM sales_transactions 
+           WHERE cancellation_status = 'pending' 
+           AND location_id = ANY($1)`,
+          [managerLocations]
+        );
+        counts.sale_cancellations = parseInt(cancelResult.rows[0].count);
+      }
     }
 
     res.json(counts);

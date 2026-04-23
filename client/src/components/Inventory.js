@@ -13,6 +13,7 @@ function Inventory() {
   const [locations, setLocations] = useState([]);
   const [selectedLocation, setSelectedLocation] = useState('');
   const [inventory, setInventory] = useState([]);
+  const [allInventory, setAllInventory] = useState([]); // For branch selector stats
   const [filteredInventory, setFilteredInventory] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [showForm, setShowForm] = useState(false);
@@ -129,6 +130,8 @@ function Inventory() {
           if (availableLocations.length > 1) {
             setLocations(availableLocations);
             setSelectedLocation(''); // Empty means show branch selector
+            // Fetch all inventory for stats
+            fetchAllInventory();
           } else {
             setLocations(availableLocations);
             setSelectedLocation(availableLocations[0]?.id || user.location_id);
@@ -148,6 +151,8 @@ function Inventory() {
         // Admin sees all locations, start with branch selector
         setLocations(response.data);
         setSelectedLocation(''); // Empty means show branch selector
+        // Fetch all inventory for stats
+        fetchAllInventory();
       } else if (user.role === 'warehouse') {
         // Warehouse sees only their warehouse
         availableLocations = response.data.filter(loc => loc.id === user.location_id);
@@ -156,6 +161,15 @@ function Inventory() {
       }
     } catch (error) {
       alert('Error loading locations: ' + (error.response?.data?.error || error.message));
+    }
+  };
+
+  const fetchAllInventory = async () => {
+    try {
+      const response = await api.get('/inventory/all');
+      setAllInventory(response.data);
+    } catch (error) {
+      console.error('Error fetching all inventory:', error);
     }
   };
 
@@ -987,14 +1001,14 @@ function Inventory() {
                       <th>Location</th>
                       <th>Type</th>
                       <th>In Stock Items</th>
-                      <th>Total Value</th>
+                      {user.role === 'admin' && <th>Total Value</th>}
                       <th>Stock Alerts</th>
                       <th>Actions</th>
                     </tr>
                   </thead>
                   <tbody>
                     {locations.filter(loc => loc.id !== 'all').map(location => {
-                      const locationInventory = inventory.filter(item => item.location_id === location.id);
+                      const locationInventory = allInventory.filter(item => item.location_id === location.id);
                       const inStockItems = locationInventory.filter(item => parseFloat(item.quantity) > 0);
                       const totalItems = inStockItems.length;
                       const totalValue = inStockItems.reduce((sum, item) => 
@@ -1042,11 +1056,13 @@ function Inventory() {
                               {totalItems}
                             </div>
                           </td>
-                          <td>
-                            <div style={{ fontSize: '14px', fontWeight: '600' }}>
-                              ₱{formatPrice(totalValue)}
-                            </div>
-                          </td>
+                          {user.role === 'admin' && (
+                            <td>
+                              <div style={{ fontSize: '14px', fontWeight: '600' }}>
+                                ₱{formatPrice(totalValue)}
+                              </div>
+                            </td>
+                          )}
                           <td>
                             <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
                               {noStock > 0 && (
@@ -1097,7 +1113,7 @@ function Inventory() {
                 gap: '20px' 
               }}>
               {locations.filter(loc => loc.id !== 'all').map(location => {
-                const locationInventory = inventory.filter(item => item.location_id === location.id);
+                const locationInventory = allInventory.filter(item => item.location_id === location.id);
                 const inStockItems = locationInventory.filter(item => parseFloat(item.quantity) > 0);
                 const totalItems = inStockItems.length;
                 const totalValue = inStockItems.reduce((sum, item) => 
@@ -1187,14 +1203,16 @@ function Inventory() {
                           {totalItems}
                         </div>
                       </div>
-                      <div>
-                        <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '4px' }}>
-                          Total Value
+                      {user.role === 'admin' && (
+                        <div>
+                          <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '4px' }}>
+                            Total Value
+                          </div>
+                          <div style={{ fontSize: '16px', fontWeight: '700' }}>
+                            ₱{formatPrice(totalValue)}
+                          </div>
                         </div>
-                        <div style={{ fontSize: '16px', fontWeight: '700' }}>
-                          ₱{formatPrice(totalValue)}
-                        </div>
-                      </div>
+                      )}
                       {noStock > 0 && (
                         <div>
                           <div style={{ 
@@ -1468,27 +1486,29 @@ function Inventory() {
                 {filteredInventory.filter(item => parseFloat(item.quantity) > 0).length}
               </div>
             </div>
-            <div style={{ 
-              padding: '16px', 
-              background: 'var(--bg-secondary)', 
-              borderRadius: 'var(--radius)',
-              border: '1px solid var(--border)'
-            }}>
-              <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '4px' }}>
-                Total Value (In Stock)
+            {user.role === 'admin' && (
+              <div style={{ 
+                padding: '16px', 
+                background: 'var(--bg-secondary)', 
+                borderRadius: 'var(--radius)',
+                border: '1px solid var(--border)'
+              }}>
+                <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '4px' }}>
+                  Total Value (In Stock)
+                </div>
+                <div style={{ fontSize: '24px', fontWeight: '700' }}>
+                  {inventoryLoading ? (
+                    <PriceSkeleton width="120px" />
+                  ) : (
+                    `₱${formatPrice(
+                      filteredInventory
+                        .filter(item => parseFloat(item.quantity) > 0)
+                        .reduce((sum, item) => sum + (parseFloat(item.quantity) * parseFloat(item.unit_cost)), 0)
+                    )}`
+                  )}
+                </div>
               </div>
-              <div style={{ fontSize: '24px', fontWeight: '700' }}>
-                {inventoryLoading ? (
-                  <PriceSkeleton width="120px" />
-                ) : (
-                  `₱${formatPrice(
-                    filteredInventory
-                      .filter(item => parseFloat(item.quantity) > 0)
-                      .reduce((sum, item) => sum + (parseFloat(item.quantity) * parseFloat(item.unit_cost)), 0)
-                  )}`
-                )}
-              </div>
-            </div>
+            )}
           </div>
         )}
 
