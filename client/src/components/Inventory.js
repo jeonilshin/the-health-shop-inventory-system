@@ -993,7 +993,7 @@ function Inventory() {
                     </tr>
                   </thead>
                   <tbody>
-                    {locations.map(location => {
+                    {locations.filter(loc => loc.id !== 'all').map(location => {
                       const locationInventory = inventory.filter(item => item.location_id === location.id);
                       const inStockItems = locationInventory.filter(item => parseFloat(item.quantity) > 0);
                       const totalItems = inStockItems.length;
@@ -1096,7 +1096,7 @@ function Inventory() {
                 gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', 
                 gap: '20px' 
               }}>
-              {locations.map(location => {
+              {locations.filter(loc => loc.id !== 'all').map(location => {
                 const locationInventory = inventory.filter(item => item.location_id === location.id);
                 const inStockItems = locationInventory.filter(item => parseFloat(item.quantity) > 0);
                 const totalItems = inStockItems.length;
