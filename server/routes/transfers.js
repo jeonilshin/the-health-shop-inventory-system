@@ -1134,7 +1134,9 @@ router.get('/', auth, async (req, res) => {
     res.json(result.rows);
   } catch (error) {
     console.error('Error fetching transfers:', error);
-    res.status(500).json({ error: error.message });
+    console.error('Query:', query);
+    console.error('Params:', params);
+    res.status(500).json({ error: error.message, details: error.stack });
   }
 });
 

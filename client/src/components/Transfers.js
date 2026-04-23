@@ -130,7 +130,10 @@ function Transfers() {
       // Set empty array on error to prevent crashes
       setTransfers([]);
       if (error.response?.status === 500) {
-        alert('Database error: Please check backend logs. The users table may be missing the full_name column.');
+        const errorMsg = error.response?.data?.error || 'Unknown database error';
+        console.error('Transfers fetch error:', errorMsg);
+        console.error('Full error:', error.response?.data);
+        alert(`Database error: ${errorMsg}\n\nPlease check the browser console and server logs for details.`);
       }
     }
   };
