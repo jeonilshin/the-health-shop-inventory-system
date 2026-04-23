@@ -1080,9 +1080,18 @@ router.get('/', auth, async (req, res) => {
 
     // Filter by user role and location
     if (req.user.role === 'branch_manager') {
-      query += ` AND (t.from_location_id = $${paramCount} OR t.to_location_id = $${paramCount})`;
-      params.push(req.user.location_id);
-      paramCount++;
+      // Get all managed branches for the manager
+      const { getManagerLocations } = require('../middleware/auth');
+      const managerLocations = await getManagerLocations(req.user.id, req.user.location_id);
+      
+      if (managerLocations.length > 0) {
+        query += ` AND (t.from_location_id = ANY($${paramCount}) OR t.to_location_id = ANY($${paramCount}))`;
+        params.push(managerLocations);
+        paramCount++;
+      } else {
+        // Manager has no branches assigned, return empty
+        return res.json([]);
+      }
     } else if (req.user.role === 'warehouse') {
       query += ` AND t.from_location_id = $${paramCount}`;
       params.push(req.user.location_id);

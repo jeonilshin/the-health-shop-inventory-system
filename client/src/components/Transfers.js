@@ -602,8 +602,8 @@ function Transfers() {
 
   const getFilteredTransfers = () => {
     let filtered = transfers.filter(transfer => {
-      // For admin, exclude pending transfers from history
-      if (user.role === 'admin' && transfer.status === 'pending') {
+      // For admin and managers, exclude pending transfers from history (they go in Pending Approvals section)
+      if ((user.role === 'admin' || user.role === 'branch_manager') && transfer.status === 'pending') {
         return false;
       }
       
