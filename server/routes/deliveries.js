@@ -505,6 +505,11 @@ router.post('/:id/accept', auth, authorize('admin', 'branch_manager', 'branch_st
       });
     }
 
+    // TEMPORARILY DISABLED: Manager approval requirement
+    // Staff can now directly accept deliveries and add to inventory
+    // TODO: Re-enable manager approval workflow later
+    
+    /*
     // If staff is accepting, mark as requiring manager confirmation
     if (req.user.role === 'branch_staff') {
       // Update delivery to require manager confirmation
@@ -542,8 +547,9 @@ router.post('/:id/accept', auth, authorize('admin', 'branch_manager', 'branch_st
       
       return res.json({ message: 'Delivery accepted by staff. Awaiting manager confirmation to complete transfer.' });
     }
+    */
 
-    // Manager or Admin accepting - complete the delivery
+    // Manager, Admin, or Staff accepting - complete the delivery immediately
     // Add items to destination inventory
     for (const item of delivery.rows) {
       if (item.description) {
