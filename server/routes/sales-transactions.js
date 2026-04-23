@@ -564,28 +564,9 @@ router.post('/:id/cancel', auth, authorize('admin', 'branch_manager', 'branch_st
 router.put('/:id/cancel/approve', auth, authorize('admin', 'branch_manager'), async (req, res) => {
   try {
     const { id } = req.params;
-    
-    // Get the sale to check location access for managers
-    const saleCheck = await pool.query(
-      'SELECT location_id FROM sales_transactions WHERE id = $1',
-      [id]
-    );
-    
-    if (saleCheck.rows.length === 0) {
-      return res.status(404).json({ error: 'Sale not found' });
-    }
-    
-    // Check if manager has access to this location
-    if (req.user.role === 'branch_manager') {
-      const { hasLocationAccess } = require('../middleware/auth');
-      const hasAccess = await hasLocationAccess(req.user.id, req.user.role, saleCheck.rows[0].location_id);
-      
-      if (!hasAccess) {
-        return res.status(403).json({ error: 'You do not manage this branch' });
-      }
-    }
     const { admin_note } = req.body;
 
+    // Get the sale
     const saleResult = await pool.query(
       'SELECT * FROM sales_transactions WHERE id = $1',
       [id]
@@ -596,6 +577,16 @@ router.put('/:id/cancel/approve', auth, authorize('admin', 'branch_manager'), as
     }
 
     const sale = saleResult.rows[0];
+    
+    // Check if manager has access to this location
+    if (req.user.role === 'branch_manager') {
+      const { hasLocationAccess } = require('../middleware/auth');
+      const hasAccess = await hasLocationAccess(req.user.id, req.user.role, sale.location_id);
+      
+      if (!hasAccess) {
+        return res.status(403).json({ error: 'You do not manage this branch' });
+      }
+    }
 
     if (sale.cancellation_status !== 'pending') {
       return res.status(400).json({ error: 'No pending cancellation for this sale' });
@@ -665,13 +656,6 @@ router.put('/:id/cancel/reject', auth, authorize('admin', 'branch_manager'), asy
         return res.status(403).json({ error: 'You do not manage this branch' });
       }
     }
-
-    if (saleResult.rows.length === 0) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({ error: 'Sale not found' });
-    }
-
-    const sale = saleResult.rows[0];
 
     if (sale.cancellation_status !== 'pending') {
       await client.query('ROLLBACK');
