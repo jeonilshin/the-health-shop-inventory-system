@@ -2352,36 +2352,66 @@ function Inventory() {
                                   </span>
                                 </td>
                                 <td style={{ fontSize: '11px' }} colSpan={1 + adminEmptyCols}>
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                    <span style={{ color: 'var(--text-muted)', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                                      Expiry:
-                                    </span>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                                     {isEditing && user.role === 'admin' ? (
-                                      <input
-                                        type="date"
-                                        value={batchEditData.expiry_date && batchEditData.expiry_date !== '' ? new Date(batchEditData.expiry_date).toISOString().split('T')[0] : ''}
-                                        onChange={(e) => setBatchEditData({...batchEditData, expiry_date: e.target.value})}
-                                        style={{
-                                          width: '150px',
-                                          padding: '4px 8px',
-                                          fontSize: '11px',
-                                          border: '2px solid var(--primary)',
-                                          borderRadius: 'var(--radius)',
-                                          background: 'var(--bg-primary)',
-                                          color: 'var(--text-primary)'
-                                        }}
-                                      />
+                                      <>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                          <span style={{ color: 'var(--text-muted)', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                                            Qty:
+                                          </span>
+                                          <input
+                                            type="number"
+                                            step="0.01"
+                                            min="0"
+                                            value={batchEditData.quantity}
+                                            onChange={(e) => setBatchEditData({...batchEditData, quantity: e.target.value})}
+                                            style={{
+                                              width: '80px',
+                                              padding: '4px 8px',
+                                              fontSize: '11px',
+                                              border: '2px solid var(--primary)',
+                                              borderRadius: 'var(--radius)',
+                                              background: 'var(--bg-primary)',
+                                              color: 'var(--text-primary)'
+                                            }}
+                                          />
+                                        </div>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                          <span style={{ color: 'var(--text-muted)', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                                            Expiry:
+                                          </span>
+                                          <input
+                                            type="date"
+                                            value={batchEditData.expiry_date && batchEditData.expiry_date !== '' ? new Date(batchEditData.expiry_date).toISOString().split('T')[0] : ''}
+                                            onChange={(e) => setBatchEditData({...batchEditData, expiry_date: e.target.value})}
+                                            style={{
+                                              width: '150px',
+                                              padding: '4px 8px',
+                                              fontSize: '11px',
+                                              border: '2px solid var(--primary)',
+                                              borderRadius: 'var(--radius)',
+                                              background: 'var(--bg-primary)',
+                                              color: 'var(--text-primary)'
+                                            }}
+                                          />
+                                        </div>
+                                      </>
                                     ) : (
-                                      expiryDate ? (
-                                        <span style={{
-                                          color: isExpired ? '#ef4444' : isExpiringSoon ? '#f59e0b' : 'var(--text-primary)',
-                                          fontWeight: 600
-                                        }}>
-                                          {expiryDate.toLocaleDateString()}
-                                          {isExpired && ' (Expired)'}
-                                          {isExpiringSoon && ` (${daysUntilExpiry}d left)`}
+                                      <>
+                                        <span style={{ color: 'var(--text-muted)', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                                          Expiry:
                                         </span>
-                                      ) : <span style={{ color: 'var(--text-muted)' }}>-</span>
+                                        {expiryDate ? (
+                                          <span style={{
+                                            color: isExpired ? '#ef4444' : isExpiringSoon ? '#f59e0b' : 'var(--text-primary)',
+                                            fontWeight: 600
+                                          }}>
+                                            {expiryDate.toLocaleDateString()}
+                                            {isExpired && ' (Expired)'}
+                                            {isExpiringSoon && ` (${daysUntilExpiry}d left)`}
+                                          </span>
+                                        ) : <span style={{ color: 'var(--text-muted)' }}>-</span>}
+                                      </>
                                     )}
                                   </div>
                                 </td>
@@ -2413,7 +2443,7 @@ function Inventory() {
                                             className="btn btn-primary"
                                             style={{ padding: '4px 8px', fontSize: '10px' }}
                                             onClick={() => handleEditBatch(batch)}
-                                            title="Edit Batch Expiry"
+                                            title="Edit Batch Quantity & Expiry"
                                           >
                                             <FiEdit2 size={10} />
                                           </button>
