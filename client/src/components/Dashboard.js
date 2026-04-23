@@ -79,18 +79,39 @@ function Dashboard() {
         api.get('/export/analytics').catch(() => ({ data: {} })),
       ]);
 
-      const isBranch = user.role === 'branch_manager' || user.role === 'branch_staff';
+      // For branch managers, get all their managed branches
+      let managerLocationIds = [];
+      if (user.role === 'branch_manager') {
+        try {
+          const managerBranchesRes = await api.get(`/users/${user.id}/branches`);
+          managerLocationIds = managerBranchesRes.data.map(b => b.location_id);
+          // Include primary location too
+          managerLocationIds = [...new Set([user.location_id, ...managerLocationIds])];
+        } catch (error) {
+          // Fallback to primary location only
+          managerLocationIds = [user.location_id];
+        }
+      }
 
-      const filteredSummary = isBranch
+      const isBranchStaff = user.role === 'branch_staff';
+      const isBranchManager = user.role === 'branch_manager';
+
+      const filteredSummary = isBranchStaff
         ? summaryRes.data.filter(i => i.location_id === user.location_id)
+        : isBranchManager
+        ? summaryRes.data.filter(i => managerLocationIds.includes(i.location_id))
         : summaryRes.data;
 
-      const filteredLowStock = isBranch
+      const filteredLowStock = isBranchStaff
         ? lowStockRes.data.filter(i => i.location_id === user.location_id)
+        : isBranchManager
+        ? lowStockRes.data.filter(i => managerLocationIds.includes(i.location_id))
         : lowStockRes.data;
 
-      const filteredExpiring = isBranch
+      const filteredExpiring = isBranchStaff
         ? expiringRes.data.filter(i => i.location_id === user.location_id)
+        : isBranchManager
+        ? expiringRes.data.filter(i => managerLocationIds.includes(i.location_id))
         : expiringRes.data;
 
       const outOfStockItems = filteredLowStock.filter(i => parseFloat(i.quantity) === 0);
@@ -218,9 +239,14 @@ function Dashboard() {
           </div>
           <p className="page-subtitle">
             Welcome back, <strong>{user?.full_name}</strong>
-            {(user?.role === 'branch_manager' || user?.role === 'branch_staff') && summary.length > 0 && (
+            {user?.role === 'branch_staff' && summary.length > 0 && (
               <span style={{ marginLeft: '8px', color: 'var(--primary)', fontWeight: 600 }}>
                 · {summary[0]?.location_name}
+              </span>
+            )}
+            {user?.role === 'branch_manager' && summary.length > 0 && (
+              <span style={{ marginLeft: '8px', color: 'var(--primary)', fontWeight: 600 }}>
+                · Managing {summary.length} branch{summary.length !== 1 ? 'es' : ''}
               </span>
             )}
             {lastUpdated && (
