@@ -370,17 +370,6 @@ function Transfers() {
     }
   };
 
-  const handleShip = async (id) => {
-    if (!window.confirm('Mark this transfer as shipped? Inventory will be deducted from source.')) return;
-    try {
-      await api.post(`/transfers/${id}/ship`);
-      fetchTransfers();
-      alert('Transfer marked as shipped! Inventory has been deducted.');
-    } catch (error) {
-      alert(error.response?.data?.error || 'Error shipping transfer');
-    }
-  };
-
   const handleDeliver = async (id) => {
     if (!window.confirm('Confirm that you have received this transfer? Inventory will be added to your location.')) return;
     try {
