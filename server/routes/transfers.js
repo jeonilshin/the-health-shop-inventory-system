@@ -425,12 +425,15 @@ router.post('/:id/approve', auth, authorize('admin', 'branch_manager'), async (r
     }
 
     // Admin approval
-    // Check if staff transfer needs manager approval first
-    if (transferData.requires_manager_approval && !transferData.manager_approved_by) {
-      await client.query('ROLLBACK');
-      return res.status(400).json({ 
-        error: 'This staff transfer must be approved by a manager first' 
-      });
+    // Admin can approve anything directly (bypass manager approval requirement)
+    if (req.user.role !== 'admin') {
+      // Non-admin (like manager) - check if staff transfer needs manager approval first
+      if (transferData.requires_manager_approval && !transferData.manager_approved_by) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ 
+          error: 'This staff transfer must be approved by a manager first' 
+        });
+      }
     }
 
     // Validate inventory still available - check total across all cost batches
@@ -1156,9 +1159,14 @@ router.get('/:id/items', auth, async (req, res) => {
   }
 });
 
-// Get pending transfers (for approval - admin only)
-router.get('/pending', auth, authorize('admin'), async (req, res) => {
+// Get pending transfers (for approval - admin and branch_manager)
+router.get('/pending', auth, async (req, res) => {
   try {
+    // Only admin and branch_manager can see pending approvals
+    if (req.user.role !== 'admin' && req.user.role !== 'branch_manager') {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
     let query = `
       SELECT t.*, 
              fl.name as from_location_name, 
@@ -1171,6 +1179,24 @@ router.get('/pending', auth, authorize('admin'), async (req, res) => {
       WHERE t.status = 'pending'
     `;
     
+    // For branch managers, only show transfers from their managed branches
+    if (req.user.role === 'branch_manager') {
+      const { getManagerLocations } = require('../middleware/auth');
+      const managerLocations = await getManagerLocations(req.user.id, req.user.location_id);
+      
+      if (managerLocations.length > 0) {
+        query += ` AND (t.from_location_id = ANY($1) OR t.to_location_id = ANY($1))`;
+        query += ' ORDER BY t.created_at ASC';
+        
+        const result = await pool.query(query, [managerLocations]);
+        return res.json(result.rows);
+      } else {
+        // Manager has no branches assigned
+        return res.json([]);
+      }
+    }
+    
+    // Admin sees all pending transfers
     query += ' ORDER BY t.created_at ASC';
     
     const result = await pool.query(query);
