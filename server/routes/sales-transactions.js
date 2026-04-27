@@ -161,41 +161,37 @@ router.post('/', auth, authorize('admin', 'warehouse', 'branch_manager', 'branch
 
     const grossAmount = parseFloat(quantity_sold) * parseFloat(unit_price);
     
+    // Round to 2 decimal places (centavos) — preserves actual computed value, no peso rounding
+    const round2 = (n) => Math.round(n * 100) / 100;
+
     if (discount_type === 'pwd') {
       discount_percent = 20;
       final_discount_reason = discount_reason || 'PWD Discount';
-      
-      // Philippine PWD Formula:
-      // 1. Remove VAT: Price / 1.12
+
+      // Philippine PWD: 20% off net of VAT
       const netOfVat = grossAmount / 1.12;
-      // 2. Calculate 20% discount on net of VAT
-      discount_amount = netOfVat * 0.20;
-      // 3. Subtract discount from original price and round off
-      total_amount = Math.round(grossAmount - discount_amount);
-      
+      discount_amount = round2(netOfVat * 0.20);
+      total_amount = round2(grossAmount - discount_amount);
+
     } else if (discount_type === 'senior') {
       discount_percent = 20;
       final_discount_reason = discount_reason || 'Senior Citizen Discount';
-      
-      // Philippine Senior Citizen Formula:
-      // 1. Remove VAT: Price / 1.12
+
+      // Philippine Senior Citizen: 20% off net of VAT
       const netOfVat = grossAmount / 1.12;
-      // 2. Calculate 20% discount on net of VAT
-      discount_amount = netOfVat * 0.20;
-      // 3. Subtract discount from original price and round off
-      total_amount = Math.round(grossAmount - discount_amount);
-      
+      discount_amount = round2(netOfVat * 0.20);
+      total_amount = round2(grossAmount - discount_amount);
+
     } else if (discount_type === 'custom' && custom_discount_percent) {
       discount_percent = parseFloat(custom_discount_percent);
       final_discount_reason = discount_reason || 'Custom Discount';
-      
-      // Custom discount: simple percentage off and round off
-      discount_amount = grossAmount * (discount_percent / 100);
-      total_amount = Math.round(grossAmount - discount_amount);
-      
+
+      discount_amount = round2(grossAmount * (discount_percent / 100));
+      total_amount = round2(grossAmount - discount_amount);
+
     } else {
       // No discount
-      total_amount = grossAmount;
+      total_amount = round2(grossAmount);
     }
     
     // Insert sales transaction
