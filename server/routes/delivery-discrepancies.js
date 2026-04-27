@@ -58,7 +58,7 @@ router.get('/pending-count', auth, authorize('admin'), async (req, res) => {
 });
 
 // ── POST create discrepancy (shortage, return, or damage) ──────────────────
-router.post('/', auth, authorize('admin', 'branch_manager', 'warehouse'), async (req, res) => {
+router.post('/', auth, authorize('admin', 'branch_manager', 'branch_staff', 'warehouse'), async (req, res) => {
   try {
     const {
       type,

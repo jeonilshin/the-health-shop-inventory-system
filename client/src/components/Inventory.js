@@ -1001,7 +1001,7 @@ function Inventory() {
                       <th>Location</th>
                       <th>Type</th>
                       <th>In Stock Items</th>
-                      {user.role === 'admin' && <th>Total Value</th>}
+                      {(user.role === 'admin' || user.role === 'branch_manager') && <th>Total Value</th>}
                       <th>Stock Alerts</th>
                       <th>Actions</th>
                     </tr>
@@ -1056,7 +1056,7 @@ function Inventory() {
                               {totalItems}
                             </div>
                           </td>
-                          {user.role === 'admin' && (
+                          {(user.role === 'admin' || user.role === 'branch_manager') && (
                             <td>
                               <div style={{ fontSize: '14px', fontWeight: '600' }}>
                                 ₱{formatPrice(totalValue)}
@@ -1203,7 +1203,7 @@ function Inventory() {
                           {totalItems}
                         </div>
                       </div>
-                      {user.role === 'admin' && (
+                      {(user.role === 'admin' || user.role === 'branch_manager') && (
                         <div>
                           <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '4px' }}>
                             Total Value

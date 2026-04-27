@@ -203,7 +203,7 @@ function Deliveries() {
 
   const canReportIssue = (delivery) =>
     delivery.status === 'delivered' &&
-    (user.role === 'branch_manager' || user.role === 'admin');
+    (user.role === 'branch_manager' || user.role === 'branch_staff' || user.role === 'admin');
 
   const isBranch = user.role === 'branch_manager' || user.role === 'branch_staff';
 
@@ -240,7 +240,7 @@ function Deliveries() {
           <h2 style={{ margin: 0 }}>Delivery Management</h2>
         </div>
 
-        {user.role === 'branch_manager' && (
+        {(user.role === 'branch_manager' || user.role === 'branch_staff') && (
           <button
             className="btn"
             style={{
@@ -527,7 +527,7 @@ function Deliveries() {
                   <th>Status</th>
                   <th>Created By</th>
                   {user.role === 'admin' && <th>Confirmed By</th>}
-                  {(user.role === 'branch_manager' || user.role === 'admin') && <th>Actions</th>}
+                  {(user.role === 'branch_manager' || user.role === 'branch_staff' || user.role === 'admin') && <th>Actions</th>}
                 </tr>
               </thead>
               <tbody>
@@ -597,7 +597,7 @@ function Deliveries() {
                         {delivery.admin_confirmed_by_name || '-'}
                       </td>
                     )}
-                    {(user.role === 'branch_manager' || user.role === 'admin') && (
+                    {(user.role === 'branch_manager' || user.role === 'branch_staff' || user.role === 'admin') && (
                       <td>
                         {canReportIssue(delivery) && (
                           <div style={{ position: 'relative', display: 'inline-block' }}>

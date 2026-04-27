@@ -4,14 +4,36 @@ const pool = require('../config/database');
 const { auth, authorize } = require('../middleware/auth');
 const { logAudit } = require('../middleware/auditLog');
 
-// Get all inventory across all locations (admin only)
-router.get('/all', auth, authorize('admin'), async (req, res) => {
+// Get all inventory across all locations
+// Admin: every location. Branch manager: every branch they're assigned to (manager_branches + primary).
+router.get('/all', auth, authorize('admin', 'branch_manager'), async (req, res) => {
   try {
+    if (req.user.role === 'admin') {
+      const result = await pool.query(
+        `SELECT i.*, l.name as location_name, l.type as location_type
+         FROM inventory i
+         JOIN locations l ON i.location_id = l.id
+         ORDER BY l.type DESC, l.name, i.description`
+      );
+      return res.json(result.rows);
+    }
+
+    // branch_manager: filter to assigned branches
+    const { getManagerLocations } = require('../middleware/auth');
+    const managerLocations = await getManagerLocations(req.user.id, 'branch_manager');
+    const locationIds = managerLocations.map(l => l.id);
+
+    if (locationIds.length === 0) {
+      return res.json([]);
+    }
+
     const result = await pool.query(
       `SELECT i.*, l.name as location_name, l.type as location_type
        FROM inventory i
        JOIN locations l ON i.location_id = l.id
-       ORDER BY l.type DESC, l.name, i.description`
+       WHERE i.location_id = ANY($1)
+       ORDER BY l.type DESC, l.name, i.description`,
+      [locationIds]
     );
     res.json(result.rows);
   } catch (error) {
@@ -23,9 +45,11 @@ router.get('/all', auth, authorize('admin'), async (req, res) => {
 router.get('/location/:locationId', auth, async (req, res) => {
   try {
     const { locationId } = req.params;
-    
-    // Check if user has access to this location
-    if (req.user.role !== 'admin' && req.user.location_id != locationId) {
+
+    // Access check: admin → all; branch_manager → primary or assigned branches; others → primary only
+    const { hasLocationAccess } = require('../middleware/auth');
+    const allowed = await hasLocationAccess(req.user.id, req.user.role, locationId);
+    if (!allowed) {
       return res.status(403).json({ error: 'Access denied to this location' });
     }
 
@@ -397,9 +421,10 @@ router.post('/convert-units', auth, authorize('admin', 'branch_manager', 'branch
 router.get('/conversion-history/:locationId', auth, authorize('admin', 'branch_manager', 'branch_staff'), async (req, res) => {
   try {
     const { locationId } = req.params;
-    
-    // Check if user has access to this location
-    if (req.user.role !== 'admin' && req.user.location_id != locationId) {
+
+    const { hasLocationAccess } = require('../middleware/auth');
+    const allowed = await hasLocationAccess(req.user.id, req.user.role, locationId);
+    if (!allowed) {
       return res.status(403).json({ error: 'Access denied to this location' });
     }
     
@@ -563,9 +588,10 @@ router.post('/undo-conversion/:auditId', auth, authorize('admin', 'branch_manage
 router.get('/cost-batches/:locationId/:description/:unit', auth, async (req, res) => {
   try {
     const { locationId, description, unit } = req.params;
-    
-    // Check if user has access to this location
-    if (req.user.role !== 'admin' && req.user.location_id != locationId) {
+
+    const { hasLocationAccess } = require('../middleware/auth');
+    const allowed = await hasLocationAccess(req.user.id, req.user.role, locationId);
+    if (!allowed) {
       return res.status(403).json({ error: 'Access denied to this location' });
     }
 
@@ -588,9 +614,10 @@ router.get('/cost-batches/:locationId/:description/:unit', auth, async (req, res
 router.get('/expiry-batches/:locationId/:description/:unit', auth, async (req, res) => {
   try {
     const { locationId, description, unit } = req.params;
-    
-    // Check if user has access to this location
-    if (req.user.role !== 'admin' && req.user.location_id != locationId) {
+
+    const { hasLocationAccess } = require('../middleware/auth');
+    const allowed = await hasLocationAccess(req.user.id, req.user.role, locationId);
+    if (!allowed) {
       return res.status(403).json({ error: 'Access denied to this location' });
     }
 
@@ -683,25 +710,31 @@ router.get('/expiring/:days', auth, async (req, res) => {
   try {
     const { days } = req.params;
     const daysInt = parseInt(days) || 30;
-    
+
     let query = `
       SELECT i.*, l.name as location_name, l.type as location_type
       FROM inventory i
       JOIN locations l ON i.location_id = l.id
-      WHERE i.expiry_date IS NOT NULL 
+      WHERE i.expiry_date IS NOT NULL
         AND i.expiry_date <= CURRENT_DATE + INTERVAL '${daysInt} days'
         AND i.quantity > 0
     `;
-    
-    // Filter by location for non-admin users
+
     const params = [];
-    if (req.user.role !== 'admin' && req.user.location_id) {
+    if (req.user.role === 'branch_manager') {
+      const { getManagerLocations } = require('../middleware/auth');
+      const managerLocations = await getManagerLocations(req.user.id, 'branch_manager');
+      const locationIds = managerLocations.map(l => l.id);
+      if (locationIds.length === 0) return res.json([]);
+      query += ' AND i.location_id = ANY($1)';
+      params.push(locationIds);
+    } else if (req.user.role !== 'admin' && req.user.location_id) {
       query += ' AND i.location_id = $1';
       params.push(req.user.location_id);
     }
-    
+
     query += ' ORDER BY i.expiry_date ASC';
-    
+
     const result = await pool.query(query, params);
     res.json(result.rows);
   } catch (error) {
@@ -716,20 +749,26 @@ router.get('/expired', auth, async (req, res) => {
       SELECT i.*, l.name as location_name, l.type as location_type
       FROM inventory i
       JOIN locations l ON i.location_id = l.id
-      WHERE i.expiry_date IS NOT NULL 
+      WHERE i.expiry_date IS NOT NULL
         AND i.expiry_date < CURRENT_DATE
         AND i.quantity > 0
     `;
-    
-    // Filter by location for non-admin users
+
     const params = [];
-    if (req.user.role !== 'admin' && req.user.location_id) {
+    if (req.user.role === 'branch_manager') {
+      const { getManagerLocations } = require('../middleware/auth');
+      const managerLocations = await getManagerLocations(req.user.id, 'branch_manager');
+      const locationIds = managerLocations.map(l => l.id);
+      if (locationIds.length === 0) return res.json([]);
+      query += ' AND i.location_id = ANY($1)';
+      params.push(locationIds);
+    } else if (req.user.role !== 'admin' && req.user.location_id) {
       query += ' AND i.location_id = $1';
       params.push(req.user.location_id);
     }
-    
+
     query += ' ORDER BY i.expiry_date ASC';
-    
+
     const result = await pool.query(query, params);
     res.json(result.rows);
   } catch (error) {
@@ -807,7 +846,9 @@ router.get('/history/:id', auth, async (req, res) => {
     const item = itemResult.rows[0];
     const locationId = item.location_id;
 
-    if (req.user.role !== 'admin' && req.user.location_id != locationId) {
+    const { hasLocationAccess } = require('../middleware/auth');
+    const allowed = await hasLocationAccess(req.user.id, req.user.role, locationId);
+    if (!allowed) {
       return res.status(403).json({ error: 'Access denied' });
     }
 
@@ -922,7 +963,9 @@ router.get('/location-history/:locationId', auth, async (req, res) => {
   try {
     const { locationId } = req.params;
 
-    if (req.user.role !== 'admin' && req.user.location_id != locationId) {
+    const { hasLocationAccess } = require('../middleware/auth');
+    const allowed = await hasLocationAccess(req.user.id, req.user.role, locationId);
+    if (!allowed) {
       return res.status(403).json({ error: 'Access denied' });
     }
 
