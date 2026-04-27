@@ -874,7 +874,6 @@ function Transfers() {
           </table>
         </div>
       )}
-
       
       <div className="card">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '10px' }}>
