@@ -953,9 +953,15 @@ function Transfers() {
                 style={{ width: '100%' }}
               >
                 <option value="">All</option>
-                {locations.map(loc => (
-                  <option key={loc.id} value={loc.id}>{loc.name}</option>
-                ))}
+                {locations
+                  .filter(loc =>
+                    user.role === 'admin' ||
+                    user.role === 'branch_manager' ||
+                    loc.id === user.location_id
+                  )
+                  .map(loc => (
+                    <option key={loc.id} value={loc.id}>{loc.name}</option>
+                  ))}
               </select>
             </div>
             <div className="form-group" style={{ marginBottom: 0 }}>
@@ -1079,11 +1085,17 @@ function Transfers() {
                 required
               >
                 <option value="">Select source location</option>
-                {locations.map((loc) => (
-                  <option key={loc.id} value={loc.id}>
-                    {loc.name} ({loc.type})
-                  </option>
-                ))}
+                {locations
+                  .filter(loc =>
+                    user.role === 'admin' ||
+                    user.role === 'branch_manager' ||
+                    loc.id === user.location_id
+                  )
+                  .map((loc) => (
+                    <option key={loc.id} value={loc.id}>
+                      {loc.name} ({loc.type})
+                    </option>
+                  ))}
               </select>
             </div>
 
@@ -1816,7 +1828,13 @@ function Transfers() {
                   <label style={{ fontSize: '12px' }}>From Location</label>
                   <select value={historyModalFilter.from} onChange={e => setHistoryModalFilter(f => ({ ...f, from: e.target.value }))} style={{ width: '100%', fontSize: '13px' }}>
                     <option value="">All</option>
-                    {locations.map(loc => <option key={loc.id} value={loc.id}>{loc.name}</option>)}
+                    {locations
+                      .filter(loc =>
+                        user.role === 'admin' ||
+                        user.role === 'branch_manager' ||
+                        loc.id === user.location_id
+                      )
+                      .map(loc => <option key={loc.id} value={loc.id}>{loc.name}</option>)}
                   </select>
                 </div>
                 <div className="form-group" style={{ marginBottom: 0 }}>
