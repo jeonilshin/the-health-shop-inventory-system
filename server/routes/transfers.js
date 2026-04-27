@@ -1054,7 +1054,7 @@ router.get('/', auth, async (req, res) => {
       // Get all managed branches for the manager
       const { getManagerLocations } = require('../middleware/auth');
       const managerLocations = await getManagerLocations(req.user.id, req.user.role);
-      
+
       if (managerLocations.length > 0) {
         // Extract just the IDs from the location objects
         const locationIds = managerLocations.map(loc => loc.id);
@@ -1065,6 +1065,11 @@ router.get('/', auth, async (req, res) => {
         // Manager has no branches assigned, return empty
         return res.json([]);
       }
+    } else if (req.user.role === 'branch_staff') {
+      // Staff only see transfers involving their own branch (incoming or outgoing)
+      query += ` AND (t.from_location_id = $${paramCount} OR t.to_location_id = $${paramCount})`;
+      params.push(req.user.location_id);
+      paramCount++;
     } else if (req.user.role === 'warehouse') {
       query += ` AND t.from_location_id = $${paramCount}`;
       params.push(req.user.location_id);
