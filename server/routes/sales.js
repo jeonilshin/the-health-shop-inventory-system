@@ -90,8 +90,26 @@ router.get('/', auth, async (req, res) => {
     const params = [];
     let paramCount = 1;
 
-    // Branch managers and staff can only see their own branch sales
-    if (req.user.role === 'branch_manager' || req.user.role === 'branch_staff') {
+    // Branch manager: see sales across all assigned branches; honor optional location_id filter if it's one of theirs
+    if (req.user.role === 'branch_manager') {
+      const { getManagerLocations } = require('../middleware/auth');
+      const managerLocations = await getManagerLocations(req.user.id, 'branch_manager');
+      const allowedIds = managerLocations.map(l => l.id);
+
+      if (allowedIds.length === 0) {
+        return res.json([]);
+      }
+
+      if (location_id && allowedIds.includes(parseInt(location_id))) {
+        query += ` AND s.location_id = $${paramCount}`;
+        params.push(parseInt(location_id));
+        paramCount++;
+      } else {
+        query += ` AND s.location_id = ANY($${paramCount})`;
+        params.push(allowedIds);
+        paramCount++;
+      }
+    } else if (req.user.role === 'branch_staff') {
       query += ` AND s.location_id = $${paramCount}`;
       params.push(req.user.location_id);
       paramCount++;

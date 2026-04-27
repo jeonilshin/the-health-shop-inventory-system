@@ -25,8 +25,27 @@ router.get('/', auth, async (req, res) => {
     const params = [];
     let paramCount = 1;
 
-    // Branch staff/manager: hide sales that are pending or approved for cancellation
-    if (req.user.role === 'branch_manager' || req.user.role === 'branch_staff') {
+    // Branch manager: see sales across all assigned branches; honor optional locationId filter if it's one of theirs
+    if (req.user.role === 'branch_manager') {
+      const { getManagerLocations } = require('../middleware/auth');
+      const managerLocations = await getManagerLocations(req.user.id, 'branch_manager');
+      const allowedIds = managerLocations.map(l => l.id);
+
+      if (allowedIds.length === 0) {
+        return res.json([]);
+      }
+
+      if (locationId && allowedIds.includes(parseInt(locationId))) {
+        query += ` AND st.location_id = $${paramCount}`;
+        params.push(parseInt(locationId));
+        paramCount++;
+      } else {
+        query += ` AND st.location_id = ANY($${paramCount})`;
+        params.push(allowedIds);
+        paramCount++;
+      }
+      query += ` AND (st.cancellation_status IS NULL OR st.cancellation_status = 'rejected')`;
+    } else if (req.user.role === 'branch_staff') {
       query += ` AND st.location_id = $${paramCount}`;
       params.push(req.user.location_id);
       paramCount++;
@@ -742,7 +761,25 @@ router.get('/summary', auth, async (req, res) => {
     const params = [];
     let paramCount = 1;
     
-    if (req.user.role !== 'admin' && req.user.location_id) {
+    if (req.user.role === 'branch_manager') {
+      const { getManagerLocations } = require('../middleware/auth');
+      const managerLocations = await getManagerLocations(req.user.id, 'branch_manager');
+      const allowedIds = managerLocations.map(l => l.id);
+
+      if (allowedIds.length === 0) {
+        return res.json([]);
+      }
+
+      if (locationId && allowedIds.includes(parseInt(locationId))) {
+        query += ` AND st.location_id = $${paramCount}`;
+        params.push(parseInt(locationId));
+        paramCount++;
+      } else {
+        query += ` AND st.location_id = ANY($${paramCount})`;
+        params.push(allowedIds);
+        paramCount++;
+      }
+    } else if (req.user.role !== 'admin' && req.user.location_id) {
       query += ` AND st.location_id = $${paramCount}`;
       params.push(req.user.location_id);
       paramCount++;
@@ -751,19 +788,19 @@ router.get('/summary', auth, async (req, res) => {
       params.push(locationId);
       paramCount++;
     }
-    
+
     if (startDate) {
       query += ` AND st.transaction_date >= $${paramCount}`;
       params.push(startDate);
       paramCount++;
     }
-    
+
     if (endDate) {
       query += ` AND st.transaction_date <= $${paramCount}`;
       params.push(endDate);
       paramCount++;
     }
-    
+
     query += ' GROUP BY location_id, l.name ORDER BY l.name';
     
     const result = await pool.query(query, params);
