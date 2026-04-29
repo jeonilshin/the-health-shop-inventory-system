@@ -147,7 +147,15 @@ function Sales() {
       setSelectedIds(new Set());
       fetchSales();
     } catch (error) {
-      alert(error.response?.data?.error || 'Error bulk-deleting sales');
+      const msg = error.response?.data?.error || 'Error bulk-deleting sales';
+      alert(msg);
+      // Stale selection (e.g. rows already deleted by a prior request that
+      // committed but timed out): close the modal and refresh.
+      if (error.response?.status === 404) {
+        setShowBulkConfirm(false);
+        setSelectedIds(new Set());
+        fetchSales();
+      }
     } finally {
       setBulkLoading(false);
     }

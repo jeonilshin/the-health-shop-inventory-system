@@ -360,14 +360,28 @@ router.post('/bulk-delete', auth, authorize('admin'), async (req, res) => {
       return res.status(404).json({ error: 'No matching sales found' });
     }
 
-    for (const sale of sales) {
-      await client.query(
-        `UPDATE inventory
-         SET quantity = quantity + $1, updated_at = CURRENT_TIMESTAMP
-         WHERE location_id = $2 AND description = $3 AND unit = $4`,
-        [sale.quantity_sold, sale.location_id, sale.item_description, sale.item_unit]
-      );
-    }
+    // Restore inventory in one set-based UPDATE.
+    // Group by (location, description, unit) so multiple sales of the same
+    // item are summed before being added back to the inventory row.
+    await client.query(
+      `WITH deltas AS (
+         SELECT location_id,
+                item_description,
+                item_unit,
+                SUM(quantity_sold)::numeric AS qty
+           FROM sales_transactions
+          WHERE id = ANY($1::int[])
+          GROUP BY location_id, item_description, item_unit
+       )
+       UPDATE inventory i
+          SET quantity   = i.quantity + d.qty,
+              updated_at = CURRENT_TIMESTAMP
+         FROM deltas d
+        WHERE i.location_id = d.location_id
+          AND i.description = d.item_description
+          AND i.unit        = d.item_unit`,
+      [numericIds]
+    );
 
     const deleteResult = await client.query(
       'DELETE FROM sales_transactions WHERE id = ANY($1::int[]) RETURNING id',
@@ -376,8 +390,16 @@ router.post('/bulk-delete', auth, authorize('admin'), async (req, res) => {
 
     await client.query('COMMIT');
 
-    for (const sale of sales) {
-      await logAudit({
+    res.json({
+      message: 'Sales deleted and inventory restored',
+      deleted: deleteResult.rowCount,
+      requested: numericIds.length
+    });
+
+    // Audit log: fire-and-forget so a slow audit_log table doesn't stall the
+    // user's response and trip the platform's HTTP timeout on large batches.
+    Promise.all(sales.map((sale) =>
+      logAudit({
         userId: req.user.id,
         username: req.user.username,
         action: 'SALE_DELETED',
@@ -387,14 +409,8 @@ router.post('/bulk-delete', auth, authorize('admin'), async (req, res) => {
         ipAddress: req.ip,
         userAgent: req.get('user-agent'),
         description: `Bulk-deleted sale and restored ${sale.quantity_sold} ${sale.item_unit} of ${sale.item_description} to inventory`
-      });
-    }
-
-    res.json({
-      message: 'Sales deleted and inventory restored',
-      deleted: deleteResult.rowCount,
-      requested: numericIds.length
-    });
+      })
+    )).catch((err) => console.error('[bulk-delete] audit log error:', err));
   } catch (error) {
     await client.query('ROLLBACK');
     res.status(500).json({ error: error.message });
