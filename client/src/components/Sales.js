@@ -17,6 +17,11 @@ function Sales() {
   const [showConfirm2, setShowConfirm2] = useState(false);
   const [confirmLoading, setConfirmLoading] = useState(false);
 
+  // ── bulk delete (admin only) ──
+  const [selectedIds, setSelectedIds] = useState(() => new Set());
+  const [showBulkConfirm, setShowBulkConfirm] = useState(false);
+  const [bulkLoading, setBulkLoading] = useState(false);
+
   // ── cancellation state ──
   const [cancelModal, setCancelModal] = useState({ open: false, sale: null });
   const [cancelReason, setCancelReason] = useState('');
@@ -111,10 +116,46 @@ function Sales() {
 
       const response = await api.get(`/sales-transactions?${params.toString()}`);
       setSales(response.data);
+      setSelectedIds(new Set());
     } catch (error) {
       console.error('Error fetching sales:', error);
     }
   };
+
+  const toggleSelect = (id) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const allSelected = sales.length > 0 && sales.every(s => selectedIds.has(s.id));
+  const someSelected = !allSelected && sales.some(s => selectedIds.has(s.id));
+
+  const toggleSelectAll = () => {
+    setSelectedIds(allSelected ? new Set() : new Set(sales.map(s => s.id)));
+  };
+
+  const handleBulkDelete = async () => {
+    setBulkLoading(true);
+    try {
+      const ids = Array.from(selectedIds);
+      const res = await api.post('/sales-transactions/bulk-delete', { ids });
+      alert(`Deleted ${res.data.deleted} sale(s) and restored inventory.`);
+      setShowBulkConfirm(false);
+      setSelectedIds(new Set());
+      fetchSales();
+    } catch (error) {
+      alert(error.response?.data?.error || 'Error bulk-deleting sales');
+    } finally {
+      setBulkLoading(false);
+    }
+  };
+
+  const selectedTotalAmount = sales
+    .filter(s => selectedIds.has(s.id))
+    .reduce((sum, s) => sum + parseFloat(s.total_amount || 0), 0);
 
   const fetchPendingCancellations = async () => {
     try {
@@ -1111,14 +1152,38 @@ function Sales() {
       <div className="card">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
           <h3 style={{ margin: 0 }}>Sales Transactions</h3>
-          <button className="btn btn-primary" onClick={handlePrint}>
-            <FiShoppingCart size={16} />
-            Print Sales Report
-          </button>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            {user.role === 'admin' && selectedIds.size > 0 && (
+              <button
+                className="btn btn-danger"
+                onClick={() => setShowBulkConfirm(true)}
+                title="Delete selected sales and restore inventory"
+              >
+                <FiTrash2 size={16} />
+                Delete Selected ({selectedIds.size})
+              </button>
+            )}
+            <button className="btn btn-primary" onClick={handlePrint}>
+              <FiShoppingCart size={16} />
+              Print Sales Report
+            </button>
+          </div>
         </div>
         <table>
           <thead>
             <tr>
+              {user.role === 'admin' && (
+                <th style={{ width: '36px' }}>
+                  <input
+                    type="checkbox"
+                    aria-label="Select all sales"
+                    checked={allSelected}
+                    ref={el => { if (el) el.indeterminate = someSelected; }}
+                    onChange={toggleSelectAll}
+                    disabled={sales.length === 0}
+                  />
+                </th>
+              )}
               <th>Date</th>
               {(user.role === 'admin' || user.role === 'branch_manager') && <th>Branch</th>}
               <th>Item</th>
@@ -1134,7 +1199,7 @@ function Sales() {
           <tbody>
             {sales.length === 0 ? (
               <tr>
-                <td colSpan={(user.role === 'admin' || user.role === 'branch_manager') ? "10" : isBranchUser ? "9" : "8"} style={{ textAlign: 'center', padding: '20px' }}>
+                <td colSpan={user.role === 'admin' ? "11" : user.role === 'branch_manager' ? "10" : isBranchUser ? "9" : "8"} style={{ textAlign: 'center', padding: '20px' }}>
                   No sales recorded for this period
                 </td>
               </tr>
@@ -1143,6 +1208,16 @@ function Sales() {
                 const isEditing = editingId === sale.id;
                 return (
                   <tr key={sale.id}>
+                    {user.role === 'admin' && (
+                      <td style={{ width: '36px' }}>
+                        <input
+                          type="checkbox"
+                          aria-label={`Select sale ${sale.id}`}
+                          checked={selectedIds.has(sale.id)}
+                          onChange={() => toggleSelect(sale.id)}
+                        />
+                      </td>
+                    )}
                     <td>
                       {isEditing ? (
                         <input 
@@ -1381,6 +1456,25 @@ function Sales() {
         cancelText="No, go back"
         type="danger"
         loading={confirmLoading}
+      />
+
+      {/* Bulk delete confirmation (admin only) */}
+      <ConfirmModal
+        isOpen={showBulkConfirm}
+        onClose={() => !bulkLoading && setShowBulkConfirm(false)}
+        onConfirm={handleBulkDelete}
+        title={`Delete ${selectedIds.size} sale${selectedIds.size === 1 ? '' : 's'}?`}
+        message={
+          <>
+            You are about to permanently delete <strong>{selectedIds.size}</strong> sale{selectedIds.size === 1 ? '' : 's'} totaling <strong>₱{formatPrice(selectedTotalAmount)}</strong>.
+            <br /><br />
+            Inventory quantities will be restored. This action cannot be undone.
+          </>
+        }
+        confirmText="Yes, delete them"
+        cancelText="Cancel"
+        type="danger"
+        loading={bulkLoading}
       />
 
       {/* ── Cancel Sale Modal ── */}

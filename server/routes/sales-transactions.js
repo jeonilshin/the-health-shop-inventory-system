@@ -330,6 +330,79 @@ router.post('/', auth, authorize('admin', 'warehouse', 'branch_manager', 'branch
   }
 });
 
+// Bulk-delete sale transactions (admin only)
+// Body: { ids: number[] }
+router.post('/bulk-delete', auth, authorize('admin'), async (req, res) => {
+  const { ids } = req.body || {};
+
+  if (!Array.isArray(ids) || ids.length === 0) {
+    return res.status(400).json({ error: 'ids must be a non-empty array' });
+  }
+
+  const numericIds = ids.map((v) => parseInt(v, 10)).filter((n) => Number.isFinite(n) && n > 0);
+  if (numericIds.length === 0) {
+    return res.status(400).json({ error: 'No valid sale ids provided' });
+  }
+
+  const client = await pool.connect();
+
+  try {
+    await client.query('BEGIN');
+
+    const salesResult = await client.query(
+      'SELECT * FROM sales_transactions WHERE id = ANY($1::int[])',
+      [numericIds]
+    );
+
+    const sales = salesResult.rows;
+    if (sales.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'No matching sales found' });
+    }
+
+    for (const sale of sales) {
+      await client.query(
+        `UPDATE inventory
+         SET quantity = quantity + $1, updated_at = CURRENT_TIMESTAMP
+         WHERE location_id = $2 AND description = $3 AND unit = $4`,
+        [sale.quantity_sold, sale.location_id, sale.item_description, sale.item_unit]
+      );
+    }
+
+    const deleteResult = await client.query(
+      'DELETE FROM sales_transactions WHERE id = ANY($1::int[]) RETURNING id',
+      [numericIds]
+    );
+
+    await client.query('COMMIT');
+
+    for (const sale of sales) {
+      await logAudit({
+        userId: req.user.id,
+        username: req.user.username,
+        action: 'SALE_DELETED',
+        tableName: 'sales_transactions',
+        recordId: sale.id,
+        oldValues: sale,
+        ipAddress: req.ip,
+        userAgent: req.get('user-agent'),
+        description: `Bulk-deleted sale and restored ${sale.quantity_sold} ${sale.item_unit} of ${sale.item_description} to inventory`
+      });
+    }
+
+    res.json({
+      message: 'Sales deleted and inventory restored',
+      deleted: deleteResult.rowCount,
+      requested: numericIds.length
+    });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    res.status(500).json({ error: error.message });
+  } finally {
+    client.release();
+  }
+});
+
 // Delete a sale transaction (admin only)
 router.delete('/:id', auth, authorize('admin'), async (req, res) => {
   const client = await pool.connect();
