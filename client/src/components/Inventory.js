@@ -2693,13 +2693,13 @@ function Inventory() {
 
             <div style={{ padding: '24px' }}>
               <div className="alert alert-info" style={{ marginBottom: '20px', fontSize: '14px' }}>
-                Convert larger units (BOX, BOT) to smaller units (PC). Example: 1 BOX of vitamins = 100 PC
+                Convert larger units (BOX, BOT, PACK) to smaller units (PC). Example: 1 BOX of vitamins = 100 PC
               </div>
 
               <div className="form-group">
-                <label>From Item (BOX/BOT) *</label>
+                <label>From Item (BOX/BOT/PACK) *</label>
                 <SimpleAutocomplete
-                  items={filteredInventory.filter(item => ['BOX', 'BOT', 'box', 'bot'].includes(item.unit))}
+                  items={filteredInventory.filter(item => ['BOX', 'BOT', 'PACK', 'box', 'bot', 'pack'].includes(item.unit))}
                   value={conversionData.fromSearchText}
                   onChange={(value) => {
                     setConversionData({...conversionData, fromSearchText: value});
@@ -2802,7 +2802,7 @@ function Inventory() {
                     }
                   }}
                   displayField="description"
-                  placeholder="Search for BOX/BOT items..."
+                  placeholder="Search for BOX/BOT/PACK items..."
                   required={true}
                 />
                 {conversionData.fromItemId && (
@@ -2843,7 +2843,7 @@ function Inventory() {
               </div>
 
               <div className="form-group">
-                <label>Units per Box/Bottle *</label>
+                <label>Units per Box/Bottle/Pack *</label>
                 <div style={{ position: 'relative' }}>
                   <input
                     type="number"
@@ -2884,7 +2884,7 @@ function Inventory() {
                       ✓ Auto-detected from unit conversion database
                     </span>
                   ) : (
-                    'How many pieces are in one box/bottle?'
+                    'How many pieces are in one box/bottle/pack?'
                   )}
                 </small>
               </div>
