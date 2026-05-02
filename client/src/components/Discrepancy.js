@@ -247,7 +247,7 @@ function Discrepancy() {
           </div>
         </div>
 
-        {user.role === 'warehouse' && (
+        {(user.role === 'warehouse' || user.role === 'branch_manager' || user.role === 'branch_staff') && (
           <button
             className="btn"
             style={{

@@ -131,6 +131,7 @@ app.use('/api/sales-reports',      apiLimiter, require('./routes/sales-reports')
 app.use('/api/sales-transactions', apiLimiter, require('./routes/sales-transactions'));
 app.use('/api/import',             apiLimiter, require('./routes/import'));
 app.use('/api/delivery-discrepancies', apiLimiter, require('./routes/delivery-discrepancies'));
+app.use('/api/stock-withdrawals',  apiLimiter, require('./routes/stock-withdrawals'));
 
 // Load cost-variations route (optional - may not exist if migrations not run)
 try {

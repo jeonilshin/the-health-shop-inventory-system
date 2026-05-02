@@ -3,9 +3,10 @@ import api from '../utils/api';
 import { AuthContext } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { formatQuantity, formatPrice } from '../utils/formatNumber';
-import { FiPackage, FiPlus, FiDownload, FiSearch, FiAlertCircle, FiTrash2, FiUpload, FiEdit2, FiClock, FiStar, FiDollarSign, FiGitBranch, FiX, FiCheck, FiGrid, FiList, FiLock } from 'react-icons/fi';
+import { FiPackage, FiPlus, FiDownload, FiSearch, FiAlertCircle, FiTrash2, FiUpload, FiEdit2, FiClock, FiStar, FiDollarSign, FiGitBranch, FiX, FiCheck, FiGrid, FiList, FiLock, FiLogOut } from 'react-icons/fi';
 import SimpleAutocomplete from './SimpleAutocomplete';
 import ImportModal from './ImportModal';
+import StockWithdrawalModal from './StockWithdrawalModal';
 
 function Inventory() {
   const { user } = useContext(AuthContext);
@@ -55,6 +56,7 @@ function Inventory() {
     fromItemQty: 0
   });
   const [isConversionAutoDetected, setIsConversionAutoDetected] = useState(false);
+  const [withdrawItem, setWithdrawItem] = useState(null);
   const [formData, setFormData] = useState({
     items: [{
       description: '',
@@ -2297,6 +2299,16 @@ function Inventory() {
                                       <FiEdit2 size={12} />
                                     </button>
                                   ) : null}
+                                  {parseFloat(item.quantity) > 0 && (
+                                    <button
+                                      className="btn"
+                                      style={{ padding: '6px 10px', fontSize: '12px', background: '#fee2e2', color: '#b91c1c', border: '1px solid #fca5a5' }}
+                                      onClick={() => setWithdrawItem({ ...item, location_id: parseInt(selectedLocation) })}
+                                      title="Pull Out (Stock Withdrawal)"
+                                    >
+                                      <FiLogOut size={12} />
+                                    </button>
+                                  )}
                                   {user.role === 'admin' && (
                                     <button
                                       className="btn btn-danger"
@@ -2937,14 +2949,28 @@ function Inventory() {
         </div>
       )}
 
-      <ImportModal 
-        isOpen={showImportModal} 
+      <ImportModal
+        isOpen={showImportModal}
         onClose={() => setShowImportModal(false)}
         onImportComplete={() => {
           fetchInventory();
           fetchInventoryHistory();
         }}
       />
+
+      {withdrawItem && (
+        <StockWithdrawalModal
+          item={withdrawItem}
+          locationId={withdrawItem.location_id || parseInt(selectedLocation)}
+          onClose={() => setWithdrawItem(null)}
+          onSuccess={() => {
+            setWithdrawItem(null);
+            showToast('Pull-out recorded. Admin has been notified.', 'success');
+            fetchInventory();
+            fetchInventoryHistory();
+          }}
+        />
+      )}
 
       {/* Location History Modal */}
       {showLocationHistoryModal && (

@@ -53,6 +53,7 @@ const NAV_ITEMS = [
   { to: '/',                icon: FiHome,        label: 'Dashboard',       roles: ['admin','warehouse','branch_manager','branch_staff'] },
   { to: '/sales',           icon: FiDollarSign,  label: 'Sales',           roles: ['admin','branch_manager','branch_staff'] },
   { to: '/inventory',       icon: FiPackage,     label: 'Inventory',       roles: ['admin','warehouse','branch_manager','branch_staff'] },
+  { to: '/stock-withdrawals', icon: FiLogOut,    label: 'Stock Withdrawals', roles: ['admin'] },
   { to: '/transfers',       icon: FiSend,        label: 'Transfers',       roles: ['admin','warehouse','branch_manager','branch_staff'] },
   { to: '/reports',         icon: FiFileText,    label: 'Reports',         roles: ['admin','branch_manager','branch_staff'] },
   { to: '/analytics',       icon: FiBarChart2,   label: 'Analytics',       roles: ['admin'] },

@@ -100,12 +100,21 @@ router.post('/', auth, authorize('admin', 'branch_manager', 'branch_staff', 'war
       return res.status(400).json({ error: 'Damage quantity must be greater than zero' });
     }
 
-    if (!warehouse_location_id) {
+    // Damage can originate from a branch (e.g. staff broke a bottle while
+    // sorting) OR a warehouse — the report just needs at least one location
+    // to deduct from. Shortage and return always involve a warehouse.
+    if (type !== 'damage' && !warehouse_location_id) {
       return res.status(400).json({ error: 'warehouse_location_id is required' });
     }
+    if (type === 'damage' && !warehouse_location_id && !branch_location_id) {
+      return res.status(400).json({ error: 'A branch or warehouse location is required for damage reports' });
+    }
 
-    // branch_location_id is NULL for damage reports (warehouse only)
-    const branchLocId = type === 'damage' ? null : (branch_location_id || req.user.location_id);
+    // For damage we keep whichever location the reporter sent. For shortage
+    // and return the branch is implicit from the reporter when not provided.
+    const branchLocId = type === 'damage'
+      ? (branch_location_id || null)
+      : (branch_location_id || req.user.location_id);
 
     // ── For shortage: verify delivery exists and is delivered ──
     if (type === 'shortage') {
@@ -135,14 +144,14 @@ router.post('/', auth, authorize('admin', 'branch_manager', 'branch_staff', 'war
       parseFloat(received_quantity),
       note.trim(),
       branchLocId,
-      parseInt(warehouse_location_id),
+      warehouse_location_id ? parseInt(warehouse_location_id) : null,
       req.user.id
     ]);
 
     const disc = result.rows[0];
 
     // Fetch location name for notification message
-    const reporterLocId = branchLocId || parseInt(warehouse_location_id);
+    const reporterLocId = branchLocId || (warehouse_location_id ? parseInt(warehouse_location_id) : req.user.location_id);
     const locInfo = await pool.query('SELECT name FROM locations WHERE id = $1', [reporterLocId]);
     const locName = locInfo.rows[0]?.name || 'Location';
 

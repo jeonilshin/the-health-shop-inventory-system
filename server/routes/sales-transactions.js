@@ -160,7 +160,7 @@ router.post('/', auth, authorize('admin', 'warehouse', 'branch_manager', 'branch
     let total_amount = 0;
 
     const grossAmount = parseFloat(quantity_sold) * parseFloat(unit_price);
-    
+
     // Round to 2 decimal places (centavos) — preserves actual computed value, no peso rounding
     const round2 = (n) => Math.round(n * 100) / 100;
 
@@ -832,7 +832,7 @@ router.get('/summary', auth, async (req, res) => {
     const { startDate, endDate, locationId } = req.query;
     
     let query = `
-      SELECT 
+      SELECT
         location_id,
         l.name as location_name,
         COUNT(*) as total_transactions,

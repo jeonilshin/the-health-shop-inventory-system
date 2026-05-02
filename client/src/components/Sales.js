@@ -720,18 +720,18 @@ function Sales() {
               <h4 style={{ fontSize: '16px', marginBottom: '16px', color: 'var(--primary)' }}>
                 Sale Information
               </h4>
-              <div style={{ 
-                display: 'grid', 
-                gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', 
-                gap: '16px' 
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))',
+                gap: '16px'
               }}>
                 <div className="form-group">
                   <label>Date *</label>
-                  <input 
-                    type="date" 
-                    value={formData.transaction_date} 
-                    onChange={(e) => setFormData({...formData, transaction_date: e.target.value})} 
-                    required 
+                  <input
+                    type="date"
+                    value={formData.transaction_date}
+                    onChange={(e) => setFormData({...formData, transaction_date: e.target.value})}
+                    required
                   />
                 </div>
                 <div className="form-group">
@@ -952,10 +952,10 @@ function Sales() {
               </div>
               <div className="form-group" style={{ marginBottom: 0 }}>
                 <label>Customer Name</label>
-                <input 
-                  type="text" 
-                  value={formData.customer_name} 
-                  onChange={(e) => setFormData({...formData, customer_name: e.target.value})} 
+                <input
+                  type="text"
+                  value={formData.customer_name}
+                  onChange={(e) => setFormData({...formData, customer_name: e.target.value})}
                   placeholder="Optional"
                 />
               </div>
@@ -1122,11 +1122,11 @@ function Sales() {
                       </div>
                     )}
                     
-                    <div style={{ 
-                      display: 'flex', 
-                      justifyContent: 'space-between', 
-                      paddingTop: '8px', 
-                      borderTop: '2px solid rgba(16, 185, 129, 0.3)' 
+                    <div style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      paddingTop: '8px',
+                      borderTop: '2px solid rgba(16, 185, 129, 0.3)'
                     }}>
                       <span style={{ fontSize: '16px', fontWeight: 700 }}>Amount Due:</span>
                       <span style={{ fontSize: '20px', fontWeight: 700, color: 'var(--success)' }}>

@@ -12,6 +12,7 @@ import Admin from './components/Admin';
 import AuditLog from './components/AuditLog';
 import Messages from './components/Messages';
 import Sales from './components/Sales';
+import StockWithdrawals from './components/StockWithdrawals';
 import CostVariations from './components/CostVariations';
 import Navbar from './components/Navbar';
 import { AuthContext } from './context/AuthContext';
@@ -131,6 +132,7 @@ function App() {
             />
             <Route path="/discrepancy" element={user ? <Discrepancy /> : <Navigate to="/login" />} />
             <Route path="/sales" element={user ? <Sales /> : <Navigate to="/login" />} />
+            <Route path="/stock-withdrawals" element={user ? <StockWithdrawals /> : <Navigate to="/login" />} />
             <Route path="/messages" element={user ? <Messages /> : <Navigate to="/login" />} />
             <Route path="/cost-points" element={user?.role === 'admin' ? <CostVariations /> : <Navigate to="/" />} />
             <Route path="/costs" element={user?.role === 'admin' ? <CostVariations /> : <Navigate to="/" />} />

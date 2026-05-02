@@ -18,8 +18,10 @@ import {
  * type = 'damage' + delivery → branch reports damaged goods from a delivery
  *   props: delivery (delivered delivery object)
  *
- * type = 'damage' + no delivery → warehouse reports damaged/write-off goods
- *   props: (no delivery; warehouse_location_id = user.location_id)
+ * type = 'damage' + no delivery → standalone damage write-off from the
+ *   reporter's own location. If the reporter is a warehouse user, the report
+ *   targets the warehouse; if a branch user (e.g. broke a bottle while
+ *   sorting), it targets the branch. The reporter's role decides which.
  */
 function DiscrepancyModal({ type, delivery, onClose, onSuccess }) {
   const { user } = useContext(AuthContext);
@@ -50,13 +52,18 @@ function DiscrepancyModal({ type, delivery, onClose, onSuccess }) {
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState('');
 
-  const isDamage           = type === 'damage';
+  const isDamage             = type === 'damage';
   const isDamageFromDelivery = isDamage && !!delivery;
-  const isDamageWarehouse    = isDamage && !delivery;
+  const isDamageStandalone   = isDamage && !delivery;
+  // Standalone damage can be filed from either a warehouse (write-off) or a
+  // branch (staff broke an item while sorting). The reporter's location
+  // determines which field to send to the backend.
+  const isStandaloneAtBranch = isDamageStandalone && (user.role === 'branch_manager' || user.role === 'branch_staff');
+  const isDamageWarehouse    = isDamageStandalone && user.role === 'warehouse';
 
   useEffect(() => {
     if (type === 'return') fetchWarehouses();
-    if (isDamageWarehouse)  fetchWarehouseInventory();
+    if (isDamageStandalone) fetchWarehouseInventory();
 
     // Close suggestions on outside click
     const handler = (e) => {
@@ -200,19 +207,24 @@ function DiscrepancyModal({ type, delivery, onClose, onSuccess }) {
         });
 
       } else {
-        // ── damage write-off from warehouse ──
+        // ── standalone damage write-off (warehouse or branch) ──
         if (!dmgDesc.trim()) { setError('Item description is required'); return; }
         if (!dmgUnit.trim()) { setError('Unit is required'); return; }
         const qty = parseFloat(dmgQty);
         if (isNaN(qty) || qty <= 0) { setError('Enter a valid damage quantity'); return; }
+        // Branch users report against their branch; warehouse users against
+        // their warehouse. The backend deducts from whichever location is set.
+        const locField = isStandaloneAtBranch
+          ? { branch_location_id: user.location_id }
+          : { warehouse_location_id: user.location_id };
         await api.post('/delivery-discrepancies', {
-          type:                 'damage',
-          item_description:     dmgDesc.trim(),
-          unit:                 dmgUnit.trim(),
-          expected_quantity:    qty,
-          received_quantity:    qty,
-          note:                 note.trim(),
-          warehouse_location_id: user.location_id
+          type:               'damage',
+          item_description:   dmgDesc.trim(),
+          unit:               dmgUnit.trim(),
+          expected_quantity:  qty,
+          received_quantity:  qty,
+          note:               note.trim(),
+          ...locField
         });
       }
 
@@ -231,12 +243,14 @@ function DiscrepancyModal({ type, delivery, onClose, onSuccess }) {
     ? 'Report Delivery Shortage'
     : isDamageFromDelivery
     ? 'Report Damaged Goods from Delivery'
-    : isDamageWarehouse
+    : isDamageStandalone
     ? 'Report Damaged / Write-Off Goods'
     : 'Request Return to Warehouse';
 
   const headerSub = isShortage || isDamageFromDelivery
     ? `Delivery from ${delivery?.from_location_name || 'Warehouse'}`
+    : isStandaloneAtBranch
+    ? 'Damaged items will be written off from your branch pending admin approval'
     : isDamageWarehouse
     ? 'Damaged items will be written off pending admin approval'
     : 'Items will be sent back pending admin approval';
@@ -245,6 +259,8 @@ function DiscrepancyModal({ type, delivery, onClose, onSuccess }) {
     ? 'Admin will review and, if approved, add the missing quantity back to the warehouse and correct your branch inventory.'
     : isDamageFromDelivery
     ? 'Admin will review and, if approved, the damaged quantity will be removed from your branch inventory.'
+    : isStandaloneAtBranch
+    ? 'Use this when stock was damaged at the branch outside of a delivery (e.g. a bottle broken while sorting). Admin must approve. Once approved, the quantity will be removed from your branch inventory.'
     : isDamageWarehouse
     ? 'Admin must approve this report. Once approved, the damaged quantity will be written off from warehouse inventory.'
     : 'Admin must approve this request. Once approved, the specified quantity will be removed from your inventory and added back to the warehouse.';
@@ -468,8 +484,8 @@ function DiscrepancyModal({ type, delivery, onClose, onSuccess }) {
             </>
           )}
 
-          {/* ── DAMAGE WAREHOUSE: item search + unit autofill ── */}
-          {isDamageWarehouse && (
+          {/* ── DAMAGE STANDALONE (warehouse OR branch): item search + unit autofill ── */}
+          {isDamageStandalone && (
             <>
               <div style={{ marginBottom: '14px', position: 'relative' }} ref={searchRef}>
                 <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, marginBottom: '6px' }}>
