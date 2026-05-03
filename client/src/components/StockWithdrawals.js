@@ -3,7 +3,7 @@ import api from '../utils/api';
 import { AuthContext } from '../context/AuthContext';
 import { formatQuantity } from '../utils/formatNumber';
 import {
-  FiLogOut, FiFilter, FiCalendar, FiX, FiDownload, FiTrash2, FiUser, FiMapPin, FiPackage
+  FiLogOut, FiFilter, FiCalendar, FiDownload, FiTrash2, FiUser, FiMapPin, FiPackage
 } from 'react-icons/fi';
 
 const TYPE_BADGE = {
