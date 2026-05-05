@@ -1255,7 +1255,17 @@ function Transfers() {
                           }}>
                             <div style={{ display: 'grid', gridTemplateColumns: user.role === 'admin' ? '1fr 1fr 1fr' : '1fr', gap: '12px' }}>
                               <div>
-                                <strong>Available:</strong> <span style={{ color: 'var(--success)' }}>{formatQuantity(item.selectedItem.quantity)} {item.selectedItem.unit}</span>
+                                <strong>Available:</strong> <span style={{ color: 'var(--success)' }}>{(() => {
+                                  const batches = costBatches[`${item.selectedItem.description}-${item.selectedItem.unit}`];
+                                  if (item.cost_batch_id && batches) {
+                                    const batch = batches.find(b => b.cost_batch_id === item.cost_batch_id);
+                                    if (batch) return formatQuantity(batch.quantity);
+                                  }
+                                  if (batches && batches.length) {
+                                    return formatQuantity(batches.reduce((sum, b) => sum + (parseFloat(b.quantity) || 0), 0));
+                                  }
+                                  return formatQuantity(item.selectedItem.quantity);
+                                })()} {item.selectedItem.unit}</span>
                               </div>
                               {user.role === 'admin' && (
                                 <div>
@@ -1271,7 +1281,11 @@ function Transfers() {
                           </div>
                         )}
 
-                        {item.selectedItem && item.quantity && parseFloat(item.quantity) > parseFloat(item.selectedItem.quantity) && (
+                        {item.selectedItem && item.cost_batch_id && item.quantity && (() => {
+                          const batch = costBatches[`${item.selectedItem.description}-${item.selectedItem.unit}`]?.find(b => b.cost_batch_id === item.cost_batch_id);
+                          const max = batch ? parseFloat(batch.quantity) : parseFloat(item.selectedItem.quantity);
+                          return parseFloat(item.quantity) > max;
+                        })() && (
                           <div className="alert alert-error" style={{ marginTop: '8px' }}>
                             <FiAlertCircle size={14} />
                             Quantity exceeds available stock
