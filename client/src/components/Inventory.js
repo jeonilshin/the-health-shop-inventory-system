@@ -2705,13 +2705,13 @@ function Inventory() {
 
             <div style={{ padding: '24px' }}>
               <div className="alert alert-info" style={{ marginBottom: '20px', fontSize: '14px' }}>
-                Convert larger units (BOX, BOT, PACK) to smaller units (PC). Example: 1 BOX of vitamins = 100 PC
+                Convert any unit to PC (pieces). Example: 1 BOX = 100 PC, 1 BOTTLE = 50 PC, 1 PACK = 24 PC
               </div>
 
               <div className="form-group">
-                <label>From Item (BOX/BOT/PACK) *</label>
+                <label>From Item (Any Unit) *</label>
                 <SimpleAutocomplete
-                  items={filteredInventory.filter(item => ['BOX', 'BOT', 'PACK', 'box', 'bot', 'pack'].includes(item.unit))}
+                  items={filteredInventory.filter(item => item.unit.toUpperCase() !== 'PC')}
                   value={conversionData.fromSearchText}
                   onChange={(value) => {
                     setConversionData({...conversionData, fromSearchText: value});
@@ -2855,7 +2855,7 @@ function Inventory() {
               </div>
 
               <div className="form-group">
-                <label>Units per Box/Bottle/Pack *</label>
+                <label>Units per {conversionData.fromItemUnit || 'Unit'} *</label>
                 <div style={{ position: 'relative' }}>
                   <input
                     type="number"
@@ -2867,7 +2867,7 @@ function Inventory() {
                         setConversionData({...conversionData, unitsPerBox: e.target.value});
                       }
                     }}
-                    placeholder="e.g., 100 (1 BOX = 100 PC)"
+                    placeholder={`e.g., 100 (1 ${conversionData.fromItemUnit || 'UNIT'} = 100 PC)`}
                     required
                     readOnly={isConversionAutoDetected}
                     style={{
@@ -2896,13 +2896,13 @@ function Inventory() {
                       ✓ Auto-detected from unit conversion database
                     </span>
                   ) : (
-                    'How many pieces are in one box/bottle/pack?'
+                    `How many pieces are in one ${conversionData.fromItemUnit || 'unit'}?`
                   )}
                 </small>
               </div>
 
               <div className="form-group">
-                <label>Boxes/Bottles to Convert *</label>
+                <label>{conversionData.fromItemUnit ? `${conversionData.fromItemUnit}s` : 'Units'} to Convert *</label>
                 <input
                   type="number"
                   step="1"
