@@ -41,11 +41,13 @@ function Deliveries() {
     notes: ''
   });
   const [deliveryFormData, setDeliveryFormData] = useState({
+    from_location_id: '',
     description: '',
     unit: '',
     quantity: '',
     unit_cost: '',
-    notes: ''
+    notes: '',
+    available_quantity: null
   });
 
   useEffect(() => {
@@ -497,11 +499,13 @@ function Deliveries() {
               alert('Delivery created successfully!');
               setShowCreateDelivery(false);
               setDeliveryFormData({
+                from_location_id: '',
                 description: '',
                 unit: '',
                 quantity: '',
                 unit_cost: '',
-                notes: ''
+                notes: '',
+                available_quantity: null
               });
               e.target.reset();
               fetchAll();
@@ -539,12 +543,33 @@ function Deliveries() {
                 <label>Search Item *</label>
                 <AutocompleteSearch
                   placeholder="Search for product..."
-                  onSelect={(item) => {
+                  onSelect={async (item) => {
+                    // Get the from_location_id from the form
+                    const formElement = document.querySelector('form');
+                    const fromLocationId = formElement?.querySelector('[name="from_location_id"]')?.value;
+                    
+                    let availableQty = null;
+                    
+                    // Fetch available quantity if warehouse is selected
+                    if (fromLocationId) {
+                      try {
+                        const response = await api.get(`/inventory/location/${fromLocationId}`);
+                        const inventoryItem = response.data.find(
+                          inv => inv.description === item.description && inv.unit === item.unit
+                        );
+                        availableQty = inventoryItem ? parseFloat(inventoryItem.quantity) : 0;
+                      } catch (error) {
+                        console.error('Error fetching inventory:', error);
+                      }
+                    }
+                    
                     setDeliveryFormData({
                       ...deliveryFormData,
+                      from_location_id: fromLocationId,
                       description: item.description,
                       unit: item.unit,
-                      unit_cost: item.unit_cost || ''
+                      unit_cost: item.unit_cost || '',
+                      available_quantity: availableQty
                     });
                   }}
                 />
@@ -558,7 +583,17 @@ function Deliveries() {
                     color: 'var(--primary)',
                     border: '1px solid rgba(59, 130, 246, 0.2)'
                   }}>
-                    Selected: <strong>{deliveryFormData.description}</strong> ({deliveryFormData.unit})
+                    <div>Selected: <strong>{deliveryFormData.description}</strong> ({deliveryFormData.unit})</div>
+                    {deliveryFormData.available_quantity !== null && (
+                      <div style={{ 
+                        marginTop: '4px', 
+                        fontSize: '12px',
+                        color: deliveryFormData.available_quantity > 0 ? '#10b981' : '#ef4444',
+                        fontWeight: 600
+                      }}>
+                        Available in warehouse: {formatQuantity(deliveryFormData.available_quantity)} {deliveryFormData.unit}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -590,11 +625,24 @@ function Deliveries() {
                     name="quantity" 
                     step="0.01" 
                     min="0.01" 
+                    max={deliveryFormData.available_quantity || undefined}
                     required 
                     placeholder="0.00"
                     value={deliveryFormData.quantity}
-                    onChange={(e) => setDeliveryFormData({...deliveryFormData, quantity: e.target.value})}
+                    onChange={(e) => {
+                      const qty = parseFloat(e.target.value);
+                      if (deliveryFormData.available_quantity !== null && qty > deliveryFormData.available_quantity) {
+                        alert(`Cannot exceed available quantity: ${formatQuantity(deliveryFormData.available_quantity)} ${deliveryFormData.unit}`);
+                        return;
+                      }
+                      setDeliveryFormData({...deliveryFormData, quantity: e.target.value});
+                    }}
                   />
+                  {deliveryFormData.available_quantity !== null && deliveryFormData.available_quantity === 0 && (
+                    <div style={{ fontSize: '11px', color: '#ef4444', marginTop: '4px' }}>
+                      ⚠️ No stock available in warehouse
+                    </div>
+                  )}
                 </div>
                 <div className="form-group">
                   <label>Unit Cost *</label>
@@ -631,11 +679,13 @@ function Deliveries() {
               <button type="button" className="btn btn-secondary" onClick={() => {
                 setShowCreateDelivery(false);
                 setDeliveryFormData({
+                  from_location_id: '',
                   description: '',
                   unit: '',
                   quantity: '',
                   unit_cost: '',
-                  notes: ''
+                  notes: '',
+                  available_quantity: null
                 });
               }}>
                 <FiX size={16} />
