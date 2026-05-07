@@ -125,7 +125,17 @@ function Transfers() {
   const fetchTransfers = async () => {
     try {
       const response = await api.get('/transfers');
-      setTransfers(response.data);
+      // Filter to only show branch-to-branch transfers
+      // Warehouse transfers should be in Deliveries page
+      const branchToBranchTransfers = response.data.filter(transfer => {
+        // Get location types from locations array
+        const fromLoc = locations.find(loc => loc.id === transfer.from_location_id);
+        const toLoc = locations.find(loc => loc.id === transfer.to_location_id);
+        
+        // Only show if both are branches (not warehouse)
+        return fromLoc?.type === 'branch' && toLoc?.type === 'branch';
+      });
+      setTransfers(branchToBranchTransfers);
     } catch (error) {
       // Set empty array on error to prevent crashes
       setTransfers([]);
@@ -794,7 +804,18 @@ function Transfers() {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '24px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           <FiSend size={32} color="#2563eb" />
-          <h2 style={{ margin: 0 }}>Inventory Transfers</h2>
+          <h2 style={{ margin: 0 }}>Branch-to-Branch Transfers</h2>
+        </div>
+      </div>
+
+      {/* Info Alert */}
+      <div className="alert alert-info" style={{ marginBottom: '24px' }}>
+        <FiAlertCircle size={16} />
+        <div>
+          <strong>Branch-to-Branch Transfers Only</strong>
+          <p style={{ margin: '4px 0 0 0', fontSize: '13px' }}>
+            This page is for transfers between branches. For warehouse deliveries, go to the <strong>Deliveries</strong> page.
+          </p>
         </div>
       </div>
 
@@ -882,29 +903,11 @@ function Transfers() {
             {user.role === 'branch_manager' ? 'Transfer Requests' : 'Transfer History'}
           </h3>
           <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-            {user.role === 'branch_manager' && (
-              <button className="btn btn-success" onClick={() => { setShowRequestForm(!showRequestForm); setShowForm(false); }}>
-                <FiPackage size={16} />
-                {showRequestForm ? 'Cancel' : 'Request from Warehouse'}
-              </button>
-            )}
-            {(user.role === 'admin' || user.role === 'warehouse' || user.role === 'branch_manager' || user.role === 'branch_staff') && (
-              <button className="btn btn-primary" onClick={() => { setShowForm(!showForm); setShowRequestForm(false); }}>
+            {(user.role === 'admin' || user.role === 'branch_manager' || user.role === 'branch_staff') && (
+              <button className="btn btn-primary" onClick={() => { setShowForm(!showForm); }}>
                 <FiSend size={16} />
-                {showForm ? 'Cancel' : (user.role === 'branch_manager' ? 'Transfer to Branch' : user.role === 'branch_staff' ? 'Request Transfer' : 'New Transfer')}
+                {showForm ? 'Cancel' : (user.role === 'branch_staff' ? 'Request Transfer' : 'New Transfer')}
               </button>
-            )}
-            {(user.role === 'admin' || user.role === 'warehouse') && (
-              <>
-                <button className="btn btn-info" onClick={() => setShowCdrImport(true)}>
-                  <FiTruck size={16} />
-                  Import CDR
-                </button>
-                <button className="btn" style={{ backgroundColor: '#8b5cf6', color: 'white' }} onClick={() => setShowExpressTransfer(true)}>
-                  <FiPackage size={16} />
-                  Express Transfer
-                </button>
-              </>
             )}
             <button className="btn btn-success" onClick={handleExportPreview}>
               <FiPackage size={16} />
@@ -1076,15 +1079,16 @@ function Transfers() {
             </h4>
             
             <div className="form-group">
-              <label>From Location (Source)</label>
+              <label>From Location (Source Branch)</label>
               <select
                 value={formData.from_location_id}
                 onChange={(e) => setFormData({ ...formData, from_location_id: e.target.value, items: [{ inventory_item_id: '', quantity: '', selectedItem: null }] })}
                 disabled={user.role !== 'admin' && user.location_id}
                 required
               >
-                <option value="">Select source location</option>
+                <option value="">Select source branch</option>
                 {locations
+                  .filter(loc => loc.type === 'branch') // Only branches
                   .filter(loc =>
                     user.role === 'admin' ||
                     user.role === 'branch_manager' ||
@@ -1092,25 +1096,28 @@ function Transfers() {
                   )
                   .map((loc) => (
                     <option key={loc.id} value={loc.id}>
-                      {loc.name} ({loc.type})
+                      {loc.name}
                     </option>
                   ))}
               </select>
             </div>
 
             <div className="form-group">
-              <label>To Location (Destination)</label>
+              <label>To Location (Destination Branch)</label>
               <select
                 value={formData.to_location_id}
                 onChange={(e) => setFormData({ ...formData, to_location_id: e.target.value })}
                 required
               >
-                <option value="">Select destination location</option>
-                {locations.filter(loc => loc.id !== parseInt(formData.from_location_id)).map((loc) => (
-                  <option key={loc.id} value={loc.id}>
-                    {loc.name} ({loc.type})
-                  </option>
-                ))}
+                <option value="">Select destination branch</option>
+                {locations
+                  .filter(loc => loc.type === 'branch') // Only branches
+                  .filter(loc => loc.id !== parseInt(formData.from_location_id))
+                  .map((loc) => (
+                    <option key={loc.id} value={loc.id}>
+                      {loc.name}
+                    </option>
+                  ))}
               </select>
             </div>
 

@@ -27,13 +27,28 @@ function Deliveries() {
 
   // ── history visibility ──
   const [showDiscHistory, setShowDiscHistory] = useState(false);
+  
+  // ── warehouse delivery creation ──
+  const [showCreateDelivery, setShowCreateDelivery] = useState(false);
+  const [showRequestForm, setShowRequestForm] = useState(false);
+  const [locations, setLocations] = useState([]);
 
   useEffect(() => {
+    fetchLocations();
     fetchAll();
     const interval = setInterval(fetchAll, 10000);
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const fetchLocations = async () => {
+    try {
+      const response = await api.get('/locations');
+      setLocations(response.data);
+    } catch (error) {
+      console.error('Error fetching locations:', error);
+    }
+  };
 
   const fetchAll = async () => {
     await Promise.all([fetchDeliveries(), fetchDiscrepancies()]);
@@ -237,22 +252,56 @@ function Deliveries() {
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           <FiTruck size={32} color="#2563eb" />
-          <h2 style={{ margin: 0 }}>Delivery Management</h2>
+          <h2 style={{ margin: 0 }}>Warehouse Deliveries</h2>
         </div>
 
-        {(user.role === 'branch_manager' || user.role === 'branch_staff') && (
-          <button
-            className="btn"
-            style={{
-              display: 'flex', alignItems: 'center', gap: '6px',
-              backgroundColor: '#8b5cf6', color: '#fff', border: 'none'
-            }}
-            onClick={() => setDiscModal({ open: true, type: 'return', delivery: null })}
-          >
-            <FiRefreshCw size={14} />
-            Request Return to Warehouse
-          </button>
-        )}
+        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+          {/* Branch: Request from Warehouse */}
+          {(user.role === 'branch_manager' || user.role === 'branch_staff') && (
+            <>
+              <button
+                className="btn btn-success"
+                onClick={() => setShowRequestForm(!showRequestForm)}
+              >
+                <FiPackage size={16} />
+                {showRequestForm ? 'Cancel' : 'Request from Warehouse'}
+              </button>
+              <button
+                className="btn"
+                style={{
+                  display: 'flex', alignItems: 'center', gap: '6px',
+                  backgroundColor: '#8b5cf6', color: '#fff', border: 'none'
+                }}
+                onClick={() => setDiscModal({ open: true, type: 'return', delivery: null })}
+              >
+                <FiRefreshCw size={14} />
+                Request Return
+              </button>
+            </>
+          )}
+          
+          {/* Warehouse/Admin: Create Delivery */}
+          {(user.role === 'admin' || user.role === 'warehouse') && (
+            <button
+              className="btn btn-primary"
+              onClick={() => setShowCreateDelivery(!showCreateDelivery)}
+            >
+              <FiTruck size={16} />
+              {showCreateDelivery ? 'Cancel' : 'New Delivery'}
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Info Alert */}
+      <div className="alert alert-info" style={{ marginBottom: '24px' }}>
+        <FiAlertCircle size={16} />
+        <div>
+          <strong>Warehouse Deliveries</strong>
+          <p style={{ margin: '4px 0 0 0', fontSize: '13px' }}>
+            This page is for warehouse deliveries to branches. For branch-to-branch transfers, go to the <strong>Transfers</strong> page.
+          </p>
+        </div>
       </div>
 
       {/* ── Admin: Awaiting Confirmation ─────────────────────────────────── */}
