@@ -499,7 +499,12 @@ function Deliveries() {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px', marginBottom: '16px' }}>
               <div className="form-group">
                 <label>From Warehouse *</label>
-                <select name="from_location_id" required>
+                <select 
+                  name="from_location_id" 
+                  required
+                  defaultValue={user.role === 'warehouse' ? user.location_id : ''}
+                  disabled={user.role === 'warehouse'}
+                >
                   <option value="">Select warehouse</option>
                   {locations.filter(loc => loc.type === 'warehouse').map(loc => (
                     <option key={loc.id} value={loc.id}>{loc.name}</option>
