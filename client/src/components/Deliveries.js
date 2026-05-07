@@ -31,25 +31,31 @@ function Deliveries() {
   // ── warehouse delivery creation ──
   const [showCreateDelivery, setShowCreateDelivery] = useState(false);
   const [showRequestForm, setShowRequestForm] = useState(false);
-  // const [locations, setLocations] = useState([]); // TODO: Will be used when forms are implemented
+  const [locations, setLocations] = useState([]);
+  const [requestFormData, setRequestFormData] = useState({
+    description: '',
+    unit: '',
+    quantity: '',
+    unit_cost: '',
+    notes: ''
+  });
 
   useEffect(() => {
-    // fetchLocations(); // TODO: Uncomment when forms are implemented
+    fetchLocations();
     fetchAll();
     const interval = setInterval(fetchAll, 10000);
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // TODO: Uncomment when forms are implemented
-  // const fetchLocations = async () => {
-  //   try {
-  //     const response = await api.get('/locations');
-  //     setLocations(response.data);
-  //   } catch (error) {
-  //     console.error('Error fetching locations:', error);
-  //   }
-  // };
+  const fetchLocations = async () => {
+    try {
+      const response = await api.get('/locations');
+      setLocations(response.data);
+    } catch (error) {
+      console.error('Error fetching locations:', error);
+    }
+  };
 
   const fetchAll = async () => {
     await Promise.all([fetchDeliveries(), fetchDiscrepancies()]);
@@ -304,6 +310,247 @@ function Deliveries() {
           </p>
         </div>
       </div>
+
+      {/* ── Request from Warehouse Form (Branch) ──────────────────────────── */}
+      {showRequestForm && (user.role === 'branch_manager' || user.role === 'branch_staff') && (
+        <div className="card" style={{ marginBottom: '24px', borderLeft: '4px solid #10b981' }}>
+          <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#10b981', marginBottom: '16px' }}>
+            <FiPackage size={20} />
+            Request from Warehouse
+          </h3>
+          <div className="alert alert-info" style={{ marginBottom: '16px' }}>
+            <FiInfo size={16} />
+            Submit a request to the warehouse. They will review and create a delivery if approved.
+          </div>
+          <form onSubmit={async (e) => {
+            e.preventDefault();
+            const formData = new FormData(e.target);
+            const description = formData.get('description');
+            const unit = formData.get('unit');
+            const quantity = formData.get('quantity');
+            const unitCost = formData.get('unit_cost');
+            const notes = formData.get('notes');
+
+            if (!description || !unit || !quantity || !unitCost) {
+              alert('Please fill in all required fields');
+              return;
+            }
+
+            try {
+              // Find warehouse location
+              const warehouse = locations.find(loc => loc.type === 'warehouse');
+              if (!warehouse) {
+                alert('No warehouse found. Please contact admin.');
+                return;
+              }
+
+              await api.post('/deliveries', {
+                from_location_id: warehouse.id,
+                to_location_id: user.location_id,
+                description,
+                unit,
+                quantity: parseFloat(quantity),
+                unit_cost: parseFloat(unitCost),
+                notes: notes || null
+              });
+              alert('Request submitted to warehouse!');
+              setShowRequestForm(false);
+              setRequestFormData({
+                description: '',
+                unit: '',
+                quantity: '',
+                unit_cost: '',
+                notes: ''
+              });
+              e.target.reset();
+              fetchAll();
+            } catch (error) {
+              alert(error.response?.data?.error || 'Error submitting request');
+            }
+          }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px', marginBottom: '16px' }}>
+              <div className="form-group">
+                <label>Item Description *</label>
+                <input 
+                  type="text" 
+                  name="description" 
+                  required 
+                  placeholder="Enter item description"
+                  value={requestFormData.description}
+                  onChange={(e) => setRequestFormData({...requestFormData, description: e.target.value})}
+                />
+              </div>
+              <div className="form-group">
+                <label>Unit *</label>
+                <input 
+                  type="text" 
+                  name="unit" 
+                  required 
+                  placeholder="e.g., PC, BOX, BOT"
+                  value={requestFormData.unit}
+                  onChange={(e) => setRequestFormData({...requestFormData, unit: e.target.value})}
+                />
+              </div>
+              <div className="form-group">
+                <label>Quantity *</label>
+                <input 
+                  type="number" 
+                  name="quantity" 
+                  step="0.01" 
+                  min="0.01" 
+                  required 
+                  placeholder="0.00"
+                  value={requestFormData.quantity}
+                  onChange={(e) => setRequestFormData({...requestFormData, quantity: e.target.value})}
+                />
+              </div>
+              <div className="form-group">
+                <label>Unit Cost *</label>
+                <input 
+                  type="number" 
+                  name="unit_cost" 
+                  step="0.01" 
+                  min="0.01" 
+                  required 
+                  placeholder="0.00"
+                  value={requestFormData.unit_cost}
+                  onChange={(e) => setRequestFormData({...requestFormData, unit_cost: e.target.value})}
+                />
+              </div>
+            </div>
+            <div className="form-group" style={{ marginBottom: '16px' }}>
+              <label>Notes (Optional)</label>
+              <textarea 
+                name="notes" 
+                rows="3" 
+                placeholder="Add any notes about this request..."
+                value={requestFormData.notes}
+                onChange={(e) => setRequestFormData({...requestFormData, notes: e.target.value})}
+              ></textarea>
+            </div>
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button type="submit" className="btn btn-success">
+                <FiCheck size={16} />
+                Submit Request
+              </button>
+              <button type="button" className="btn btn-secondary" onClick={() => {
+                setShowRequestForm(false);
+                setRequestFormData({
+                  description: '',
+                  unit: '',
+                  quantity: '',
+                  unit_cost: '',
+                  notes: ''
+                });
+              }}>
+                <FiX size={16} />
+                Cancel
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* ── New Delivery Form (Warehouse/Admin) ──────────────────────────── */}
+      {showCreateDelivery && (user.role === 'admin' || user.role === 'warehouse') && (
+        <div className="card" style={{ marginBottom: '24px', borderLeft: '4px solid #2563eb' }}>
+          <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#2563eb', marginBottom: '16px' }}>
+            <FiTruck size={20} />
+            Create New Delivery
+          </h3>
+          <div className="alert alert-info" style={{ marginBottom: '16px' }}>
+            <FiInfo size={16} />
+            Create a delivery from warehouse to branch. This will notify the branch when ready.
+          </div>
+          <form onSubmit={async (e) => {
+            e.preventDefault();
+            const formData = new FormData(e.target);
+            const fromLocationId = formData.get('from_location_id');
+            const toLocationId = formData.get('to_location_id');
+            const description = formData.get('description');
+            const unit = formData.get('unit');
+            const quantity = formData.get('quantity');
+            const unitCost = formData.get('unit_cost');
+            const notes = formData.get('notes');
+
+            if (!fromLocationId || !toLocationId || !description || !unit || !quantity || !unitCost) {
+              alert('Please fill in all required fields');
+              return;
+            }
+
+            try {
+              await api.post('/deliveries', {
+                from_location_id: parseInt(fromLocationId),
+                to_location_id: parseInt(toLocationId),
+                description,
+                unit,
+                quantity: parseFloat(quantity),
+                unit_cost: parseFloat(unitCost),
+                notes: notes || null
+              });
+              alert('Delivery created successfully!');
+              setShowCreateDelivery(false);
+              e.target.reset();
+              fetchAll();
+            } catch (error) {
+              alert(error.response?.data?.error || 'Error creating delivery');
+            }
+          }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px', marginBottom: '16px' }}>
+              <div className="form-group">
+                <label>From Warehouse *</label>
+                <select name="from_location_id" required>
+                  <option value="">Select warehouse</option>
+                  {locations.filter(loc => loc.type === 'warehouse').map(loc => (
+                    <option key={loc.id} value={loc.id}>{loc.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="form-group">
+                <label>To Branch *</label>
+                <select name="to_location_id" required>
+                  <option value="">Select branch</option>
+                  {locations.filter(loc => loc.type === 'branch').map(loc => (
+                    <option key={loc.id} value={loc.id}>{loc.name}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px', marginBottom: '16px' }}>
+              <div className="form-group">
+                <label>Item Description *</label>
+                <input type="text" name="description" required placeholder="Enter item description" />
+              </div>
+              <div className="form-group">
+                <label>Unit *</label>
+                <input type="text" name="unit" required placeholder="e.g., PC, BOX, BOT" />
+              </div>
+              <div className="form-group">
+                <label>Quantity *</label>
+                <input type="number" name="quantity" step="0.01" min="0.01" required placeholder="0.00" />
+              </div>
+              <div className="form-group">
+                <label>Unit Cost *</label>
+                <input type="number" name="unit_cost" step="0.01" min="0.01" required placeholder="0.00" />
+              </div>
+            </div>
+            <div className="form-group" style={{ marginBottom: '16px' }}>
+              <label>Notes (Optional)</label>
+              <textarea name="notes" rows="3" placeholder="Add any notes about this delivery..."></textarea>
+            </div>
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button type="submit" className="btn btn-success">
+                <FiCheck size={16} />
+                Create Delivery
+              </button>
+              <button type="button" className="btn btn-secondary" onClick={() => setShowCreateDelivery(false)}>
+                <FiX size={16} />
+                Cancel
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
 
       {/* ── Admin: Awaiting Confirmation ─────────────────────────────────── */}
       {user.role === 'admin' && awaitingAdmin.length > 0 && (

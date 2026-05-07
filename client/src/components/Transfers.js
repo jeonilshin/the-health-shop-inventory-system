@@ -52,7 +52,7 @@ function Transfers() {
 
   useEffect(() => {
     fetchLocations();
-    fetchTransfers();
+    fetchLocations();
     fetchDiscrepancies();
     if (user.role === 'admin' || user.role === 'branch_manager') {
       fetchPendingApprovals();
@@ -70,6 +70,14 @@ function Transfers() {
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Fetch transfers after locations are loaded
+  useEffect(() => {
+    if (locations.length > 0) {
+      fetchTransfers();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [locations]);
 
   useEffect(() => {
     if (formData.from_location_id) {
@@ -125,17 +133,29 @@ function Transfers() {
   const fetchTransfers = async () => {
     try {
       const response = await api.get('/transfers');
-      // Filter to only show branch-to-branch transfers
-      // Warehouse transfers should be in Deliveries page
-      const branchToBranchTransfers = response.data.filter(transfer => {
-        // Get location types from locations array
-        const fromLoc = locations.find(loc => loc.id === transfer.from_location_id);
-        const toLoc = locations.find(loc => loc.id === transfer.to_location_id);
-        
-        // Only show if both are branches (not warehouse)
-        return fromLoc?.type === 'branch' && toLoc?.type === 'branch';
-      });
-      setTransfers(branchToBranchTransfers);
+      // Filter based on user role
+      let filteredTransfers = response.data;
+      
+      // Only filter if locations are loaded
+      if (locations.length > 0) {
+        if (user.role === 'warehouse') {
+          // Warehouse: Show warehouse-to-warehouse transfers only
+          filteredTransfers = response.data.filter(transfer => {
+            const fromLoc = locations.find(loc => loc.id === transfer.from_location_id);
+            const toLoc = locations.find(loc => loc.id === transfer.to_location_id);
+            return fromLoc?.type === 'warehouse' && toLoc?.type === 'warehouse';
+          });
+        } else {
+          // Admin, Manager, Staff: Show branch-to-branch transfers only
+          filteredTransfers = response.data.filter(transfer => {
+            const fromLoc = locations.find(loc => loc.id === transfer.from_location_id);
+            const toLoc = locations.find(loc => loc.id === transfer.to_location_id);
+            return fromLoc?.type === 'branch' && toLoc?.type === 'branch';
+          });
+        }
+      }
+      
+      setTransfers(filteredTransfers);
     } catch (error) {
       // Set empty array on error to prevent crashes
       setTransfers([]);
@@ -804,7 +824,9 @@ function Transfers() {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '24px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           <FiSend size={32} color="#2563eb" />
-          <h2 style={{ margin: 0 }}>Branch-to-Branch Transfers</h2>
+          <h2 style={{ margin: 0 }}>
+            {user.role === 'warehouse' ? 'Warehouse-to-Warehouse Transfers' : 'Branch-to-Branch Transfers'}
+          </h2>
         </div>
       </div>
 
@@ -812,9 +834,12 @@ function Transfers() {
       <div className="alert alert-info" style={{ marginBottom: '24px' }}>
         <FiAlertCircle size={16} />
         <div>
-          <strong>Branch-to-Branch Transfers Only</strong>
+          <strong>{user.role === 'warehouse' ? 'Warehouse-to-Warehouse Transfers' : 'Branch-to-Branch Transfers Only'}</strong>
           <p style={{ margin: '4px 0 0 0', fontSize: '13px' }}>
-            This page is for transfers between branches. For warehouse deliveries, go to the <strong>Deliveries</strong> page.
+            {user.role === 'warehouse' 
+              ? 'This page is for transfers between warehouse locations. For deliveries to branches, go to the Deliveries page.'
+              : 'This page is for transfers between branches. For warehouse deliveries, go to the Deliveries page.'
+            }
           </p>
         </div>
       </div>
@@ -1079,19 +1104,20 @@ function Transfers() {
             </h4>
             
             <div className="form-group">
-              <label>From Location (Source Branch)</label>
+              <label>From Location (Source {user.role === 'warehouse' ? 'Warehouse' : 'Branch'})</label>
               <select
                 value={formData.from_location_id}
                 onChange={(e) => setFormData({ ...formData, from_location_id: e.target.value, items: [{ inventory_item_id: '', quantity: '', selectedItem: null }] })}
                 disabled={user.role !== 'admin' && user.location_id}
                 required
               >
-                <option value="">Select source branch</option>
+                <option value="">Select source {user.role === 'warehouse' ? 'warehouse' : 'branch'}</option>
                 {locations
-                  .filter(loc => loc.type === 'branch') // Only branches
+                  .filter(loc => user.role === 'warehouse' ? loc.type === 'warehouse' : loc.type === 'branch')
                   .filter(loc =>
                     user.role === 'admin' ||
                     user.role === 'branch_manager' ||
+                    user.role === 'warehouse' ||
                     loc.id === user.location_id
                   )
                   .map((loc) => (
@@ -1103,15 +1129,15 @@ function Transfers() {
             </div>
 
             <div className="form-group">
-              <label>To Location (Destination Branch)</label>
+              <label>To Location (Destination {user.role === 'warehouse' ? 'Warehouse' : 'Branch'})</label>
               <select
                 value={formData.to_location_id}
                 onChange={(e) => setFormData({ ...formData, to_location_id: e.target.value })}
                 required
               >
-                <option value="">Select destination branch</option>
+                <option value="">Select destination {user.role === 'warehouse' ? 'warehouse' : 'branch'}</option>
                 {locations
-                  .filter(loc => loc.type === 'branch') // Only branches
+                  .filter(loc => user.role === 'warehouse' ? loc.type === 'warehouse' : loc.type === 'branch')
                   .filter(loc => loc.id !== parseInt(formData.from_location_id))
                   .map((loc) => (
                     <option key={loc.id} value={loc.id}>
