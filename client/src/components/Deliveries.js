@@ -31,24 +31,25 @@ function Deliveries() {
   // ── warehouse delivery creation ──
   const [showCreateDelivery, setShowCreateDelivery] = useState(false);
   const [showRequestForm, setShowRequestForm] = useState(false);
-  const [locations, setLocations] = useState([]);
+  // const [locations, setLocations] = useState([]); // TODO: Will be used when forms are implemented
 
   useEffect(() => {
-    fetchLocations();
+    // fetchLocations(); // TODO: Uncomment when forms are implemented
     fetchAll();
     const interval = setInterval(fetchAll, 10000);
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const fetchLocations = async () => {
-    try {
-      const response = await api.get('/locations');
-      setLocations(response.data);
-    } catch (error) {
-      console.error('Error fetching locations:', error);
-    }
-  };
+  // TODO: Uncomment when forms are implemented
+  // const fetchLocations = async () => {
+  //   try {
+  //     const response = await api.get('/locations');
+  //     setLocations(response.data);
+  //   } catch (error) {
+  //     console.error('Error fetching locations:', error);
+  //   }
+  // };
 
   const fetchAll = async () => {
     await Promise.all([fetchDeliveries(), fetchDiscrepancies()]);
