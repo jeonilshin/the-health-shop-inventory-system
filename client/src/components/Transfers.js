@@ -928,7 +928,7 @@ function Transfers() {
             {user.role === 'branch_manager' ? 'Transfer Requests' : 'Transfer History'}
           </h3>
           <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-            {(user.role === 'admin' || user.role === 'branch_manager' || user.role === 'branch_staff') && (
+            {(user.role === 'admin' || user.role === 'branch_manager' || user.role === 'branch_staff' || user.role === 'warehouse') && (
               <button className="btn btn-primary" onClick={() => { setShowForm(!showForm); }}>
                 <FiSend size={16} />
                 {showForm ? 'Cancel' : (user.role === 'branch_staff' ? 'Request Transfer' : 'New Transfer')}

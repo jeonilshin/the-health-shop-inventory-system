@@ -34,21 +34,31 @@
 
 ---
 
-### 2. ✅ Hide "New Transfer" Button for Warehouse Users
-**Problem**: Warehouse users saw the "New Transfer" button in /transfers page, but they should use the Deliveries page instead
+### 2. ✅ "New Transfer" Button for Warehouse Users
+**Problem**: Warehouse users couldn't create warehouse-to-warehouse transfers because the "New Transfer" button was hidden
 
 **Solution**: 
-- The button was already hidden! The condition `(user.role === 'admin' || user.role === 'branch_manager' || user.role === 'branch_staff')` excludes warehouse users
-- Warehouse users only see "Download" and "History" buttons
+- Added `user.role === 'warehouse'` to the button visibility condition
+- Warehouse users can now create warehouse-to-warehouse transfers in the Transfers page
 
 **Files Changed**:
-- `client/src/components/Transfers.js` (no changes needed - already correct)
+- `client/src/components/Transfers.js`
+
+**Code**:
+```javascript
+{(user.role === 'admin' || user.role === 'branch_manager' || user.role === 'branch_staff' || user.role === 'warehouse') && (
+  <button className="btn btn-primary" onClick={() => { setShowForm(!showForm); }}>
+    <FiSend size={16} />
+    {showForm ? 'Cancel' : (user.role === 'branch_staff' ? 'Request Transfer' : 'New Transfer')}
+  </button>
+)}
+```
 
 **Button Visibility**:
-- **Admin**: ✅ "New Transfer" button visible
-- **Branch Manager**: ✅ "New Transfer" button visible
-- **Branch Staff**: ✅ "Request Transfer" button visible
-- **Warehouse**: ❌ No transfer button (correct - they use Deliveries page)
+- **Admin**: ✅ "New Transfer" button visible (branch-to-branch)
+- **Branch Manager**: ✅ "New Transfer" button visible (branch-to-branch)
+- **Branch Staff**: ✅ "Request Transfer" button visible (branch-to-branch)
+- **Warehouse**: ✅ "New Transfer" button visible (warehouse-to-warehouse)
 
 ---
 
@@ -56,17 +66,23 @@
 
 ### Warehouse User Workflow
 
-1. **Creating Deliveries** (Deliveries Page):
+1. **Creating Warehouse-to-Warehouse Transfers** (Transfers Page):
+   - Click "New Transfer" button
+   - "From Location" is automatically set to their warehouse
+   - Select destination warehouse
+   - Fill in item details
+   - Submit transfer
+
+2. **Creating Deliveries to Branches** (Deliveries Page):
    - Click "New Delivery" button
    - "From Warehouse" is automatically set to their warehouse (disabled)
    - Select destination branch
    - Fill in item details
    - Submit delivery
 
-2. **Viewing Transfers** (Transfers Page):
-   - Can view warehouse-to-warehouse transfer history
-   - Can download and view history
-   - **Cannot create new transfers** (must use Deliveries page for warehouse → branch)
+3. **Viewing History**:
+   - Transfers page: View warehouse-to-warehouse transfers
+   - Deliveries page: View warehouse → branch deliveries
 
 ### Branch User Workflow
 
@@ -88,21 +104,35 @@
 Both issues have been fixed:
 
 1. ✅ **Warehouse Default**: Warehouse users now have their warehouse pre-selected and locked in the delivery form
-2. ✅ **No Transfer Button**: Warehouse users don't see the "New Transfer" button (already working correctly)
+2. ✅ **New Transfer Button**: Warehouse users can now create warehouse-to-warehouse transfers
 
 The build compiles successfully and is ready to deploy.
+
+---
+
+## Page Separation
+
+### Transfers Page
+- **Branch Users**: Branch-to-branch transfers
+- **Warehouse Users**: Warehouse-to-warehouse transfers
+- **Admin**: Can see all branch-to-branch transfers
+
+### Deliveries Page
+- **Warehouse Users**: Create deliveries from warehouse → branch
+- **Branch Users**: Request deliveries from warehouse
+- **Admin**: Manage all deliveries
 
 ---
 
 ## Testing Checklist
 
 ### Warehouse User
-- [ ] In /deliveries page, "New Delivery" form has "From Warehouse" pre-filled with their warehouse
-- [ ] "From Warehouse" field is disabled (cannot change)
-- [ ] Can select any branch as destination
-- [ ] In /transfers page, no "New Transfer" button is visible
-- [ ] Can still view warehouse-to-warehouse transfer history
-- [ ] Can download and view history
+- [ ] In /transfers page, "New Transfer" button is visible
+- [ ] Can create warehouse-to-warehouse transfers
+- [ ] "From Location" is pre-filled with their warehouse
+- [ ] Can only select other warehouses as destination
+- [ ] In /deliveries page, "New Delivery" form has "From Warehouse" pre-filled and disabled
+- [ ] Can select any branch as destination for deliveries
 
 ### Admin User
 - [ ] In /deliveries page, can select any warehouse from dropdown
@@ -115,3 +145,4 @@ The build compiles successfully and is ready to deploy.
 - [ ] Can create branch-to-branch transfers
 - [ ] In /deliveries page, "Request from Warehouse" button is visible
 - [ ] Can submit requests to warehouse
+
