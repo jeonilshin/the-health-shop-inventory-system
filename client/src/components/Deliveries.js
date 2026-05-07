@@ -47,8 +47,10 @@ function Deliveries() {
     quantity: '',
     unit_cost: '',
     notes: '',
-    available_quantity: null
+    available_quantity: null,
+    cost_batch_id: ''
   });
+  const [costBatches, setCostBatches] = useState([]);
 
   useEffect(() => {
     fetchLocations();
@@ -505,8 +507,10 @@ function Deliveries() {
                 quantity: '',
                 unit_cost: '',
                 notes: '',
-                available_quantity: null
+                available_quantity: null,
+                cost_batch_id: ''
               });
+              setCostBatches([]);
               e.target.reset();
               fetchAll();
             } catch (error) {
@@ -549,15 +553,22 @@ function Deliveries() {
                     const fromLocationId = formElement?.querySelector('[name="from_location_id"]')?.value;
                     
                     let availableQty = null;
+                    let batches = [];
                     
-                    // Fetch available quantity if warehouse is selected
+                    // Fetch available quantity and cost batches if warehouse is selected
                     if (fromLocationId) {
                       try {
+                        // Fetch inventory
                         const response = await api.get(`/inventory/location/${fromLocationId}`);
                         const inventoryItem = response.data.find(
                           inv => inv.description === item.description && inv.unit === item.unit
                         );
                         availableQty = inventoryItem ? parseFloat(inventoryItem.quantity) : 0;
+                        
+                        // Fetch cost batches
+                        const batchResponse = await api.get(`/inventory/cost-batches/${fromLocationId}/${encodeURIComponent(item.description)}/${encodeURIComponent(item.unit)}`);
+                        batches = batchResponse.data;
+                        setCostBatches(batches);
                       } catch (error) {
                         console.error('Error fetching inventory:', error);
                       }
@@ -569,7 +580,8 @@ function Deliveries() {
                       description: item.description,
                       unit: item.unit,
                       unit_cost: item.unit_cost || '',
-                      available_quantity: availableQty
+                      available_quantity: availableQty,
+                      cost_batch_id: ''
                     });
                   }}
                 />
@@ -599,65 +611,142 @@ function Deliveries() {
               </div>
             </div>
             {deliveryFormData.description && (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px', marginBottom: '16px' }}>
-                <div className="form-group">
-                  <label>Item Description</label>
-                  <input 
-                    type="text" 
-                    value={deliveryFormData.description}
-                    disabled
-                    style={{ backgroundColor: 'var(--bg-secondary)' }}
-                  />
+              <>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px', marginBottom: '16px' }}>
+                  <div className="form-group">
+                    <label>Item Description</label>
+                    <input 
+                      type="text" 
+                      value={deliveryFormData.description}
+                      disabled
+                      style={{ backgroundColor: 'var(--bg-secondary)' }}
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>Unit</label>
+                    <input 
+                      type="text" 
+                      value={deliveryFormData.unit}
+                      disabled
+                      style={{ backgroundColor: 'var(--bg-secondary)' }}
+                    />
+                  </div>
                 </div>
-                <div className="form-group">
-                  <label>Unit</label>
-                  <input 
-                    type="text" 
-                    value={deliveryFormData.unit}
-                    disabled
-                    style={{ backgroundColor: 'var(--bg-secondary)' }}
-                  />
+
+                {/* Batch Selection */}
+                {costBatches.length > 0 && (
+                  <div className="form-group" style={{ marginBottom: '16px' }}>
+                    <label>Select Batch *</label>
+                    <select
+                      value={deliveryFormData.cost_batch_id}
+                      onChange={(e) => {
+                        const selectedBatch = costBatches.find(b => b.cost_batch_id === e.target.value);
+                        setDeliveryFormData({
+                          ...deliveryFormData,
+                          cost_batch_id: e.target.value,
+                          unit_cost: selectedBatch ? selectedBatch.unit_cost : deliveryFormData.unit_cost
+                        });
+                      }}
+                      required
+                    >
+                      <option value="">Select batch...</option>
+                      {costBatches.map((batch, batchIndex) => (
+                        <option key={batch.cost_batch_id} value={batch.cost_batch_id}>
+                          {batch.batch_number || `BATCH-${batchIndex + 1}`} - Qty: {formatQuantity(batch.quantity)} - 
+                          Cost: ₱{formatPrice(batch.unit_cost)} - 
+                          Exp: {batch.expiry_date ? new Date(batch.expiry_date).toLocaleDateString() : 'N/A'}
+                        </option>
+                      ))}
+                    </select>
+                    {deliveryFormData.cost_batch_id && (
+                      <div style={{ 
+                        marginTop: '8px', 
+                        padding: '8px', 
+                        backgroundColor: 'rgba(59, 130, 246, 0.1)', 
+                        borderRadius: 'var(--radius)',
+                        fontSize: '12px',
+                        color: 'var(--primary)',
+                        border: '1px solid rgba(59, 130, 246, 0.2)'
+                      }}>
+                        {(() => {
+                          const selectedBatch = costBatches.find(b => b.cost_batch_id === deliveryFormData.cost_batch_id);
+                          return selectedBatch ? (
+                            <div>
+                              <strong>Batch Details:</strong> {selectedBatch.batch_number || 'N/A'} | 
+                              Available: {formatQuantity(selectedBatch.quantity)} {deliveryFormData.unit} | 
+                              Expires: {selectedBatch.expiry_date ? new Date(selectedBatch.expiry_date).toLocaleDateString() : 'N/A'}
+                            </div>
+                          ) : '';
+                        })()}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px', marginBottom: '16px' }}>
+                  <div className="form-group">
+                    <label>Quantity *</label>
+                    <input 
+                      type="number" 
+                      name="quantity" 
+                      step="0.01" 
+                      min="0.01" 
+                      max={(() => {
+                        if (deliveryFormData.cost_batch_id) {
+                          const batch = costBatches.find(b => b.cost_batch_id === deliveryFormData.cost_batch_id);
+                          return batch ? batch.quantity : undefined;
+                        }
+                        return deliveryFormData.available_quantity || undefined;
+                      })()}
+                      required 
+                      placeholder={(() => {
+                        if (!deliveryFormData.cost_batch_id && costBatches.length > 0) return 'Select batch first';
+                        if (deliveryFormData.cost_batch_id) {
+                          const batch = costBatches.find(b => b.cost_batch_id === deliveryFormData.cost_batch_id);
+                          return batch ? `Max: ${batch.quantity}` : '0.00';
+                        }
+                        return '0.00';
+                      })()}
+                      value={deliveryFormData.quantity}
+                      onChange={(e) => {
+                        const qty = parseFloat(e.target.value);
+                        let maxQty = deliveryFormData.available_quantity;
+                        
+                        if (deliveryFormData.cost_batch_id) {
+                          const batch = costBatches.find(b => b.cost_batch_id === deliveryFormData.cost_batch_id);
+                          maxQty = batch ? parseFloat(batch.quantity) : maxQty;
+                        }
+                        
+                        if (maxQty !== null && qty > maxQty) {
+                          alert(`Cannot exceed available quantity: ${formatQuantity(maxQty)} ${deliveryFormData.unit}`);
+                          return;
+                        }
+                        setDeliveryFormData({...deliveryFormData, quantity: e.target.value});
+                      }}
+                      disabled={costBatches.length > 0 && !deliveryFormData.cost_batch_id}
+                    />
+                    {deliveryFormData.available_quantity !== null && deliveryFormData.available_quantity === 0 && (
+                      <div style={{ fontSize: '11px', color: '#ef4444', marginTop: '4px' }}>
+                        ⚠️ No stock available in warehouse
+                      </div>
+                    )}
+                  </div>
+                  <div className="form-group">
+                    <label>Unit Cost *</label>
+                    <input 
+                      type="number" 
+                      name="unit_cost" 
+                      step="0.01" 
+                      min="0.01" 
+                      required 
+                      placeholder="0.00"
+                      value={deliveryFormData.unit_cost}
+                      onChange={(e) => setDeliveryFormData({...deliveryFormData, unit_cost: e.target.value})}
+                      disabled={costBatches.length > 0 && !deliveryFormData.cost_batch_id}
+                    />
+                  </div>
                 </div>
-                <div className="form-group">
-                  <label>Quantity *</label>
-                  <input 
-                    type="number" 
-                    name="quantity" 
-                    step="0.01" 
-                    min="0.01" 
-                    max={deliveryFormData.available_quantity || undefined}
-                    required 
-                    placeholder="0.00"
-                    value={deliveryFormData.quantity}
-                    onChange={(e) => {
-                      const qty = parseFloat(e.target.value);
-                      if (deliveryFormData.available_quantity !== null && qty > deliveryFormData.available_quantity) {
-                        alert(`Cannot exceed available quantity: ${formatQuantity(deliveryFormData.available_quantity)} ${deliveryFormData.unit}`);
-                        return;
-                      }
-                      setDeliveryFormData({...deliveryFormData, quantity: e.target.value});
-                    }}
-                  />
-                  {deliveryFormData.available_quantity !== null && deliveryFormData.available_quantity === 0 && (
-                    <div style={{ fontSize: '11px', color: '#ef4444', marginTop: '4px' }}>
-                      ⚠️ No stock available in warehouse
-                    </div>
-                  )}
-                </div>
-                <div className="form-group">
-                  <label>Unit Cost *</label>
-                  <input 
-                    type="number" 
-                    name="unit_cost" 
-                    step="0.01" 
-                    min="0.01" 
-                    required 
-                    placeholder="0.00"
-                    value={deliveryFormData.unit_cost}
-                    onChange={(e) => setDeliveryFormData({...deliveryFormData, unit_cost: e.target.value})}
-                  />
-                </div>
-              </div>
+              </>
             )}
             {deliveryFormData.description && (
               <div className="form-group" style={{ marginBottom: '16px' }}>
@@ -685,8 +774,10 @@ function Deliveries() {
                   quantity: '',
                   unit_cost: '',
                   notes: '',
-                  available_quantity: null
+                  available_quantity: null,
+                  cost_batch_id: ''
                 });
+                setCostBatches([]);
               }}>
                 <FiX size={16} />
                 Cancel
