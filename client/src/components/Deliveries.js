@@ -3,6 +3,7 @@ import api from '../utils/api';
 import { AuthContext } from '../context/AuthContext';
 import { formatQuantity, formatPrice } from '../utils/formatNumber';
 import DiscrepancyModal from './DiscrepancyModal';
+import AutocompleteSearch from './AutocompleteSearch';
 import {
   FiTruck, FiPackage, FiCheck, FiClock, FiAlertCircle,
   FiCheckCircle, FiAlertTriangle, FiRefreshCw, FiX, FiInfo, FiXCircle, FiChevronDown
@@ -33,6 +34,13 @@ function Deliveries() {
   const [showRequestForm, setShowRequestForm] = useState(false);
   const [locations, setLocations] = useState([]);
   const [requestFormData, setRequestFormData] = useState({
+    description: '',
+    unit: '',
+    quantity: '',
+    unit_cost: '',
+    notes: ''
+  });
+  const [deliveryFormData, setDeliveryFormData] = useState({
     description: '',
     unit: '',
     quantity: '',
@@ -467,13 +475,11 @@ function Deliveries() {
             const formData = new FormData(e.target);
             const fromLocationId = formData.get('from_location_id');
             const toLocationId = formData.get('to_location_id');
-            const description = formData.get('description');
-            const unit = formData.get('unit');
             const quantity = formData.get('quantity');
             const unitCost = formData.get('unit_cost');
             const notes = formData.get('notes');
 
-            if (!fromLocationId || !toLocationId || !description || !unit || !quantity || !unitCost) {
+            if (!fromLocationId || !toLocationId || !deliveryFormData.description || !deliveryFormData.unit || !quantity || !unitCost) {
               alert('Please fill in all required fields');
               return;
             }
@@ -482,14 +488,21 @@ function Deliveries() {
               await api.post('/deliveries', {
                 from_location_id: parseInt(fromLocationId),
                 to_location_id: parseInt(toLocationId),
-                description,
-                unit,
+                description: deliveryFormData.description,
+                unit: deliveryFormData.unit,
                 quantity: parseFloat(quantity),
                 unit_cost: parseFloat(unitCost),
                 notes: notes || null
               });
               alert('Delivery created successfully!');
               setShowCreateDelivery(false);
+              setDeliveryFormData({
+                description: '',
+                unit: '',
+                quantity: '',
+                unit_cost: '',
+                notes: ''
+              });
               e.target.reset();
               fetchAll();
             } catch (error) {
@@ -523,32 +536,108 @@ function Deliveries() {
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px', marginBottom: '16px' }}>
               <div className="form-group">
-                <label>Item Description *</label>
-                <input type="text" name="description" required placeholder="Enter item description" />
-              </div>
-              <div className="form-group">
-                <label>Unit *</label>
-                <input type="text" name="unit" required placeholder="e.g., PC, BOX, BOT" />
-              </div>
-              <div className="form-group">
-                <label>Quantity *</label>
-                <input type="number" name="quantity" step="0.01" min="0.01" required placeholder="0.00" />
-              </div>
-              <div className="form-group">
-                <label>Unit Cost *</label>
-                <input type="number" name="unit_cost" step="0.01" min="0.01" required placeholder="0.00" />
+                <label>Search Item *</label>
+                <AutocompleteSearch
+                  placeholder="Search for product..."
+                  onSelect={(item) => {
+                    setDeliveryFormData({
+                      ...deliveryFormData,
+                      description: item.description,
+                      unit: item.unit,
+                      unit_cost: item.unit_cost || ''
+                    });
+                  }}
+                />
+                {deliveryFormData.description && (
+                  <div style={{ 
+                    marginTop: '8px', 
+                    padding: '8px', 
+                    backgroundColor: 'rgba(59, 130, 246, 0.1)', 
+                    borderRadius: 'var(--radius)',
+                    fontSize: '13px',
+                    color: 'var(--primary)',
+                    border: '1px solid rgba(59, 130, 246, 0.2)'
+                  }}>
+                    Selected: <strong>{deliveryFormData.description}</strong> ({deliveryFormData.unit})
+                  </div>
+                )}
               </div>
             </div>
-            <div className="form-group" style={{ marginBottom: '16px' }}>
-              <label>Notes (Optional)</label>
-              <textarea name="notes" rows="3" placeholder="Add any notes about this delivery..."></textarea>
-            </div>
+            {deliveryFormData.description && (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px', marginBottom: '16px' }}>
+                <div className="form-group">
+                  <label>Item Description</label>
+                  <input 
+                    type="text" 
+                    value={deliveryFormData.description}
+                    disabled
+                    style={{ backgroundColor: 'var(--bg-secondary)' }}
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Unit</label>
+                  <input 
+                    type="text" 
+                    value={deliveryFormData.unit}
+                    disabled
+                    style={{ backgroundColor: 'var(--bg-secondary)' }}
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Quantity *</label>
+                  <input 
+                    type="number" 
+                    name="quantity" 
+                    step="0.01" 
+                    min="0.01" 
+                    required 
+                    placeholder="0.00"
+                    value={deliveryFormData.quantity}
+                    onChange={(e) => setDeliveryFormData({...deliveryFormData, quantity: e.target.value})}
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Unit Cost *</label>
+                  <input 
+                    type="number" 
+                    name="unit_cost" 
+                    step="0.01" 
+                    min="0.01" 
+                    required 
+                    placeholder="0.00"
+                    value={deliveryFormData.unit_cost}
+                    onChange={(e) => setDeliveryFormData({...deliveryFormData, unit_cost: e.target.value})}
+                  />
+                </div>
+              </div>
+            )}
+            {deliveryFormData.description && (
+              <div className="form-group" style={{ marginBottom: '16px' }}>
+                <label>Notes (Optional)</label>
+                <textarea 
+                  name="notes" 
+                  rows="3" 
+                  placeholder="Add any notes about this delivery..."
+                  value={deliveryFormData.notes}
+                  onChange={(e) => setDeliveryFormData({...deliveryFormData, notes: e.target.value})}
+                ></textarea>
+              </div>
+            )}
             <div style={{ display: 'flex', gap: '10px' }}>
-              <button type="submit" className="btn btn-success">
+              <button type="submit" className="btn btn-success" disabled={!deliveryFormData.description}>
                 <FiCheck size={16} />
                 Create Delivery
               </button>
-              <button type="button" className="btn btn-secondary" onClick={() => setShowCreateDelivery(false)}>
+              <button type="button" className="btn btn-secondary" onClick={() => {
+                setShowCreateDelivery(false);
+                setDeliveryFormData({
+                  description: '',
+                  unit: '',
+                  quantity: '',
+                  unit_cost: '',
+                  notes: ''
+                });
+              }}>
                 <FiX size={16} />
                 Cancel
               </button>
