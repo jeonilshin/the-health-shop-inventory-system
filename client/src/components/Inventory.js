@@ -2344,7 +2344,6 @@ function Inventory() {
                             const daysUntilExpiry = expiryDate ? Math.ceil((expiryDate - today) / (1000 * 60 * 60 * 24)) : null;
                             const isExpired = daysUntilExpiry !== null && daysUntilExpiry < 0;
                             const isExpiringSoon = daysUntilExpiry !== null && daysUntilExpiry >= 0 && daysUntilExpiry <= 30;
-                            const adminEmptyCols = user.role === 'admin' ? 3 : 0;
 
                             return (
                               <tr key={`batch-${batch.id}`} style={{
