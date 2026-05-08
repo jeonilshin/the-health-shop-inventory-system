@@ -4,6 +4,7 @@ const pool = require('../config/database');
 const { auth, authorize } = require('../middleware/auth');
 const { logAudit } = require('../middleware/auditLog');
 const { notifyAdmins } = require('./notifications');
+const { cleanupZeroInventory } = require('../utils/inventoryCleanup');
 
 const ALLOWED_TYPES = ['employee_purchase', 'principal', 'outside_party'];
 const TYPE_LABEL = {
@@ -151,6 +152,8 @@ router.post('/', auth, authorize('admin', 'warehouse', 'branch_manager', 'branch
           'UPDATE inventory SET quantity = quantity - $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
           [deduct, batch.id]
         );
+        // Auto-cleanup if quantity reached zero
+        await cleanupZeroInventory(client, batch.id);
       }
       remaining -= deduct;
     }

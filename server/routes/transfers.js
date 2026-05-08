@@ -4,6 +4,7 @@ const pool = require('../config/database');
 const { auth, authorize } = require('../middleware/auth');
 const { notifyAdmins, notifyLocation } = require('./notifications');
 const { logAudit } = require('../middleware/auditLog');
+const { cleanupZeroInventory } = require('../utils/inventoryCleanup');
 
 // Create transfer request (branch manager requests, warehouse/admin creates, STAFF can also create with manager approval)
 router.post('/', auth, authorize('admin', 'warehouse', 'branch_manager', 'branch_staff'), async (req, res) => {
@@ -426,6 +427,9 @@ router.post('/:id/approve', auth, authorize('admin', 'branch_manager'), async (r
         [deductFromThisBatch, batch.id]
       );
       
+      // Auto-cleanup if quantity reached zero
+      await cleanupZeroInventory(client, batch.id);
+      
       console.log(`[TRANSFER APPROVE] After deduction, batch #${batch.id} now has: ${updateResult.rows[0].quantity}`);
       
       remainingToDeduct -= deductFromThisBatch;
@@ -617,6 +621,9 @@ router.post('/:id/ship', auth, authorize('admin', 'warehouse'), async (req, res)
         [deductFromThisBatch, batch.id]
       );
       
+      // Auto-cleanup if quantity reached zero
+      await cleanupZeroInventory(client, batch.id);
+      
       remainingToDeduct -= deductFromThisBatch;
     }
 
@@ -758,39 +765,61 @@ router.post('/:id/deliver', auth, authorize('admin', 'branch_manager', 'branch_s
 
     // Get the source inventory item to copy batch_number and expiry_date (if still exists)
     const sourceInventory = await client.query(
-      'SELECT batch_number, expiry_date FROM inventory WHERE location_id = $1 AND description = $2 AND unit = $3 LIMIT 1',
+      'SELECT batch_number, expiry_date, unit_cost, suggested_selling_price FROM inventory WHERE location_id = $1 AND description = $2 AND unit = $3 LIMIT 1',
       [transferData.from_location_id, transferData.description, transferData.unit]
     );
 
     const batchNumber = sourceInventory.rows[0]?.batch_number || null;
     const expiryDate = sourceInventory.rows[0]?.expiry_date || null;
+    const unitCost = transferData.unit_cost || sourceInventory.rows[0]?.unit_cost || 0;
+    const suggestedPrice = sourceInventory.rows[0]?.suggested_selling_price || unitCost;
 
-    // ADD to destination inventory with batch_number and expiry_date
-    const costBatchId = `BATCH-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-    
-    await client.query(
-      `INSERT INTO inventory 
-       (location_id, description, unit, quantity, unit_cost, suggested_selling_price, 
-        batch_number, expiry_date, max_quantity, cost_batch_id, is_new_item, is_new_cost) 
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $4, $9, false, false) 
-       ON CONFLICT (location_id, description, unit, cost_batch_id) 
-       DO UPDATE SET 
-         quantity = inventory.quantity + $4, 
-         batch_number = COALESCE($7, inventory.batch_number),
-         expiry_date = COALESCE($8, inventory.expiry_date),
-         updated_at = CURRENT_TIMESTAMP`,
-      [
-        transferData.to_location_id, 
-        transferData.description, 
-        transferData.unit, 
-        transferData.quantity, 
-        transferData.unit_cost, 
-        transferData.unit_cost, // suggested_selling_price same as unit_cost for transfers
-        batchNumber, 
-        expiryDate,
-        costBatchId
-      ]
+    // Check if an exact matching batch already exists at destination
+    const existingBatch = await client.query(
+      `SELECT id FROM inventory 
+       WHERE location_id = $1 
+         AND description = $2 
+         AND unit = $3 
+         AND unit_cost = $4 
+         AND COALESCE(suggested_selling_price, 0) = $5
+         AND (expiry_date IS NULL AND $6 IS NULL OR expiry_date = $6)
+       LIMIT 1`,
+      [transferData.to_location_id, transferData.description, transferData.unit, 
+       unitCost, suggestedPrice || 0, expiryDate]
     );
+
+    if (existingBatch.rows.length > 0) {
+      // Add to existing batch
+      await client.query(
+        `UPDATE inventory 
+         SET quantity = quantity + $1,
+             max_quantity = GREATEST(max_quantity, quantity + $1),
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $2`,
+        [transferData.quantity, existingBatch.rows[0].id]
+      );
+    } else {
+      // Create new batch
+      const costBatchId = `BATCH-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+      
+      await client.query(
+        `INSERT INTO inventory 
+         (location_id, description, unit, quantity, unit_cost, suggested_selling_price, 
+          batch_number, expiry_date, max_quantity, cost_batch_id, is_new_item, is_new_cost) 
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $4, $9, false, false)`,
+        [
+          transferData.to_location_id, 
+          transferData.description, 
+          transferData.unit, 
+          transferData.quantity, 
+          unitCost, 
+          suggestedPrice,
+          batchNumber, 
+          expiryDate,
+          costBatchId
+        ]
+      );
+    }
 
     // Update transfer status to delivered (completed)
     const result = await client.query(
@@ -1291,23 +1320,37 @@ router.post('/batch', auth, authorize('admin'), async (req, res) => {
             'UPDATE inventory SET quantity = quantity - $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
             [quantity, inventory_item_id]
           );
+          
+          // Auto-cleanup if quantity reached zero
+          await cleanupZeroInventory(client, inventory_item_id);
 
-          // Add to destination location (check if item exists)
+          // Add to destination location (check if item exists with same cost, price, and expiry)
           const destInventory = await client.query(
             `SELECT * FROM inventory 
-             WHERE location_id = $1 AND description = $2 AND unit = $3 
-             AND unit_cost = $4 AND COALESCE(batch_number, '') = COALESCE($5, '')`,
-            [to_location_id, description, unit, unit_cost, inventoryItem.batch_number]
+             WHERE location_id = $1 
+               AND description = $2 
+               AND unit = $3 
+               AND unit_cost = $4 
+               AND COALESCE(suggested_selling_price, 0) = $5
+               AND (expiry_date IS NULL AND $6 IS NULL OR expiry_date = $6)
+             LIMIT 1`,
+            [to_location_id, description, unit, unit_cost, 
+             inventoryItem.suggested_selling_price || 0, inventoryItem.expiry_date]
           );
 
           if (destInventory.rows.length > 0) {
             // Update existing inventory
             await client.query(
-              'UPDATE inventory SET quantity = quantity + $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+              `UPDATE inventory 
+               SET quantity = quantity + $1,
+                   max_quantity = GREATEST(max_quantity, quantity + $1),
+                   updated_at = CURRENT_TIMESTAMP 
+               WHERE id = $2`,
               [quantity, destInventory.rows[0].id]
             );
           } else {
             // Create new inventory record
+            const costBatchId = `BATCH-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
             await client.query(
               `INSERT INTO inventory 
                (location_id, description, unit, quantity, unit_cost, suggested_selling_price, 
@@ -1315,7 +1358,7 @@ router.post('/batch', auth, authorize('admin'), async (req, res) => {
                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $4, $9, false, false)`,
               [to_location_id, description, unit, quantity, unit_cost, 
                inventoryItem.suggested_selling_price, inventoryItem.batch_number, 
-               inventoryItem.expiry_date, inventoryItem.cost_batch_id]
+               inventoryItem.expiry_date, costBatchId]
             );
           }
         }
@@ -1498,35 +1541,45 @@ router.post('/:id/unreceive', auth, authorize('admin'), async (req, res) => {
     // ADD back to source inventory
     const sourceInventoryResult = await client.query(
       `SELECT * FROM inventory 
-       WHERE location_id = $1 AND description = $2 AND unit = $3 AND unit_cost = $4
-       ORDER BY created_at DESC
+       WHERE location_id = $1 
+         AND description = $2 
+         AND unit = $3 
+         AND unit_cost = $4
+         AND COALESCE(suggested_selling_price, 0) = $5
+         AND (expiry_date IS NULL AND $6 IS NULL OR expiry_date = $6)
        LIMIT 1`,
-      [transferData.from_location_id, transferData.description, transferData.unit, transferData.unit_cost]
+      [transferData.from_location_id, transferData.description, transferData.unit, 
+       transferData.unit_cost, destInventory.suggested_selling_price || 0, destInventory.expiry_date]
     );
     
     if (sourceInventoryResult.rows.length > 0) {
       // Update existing inventory
       await client.query(
-        'UPDATE inventory SET quantity = quantity + $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+        `UPDATE inventory 
+         SET quantity = quantity + $1,
+             max_quantity = GREATEST(max_quantity, quantity + $1),
+             updated_at = CURRENT_TIMESTAMP 
+         WHERE id = $2`,
         [transferData.quantity, sourceInventoryResult.rows[0].id]
       );
     } else {
       // Create new inventory record at source
-      // Generate a new cost_batch_id for tracking
       const costBatchId = `BATCH-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
       
       await client.query(
         `INSERT INTO inventory 
          (location_id, description, unit, quantity, unit_cost, suggested_selling_price, 
-          max_quantity, cost_batch_id, is_new_item, is_new_cost) 
-         VALUES ($1, $2, $3, $4, $5, $6, $4, $7, false, false)`,
+          batch_number, expiry_date, max_quantity, cost_batch_id, is_new_item, is_new_cost) 
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $4, $9, false, false)`,
         [
           transferData.from_location_id, 
           transferData.description, 
           transferData.unit, 
           transferData.quantity, 
           transferData.unit_cost, 
-          transferData.unit_cost, // Use unit_cost as suggested_selling_price
+          destInventory.suggested_selling_price || transferData.unit_cost,
+          destInventory.batch_number,
+          destInventory.expiry_date,
           costBatchId
         ]
       );

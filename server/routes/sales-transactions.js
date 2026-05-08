@@ -4,6 +4,7 @@ const pool = require('../config/database');
 const { auth, authorize } = require('../middleware/auth');
 const { logAudit } = require('../middleware/auditLog');
 const { notifyAdmins } = require('./notifications');
+const { cleanupZeroInventory } = require('../utils/inventoryCleanup');
 
 // Get all sales transactions
 router.get('/', auth, async (req, res) => {
@@ -244,6 +245,10 @@ router.post('/', auth, authorize('admin', 'warehouse', 'branch_manager', 'branch
            RETURNING *`,
           [selQty, selId]
         );
+        
+        // Auto-cleanup if quantity reached zero
+        await cleanupZeroInventory(client, selId);
+        
         updatedBatches.push({
           batch_number: upd.rows[0].batch_number,
           deducted: selQty,
@@ -290,6 +295,9 @@ router.post('/', auth, authorize('admin', 'warehouse', 'branch_manager', 'branch
            RETURNING *`,
           [deductFromThisBatch, batch.id]
         );
+        
+        // Auto-cleanup if quantity reached zero
+        await cleanupZeroInventory(client, batch.id);
 
         updatedBatches.push({
           batch_number: updateResult.rows[0].batch_number,
