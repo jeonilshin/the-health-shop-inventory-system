@@ -218,6 +218,9 @@ function Inventory() {
         
         groupedInventory[key].totalQuantity += parseFloat(item.quantity);
         
+        // Check if there are multiple batches (not just multiple expiry dates)
+        groupedInventory[key].hasMultipleBatches = groupedInventory[key].costBatches.length > 1;
+        
         // Check if there are multiple different expiry dates
         const uniqueExpiry = new Set(groupedInventory[key].costBatches.map(b => b.expiry_date ? new Date(b.expiry_date).toISOString().split('T')[0] : null));
         groupedInventory[key].hasMultipleExpiry = uniqueExpiry.size > 1;
@@ -676,6 +679,13 @@ function Inventory() {
   };
 
   const handleEditItem = (item) => {
+    // If item has multiple batches, expand to show batches instead of editing
+    if (item.costBatches && item.costBatches.length > 1) {
+      handleViewBatches(item);
+      showToast('This item has multiple batches. Please expand and edit individual batches.', 'info');
+      return;
+    }
+    
     // For single items, use the first cost batch or create from item data
     const batch = item.costBatches?.[0] ? {
       ...item.costBatches[0],
@@ -2053,9 +2063,9 @@ function Inventory() {
                     return (
                       <React.Fragment key={item.id}>
                         {/* Main Item Row */}
-                        <tr style={{ backgroundColor: item.hasMultipleExpiry ? 'rgba(245, 158, 11, 0.05)' : 'transparent' }}>
+                        <tr style={{ backgroundColor: item.hasMultipleBatches ? 'rgba(245, 158, 11, 0.05)' : 'transparent' }}>
                           <td style={{ fontWeight: 600 }}>
-                            {!item.hasMultipleExpiry && editingBatchId === item.id ? (
+                            {!item.hasMultipleBatches && editingBatchId === item.id ? (
                               <input 
                                 type="text"
                                 value={batchEditData.description}
@@ -2105,7 +2115,7 @@ function Inventory() {
                             )}
                           </td>
                           <td>
-                            {!item.hasMultipleExpiry && editingBatchId === item.id ? (
+                            {!item.hasMultipleBatches && editingBatchId === item.id ? (
                               <input 
                                 type="text"
                                 value={batchEditData.unit}
@@ -2125,7 +2135,7 @@ function Inventory() {
                             )}
                           </td>
                           <td>
-                            {!item.hasMultipleExpiry && editingBatchId === item.id ? (
+                            {!item.hasMultipleBatches && editingBatchId === item.id ? (
                               <input 
                                 type="number"
                                 step="1"
@@ -2156,7 +2166,7 @@ function Inventory() {
                                 <span className={`badge ${getStockBadgeClass(getStockStatus(item.totalQuantity, item.max_quantity))}`}>
                                   {formatQuantity(item.totalQuantity)}
                                 </span>
-                                {item.hasMultipleExpiry && (
+                                {item.hasMultipleBatches && (
                                   <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '2px' }}>
                                     {item.costBatches?.length || 0} batches
                                   </div>
@@ -2165,7 +2175,7 @@ function Inventory() {
                             )}
                           </td>
                           <td style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                            {!item.hasMultipleExpiry && editingBatchId === item.id ? (
+                            {!item.hasMultipleBatches && editingBatchId === item.id ? (
                               <input 
                                 type="text"
                                 value={batchEditData.batch_number}
@@ -2187,7 +2197,7 @@ function Inventory() {
                           {user.role === 'admin' && (
                             <>
                               <td>
-                                {!item.hasMultipleExpiry && editingBatchId === item.id ? (
+                                {!item.hasMultipleBatches && editingBatchId === item.id ? (
                                   <input
                                     type="number"
                                     step="1"
@@ -2211,7 +2221,7 @@ function Inventory() {
                                 )}
                               </td>
                               <td>
-                                {!item.hasMultipleExpiry && editingBatchId === item.id ? (
+                                {!item.hasMultipleBatches && editingBatchId === item.id ? (
                                   <input
                                     type="number"
                                     step="1"
@@ -2249,7 +2259,7 @@ function Inventory() {
                           )}
                           <td>
                             <div style={{ display: 'flex', gap: '4px' }}>
-                              {user.role === 'admin' && !item.hasMultipleExpiry && editingBatchId === item.id ? (
+                              {user.role === 'admin' && !item.hasMultipleBatches && editingBatchId === item.id ? (
                                 <>
                                   <button
                                     className="btn btn-success"
@@ -2280,7 +2290,7 @@ function Inventory() {
                                       <FiClock size={12} />
                                     </button>
                                   )}
-                                  {item.hasMultipleExpiry ? (
+                                  {item.hasMultipleBatches ? (
                                     <button
                                       className={`btn ${viewBatches && viewBatches.id === item.id ? 'btn-primary' : 'btn-secondary'}`}
                                       style={{ padding: '6px 10px', fontSize: '12px' }}
@@ -2326,7 +2336,7 @@ function Inventory() {
                         </tr>
                         
                         {/* Cost Batch Details (if expanded) — shows only expiration date per batch */}
-                        {viewBatches && viewBatches.id === item.id && item.hasMultipleExpiry && (
+                        {viewBatches && viewBatches.id === item.id && item.hasMultipleBatches && (
                           (item.costBatches || []).map((batch, idx) => {
                             const isEditing = editingBatchId === batch.id;
                             const expiryDate = batch.expiry_date ? new Date(batch.expiry_date) : null;
