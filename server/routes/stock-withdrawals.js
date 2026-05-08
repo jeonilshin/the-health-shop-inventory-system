@@ -89,7 +89,8 @@ router.post('/', auth, authorize('admin', 'warehouse', 'branch_manager', 'branch
       quantity,
       withdrawal_type,
       recipient_name,
-      notes
+      notes,
+      batch_id
     } = req.body;
 
     if (!location_id || !item_description?.trim() || !unit?.trim()) {
@@ -111,18 +112,40 @@ router.post('/', auth, authorize('admin', 'warehouse', 'branch_manager', 'branch
 
     await client.query('BEGIN');
 
-    // Find all batches of this item at the location, FIFO by created_at
-    const batchesResult = await client.query(
-      `SELECT id, quantity, unit_cost
-         FROM inventory
-        WHERE location_id = $1
-          AND LOWER(TRIM(description)) = LOWER(TRIM($2))
-          AND LOWER(TRIM(unit))        = LOWER(TRIM($3))
-          AND quantity > 0
-        ORDER BY created_at ASC
-        FOR UPDATE`,
-      [location_id, item_description, unit]
-    );
+    let batchesResult;
+    
+    // If specific batch is selected, only get that batch
+    if (batch_id) {
+      batchesResult = await client.query(
+        `SELECT id, quantity, unit_cost
+           FROM inventory
+          WHERE id = $1
+            AND location_id = $2
+            AND LOWER(TRIM(description)) = LOWER(TRIM($3))
+            AND LOWER(TRIM(unit))        = LOWER(TRIM($4))
+            AND quantity > 0
+          FOR UPDATE`,
+        [batch_id, location_id, item_description, unit]
+      );
+      
+      if (batchesResult.rows.length === 0) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'Selected batch not found or out of stock' });
+      }
+    } else {
+      // Find all batches of this item at the location, FIFO by created_at
+      batchesResult = await client.query(
+        `SELECT id, quantity, unit_cost
+           FROM inventory
+          WHERE location_id = $1
+            AND LOWER(TRIM(description)) = LOWER(TRIM($2))
+            AND LOWER(TRIM(unit))        = LOWER(TRIM($3))
+            AND quantity > 0
+          ORDER BY created_at ASC
+          FOR UPDATE`,
+        [location_id, item_description, unit]
+      );
+    }
 
     if (batchesResult.rows.length === 0) {
       await client.query('ROLLBACK');

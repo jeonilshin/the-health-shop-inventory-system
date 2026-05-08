@@ -2373,7 +2373,7 @@ function Inventory() {
                                     {formatQuantity(batch.quantity)}
                                   </span>
                                 </td>
-                                <td style={{ fontSize: '11px' }} colSpan={1 + adminEmptyCols}>
+                                <td style={{ fontSize: '11px' }}>
                                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                                     {isEditing && user.role === 'admin' ? (
                                       <>
@@ -2437,6 +2437,19 @@ function Inventory() {
                                     )}
                                   </div>
                                 </td>
+                                {user.role === 'admin' && (
+                                  <>
+                                    <td style={{ fontSize: '11px', fontWeight: 600 }}>
+                                      ₱{formatPrice(batch.unit_cost)}
+                                    </td>
+                                    <td style={{ fontSize: '11px', fontWeight: 600 }}>
+                                      ₱{formatPrice(batch.suggested_selling_price || 0)}
+                                    </td>
+                                    <td style={{ fontSize: '11px', fontWeight: 600 }}>
+                                      ₱{formatPrice(parseFloat(batch.quantity) * parseFloat(batch.unit_cost))}
+                                    </td>
+                                  </>
+                                )}
                                 <td>
                                   {user.role === 'admin' && (
                                     <div style={{ display: 'flex', gap: '4px' }}>

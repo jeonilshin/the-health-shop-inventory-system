@@ -1,5 +1,9 @@
 -- Cleanup script to remove all inventory records with zero or negative quantity
 -- Run this to clean up existing zero-quantity batches
+-- For Supabase with thehealthshop schema
+
+-- Set the search path to use the correct schema
+SET search_path TO thehealthshop, public;
 
 -- STEP 1: Preview what will be deleted
 SELECT 
@@ -15,8 +19,8 @@ SELECT
   i.batch_number,
   i.unit_cost,
   i.suggested_selling_price
-FROM inventory i
-LEFT JOIN locations l ON i.location_id = l.id
+FROM thehealthshop.inventory i
+LEFT JOIN thehealthshop.locations l ON i.location_id = l.id
 WHERE i.quantity <= 0
 ORDER BY l.name, i.description, i.unit;
 
@@ -24,8 +28,8 @@ ORDER BY l.name, i.description, i.unit;
 SELECT 
   l.name as location_name,
   COUNT(*) as zero_quantity_batches
-FROM inventory i
-LEFT JOIN locations l ON i.location_id = l.id
+FROM thehealthshop.inventory i
+LEFT JOIN thehealthshop.locations l ON i.location_id = l.id
 WHERE i.quantity <= 0
 GROUP BY l.name
 ORDER BY COUNT(*) DESC;
@@ -37,13 +41,13 @@ ORDER BY COUNT(*) DESC;
 BEGIN;
 
 -- Delete all inventory records with zero or negative quantity
-DELETE FROM inventory WHERE quantity <= 0;
+DELETE FROM thehealthshop.inventory WHERE quantity <= 0;
 
 -- Show summary
 SELECT 
   'Cleanup completed' as status,
   COUNT(*) as remaining_inventory_records
-FROM inventory;
+FROM thehealthshop.inventory;
 
 COMMIT;
 */
