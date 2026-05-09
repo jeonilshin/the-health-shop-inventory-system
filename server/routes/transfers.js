@@ -782,7 +782,7 @@ router.post('/:id/deliver', auth, authorize('admin', 'branch_manager', 'branch_s
          AND unit = $3 
          AND unit_cost = $4 
          AND COALESCE(suggested_selling_price, 0) = $5
-         AND (expiry_date IS NULL AND $6 IS NULL OR expiry_date = $6)
+         AND (expiry_date IS NULL AND $6::date IS NULL OR expiry_date = $6::date)
        LIMIT 1`,
       [transferData.to_location_id, transferData.description, transferData.unit, 
        unitCost, suggestedPrice || 0, expiryDate]
@@ -1332,7 +1332,7 @@ router.post('/batch', auth, authorize('admin'), async (req, res) => {
                AND unit = $3 
                AND unit_cost = $4 
                AND COALESCE(suggested_selling_price, 0) = $5
-               AND (expiry_date IS NULL AND $6 IS NULL OR expiry_date = $6)
+               AND (expiry_date IS NULL AND $6::date IS NULL OR expiry_date = $6::date)
              LIMIT 1`,
             [to_location_id, description, unit, unit_cost, 
              inventoryItem.suggested_selling_price || 0, inventoryItem.expiry_date]
@@ -1546,7 +1546,7 @@ router.post('/:id/unreceive', auth, authorize('admin'), async (req, res) => {
          AND unit = $3 
          AND unit_cost = $4
          AND COALESCE(suggested_selling_price, 0) = $5
-         AND (expiry_date IS NULL AND $6 IS NULL OR expiry_date = $6)
+         AND (expiry_date IS NULL AND $6::date IS NULL OR expiry_date = $6::date)
        LIMIT 1`,
       [transferData.from_location_id, transferData.description, transferData.unit, 
        transferData.unit_cost, destInventory.suggested_selling_price || 0, destInventory.expiry_date]
