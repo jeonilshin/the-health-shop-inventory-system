@@ -28,13 +28,25 @@ function StockWithdrawalModal({ item, locationId, onClose, onSuccess }) {
   const [notes, setNotes]         = useState('');
   const [loading, setLoading]     = useState(false);
   const [error, setError]         = useState('');
+  const [selectedBatchId, setSelectedBatchId] = useState(null);
 
-  const available = parseFloat(item?.quantity || 0);
+  // Check if item has multiple batches
+  const hasMultipleBatches = item?.costBatches && item.costBatches.length > 1;
+  
+  // Get available quantity based on selected batch or total
+  const available = hasMultipleBatches && selectedBatchId
+    ? parseFloat(item.costBatches.find(b => b.id === selectedBatchId)?.quantity || 0)
+    : parseFloat(item?.totalQuantity || item?.quantity || 0);
+  
   const parsedQty = parseFloat(qty);
   const qtyValid  = !isNaN(parsedQty) && parsedQty > 0 && parsedQty <= available;
 
   const submit = async () => {
     setError('');
+    if (hasMultipleBatches && !selectedBatchId) { 
+      setError('Please select which batch to pull from'); 
+      return; 
+    }
     if (!qtyValid) { setError(`Enter a quantity between 1 and ${available}`); return; }
     if (!recipient.trim()) { setError('Recipient name is required so the admin knows who took the item'); return; }
     try {
@@ -46,7 +58,8 @@ function StockWithdrawalModal({ item, locationId, onClose, onSuccess }) {
         quantity:          parsedQty,
         withdrawal_type:   withdrawalType,
         recipient_name:    recipient.trim(),
-        notes:             notes.trim() || null
+        notes:             notes.trim() || null,
+        batch_id:          selectedBatchId || null  // Send selected batch ID
       });
       onSuccess();
     } catch (err) {
@@ -116,9 +129,51 @@ function StockWithdrawalModal({ item, locationId, onClose, onSuccess }) {
           }}>
             <div style={{ fontSize: '15px', fontWeight: 700, marginBottom: '4px' }}>{item.description}</div>
             <div style={{ fontSize: '13px', color: 'var(--text-secondary, #6b7280)' }}>
-              Available: <strong>{formatQuantity(available)} {item.unit}</strong>
+              {hasMultipleBatches ? (
+                <>Total Available: <strong>{formatQuantity(item.totalQuantity)} {item.unit}</strong> across {item.costBatches.length} batches</>
+              ) : (
+                <>Available: <strong>{formatQuantity(available)} {item.unit}</strong></>
+              )}
             </div>
           </div>
+
+          {/* Batch selection (if multiple batches) */}
+          {hasMultipleBatches && (
+            <div style={{ marginBottom: '14px' }}>
+              <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, marginBottom: '6px' }}>
+                Select Batch to Pull From *
+              </label>
+              <select
+                value={selectedBatchId || ''}
+                onChange={e => {
+                  setSelectedBatchId(e.target.value ? parseInt(e.target.value) : null);
+                  setQty(''); // Reset quantity when batch changes
+                }}
+                style={{ 
+                  width: '100%', 
+                  padding: '8px 12px', 
+                  border: `1px solid ${!selectedBatchId ? '#ef4444' : 'var(--border-color, #d1d5db)'}`, 
+                  borderRadius: '8px', 
+                  fontSize: '14px', 
+                  background: 'var(--bg-input, #fff)' 
+                }}
+              >
+                <option value="">-- Select a batch --</option>
+                {item.costBatches.map((batch, idx) => (
+                  <option key={batch.id} value={batch.id}>
+                    Batch {idx + 1}: {formatQuantity(batch.quantity)} {item.unit} 
+                    {batch.expiry_date ? ` - Exp: ${new Date(batch.expiry_date).toLocaleDateString()}` : ' - No Expiry'}
+                    {` - Cost: ₱${batch.unit_cost}`}
+                  </option>
+                ))}
+              </select>
+              {selectedBatchId && (
+                <div style={{ fontSize: '12px', color: 'var(--text-secondary, #6b7280)', marginTop: '4px' }}>
+                  Available in this batch: <strong>{formatQuantity(available)} {item.unit}</strong>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Withdrawal type */}
           <div style={{ marginBottom: '14px' }}>
