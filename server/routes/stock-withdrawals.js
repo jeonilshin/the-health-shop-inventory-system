@@ -45,7 +45,7 @@ router.get('/', auth, async (req, res) => {
         query += ` AND sw.location_id = ANY($${p++})`;
         params.push(allowedIds);
       }
-    } else if (req.user.role !== 'admin') {
+    } else if (req.user.role !== 'admin' && req.user.role !== 'audit') {
       query += ` AND sw.location_id = $${p++}`;
       params.push(req.user.location_id);
     } else if (locationId) {

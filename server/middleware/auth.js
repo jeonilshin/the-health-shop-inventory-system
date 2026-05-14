@@ -15,6 +15,18 @@ const auth = (req, res, next) => {
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     req.user = decoded;
+
+    // Audit role is strictly view-only. Block any non-GET/HEAD request,
+    // except letting them change their own password.
+    if (decoded.role === 'audit' && req.method !== 'GET' && req.method !== 'HEAD') {
+      const isChangePassword =
+        (req.baseUrl === '/api/auth' && req.path === '/change-password') ||
+        req.originalUrl === '/api/auth/change-password';
+      if (!isChangePassword) {
+        return res.status(403).json({ error: 'Audit accounts are view-only.' });
+      }
+    }
+
     next();
   } catch (err) {
     if (err.name === 'TokenExpiredError') {
@@ -30,12 +42,18 @@ const auth = (req, res, next) => {
 /**
  * Authorize a request to one or more roles.
  * Must be used after the auth middleware.
+ *
+ * The 'audit' role is a view-only account: on safe HTTP methods (GET/HEAD),
+ * it is granted access wherever 'admin' is allowed. It is never granted access
+ * on writes — those are blocked at this layer.
  */
 const authorize = (...roles) => (req, res, next) => {
   if (!req.user) {
     return res.status(401).json({ error: 'Not authenticated.' });
   }
-  if (!roles.includes(req.user.role)) {
+  const isSafeRead = req.method === 'GET' || req.method === 'HEAD';
+  const auditAllowed = isSafeRead && roles.includes('admin');
+  if (!roles.includes(req.user.role) && !(req.user.role === 'audit' && auditAllowed)) {
     return res.status(403).json({
       error: `Access denied. Required role: ${roles.join(' or ')}.`,
     });
@@ -49,7 +67,7 @@ const authorize = (...roles) => (req, res, next) => {
  * For admin, always returns true.
  */
 const hasLocationAccess = async (userId, userRole, locationId) => {
-  if (userRole === 'admin') return true;
+  if (userRole === 'admin' || userRole === 'audit') return true;
   
   const pool = require('../config/database');
   
@@ -81,8 +99,8 @@ const hasLocationAccess = async (userId, userRole, locationId) => {
 const getManagerLocations = async (userId, userRole = null) => {
   const pool = require('../config/database');
   
-  if (userRole === 'admin') {
-    // Admin has access to all locations
+  if (userRole === 'admin' || userRole === 'audit') {
+    // Admin / audit have read access to all locations
     const result = await pool.query('SELECT * FROM locations ORDER BY name');
     return result.rows;
   }

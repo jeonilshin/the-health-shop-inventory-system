@@ -1180,8 +1180,8 @@ router.get('/:id/items', auth, async (req, res) => {
 // Get pending transfers (for approval - admin and branch_manager)
 router.get('/pending', auth, async (req, res) => {
   try {
-    // Only admin and branch_manager can see pending approvals
-    if (req.user.role !== 'admin' && req.user.role !== 'branch_manager') {
+    // Only admin / audit / branch_manager can see pending approvals
+    if (req.user.role !== 'admin' && req.user.role !== 'audit' && req.user.role !== 'branch_manager') {
       return res.status(403).json({ error: 'Access denied' });
     }
 

@@ -23,7 +23,7 @@ router.get('/', auth, async (req, res) => {
     counts.messages = parseInt(messagesResult.rows[0].count);
 
     // 2. Pending transfers count (admin and branch_manager)
-    if (req.user.role === 'admin') {
+    if (req.user.role === 'admin' || req.user.role === 'audit') {
       const transfersResult = await pool.query(
         `SELECT COUNT(*) FROM transfers WHERE status = 'pending'`
       );
@@ -47,8 +47,8 @@ router.get('/', auth, async (req, res) => {
     }
 
     // 3. Deliveries count
-    if (req.user.role === 'admin') {
-      // Admin: count deliveries awaiting admin confirmation
+    if (req.user.role === 'admin' || req.user.role === 'audit') {
+      // Admin / audit: count deliveries awaiting admin confirmation
       const deliveriesResult = await pool.query(
         `SELECT COUNT(*) FROM deliveries WHERE status = 'awaiting_admin'`
       );
@@ -64,16 +64,16 @@ router.get('/', auth, async (req, res) => {
       counts.deliveries = parseInt(deliveriesResult.rows[0].count);
     }
 
-    // 4. Discrepancies count (admin only - pending discrepancies)
-    if (req.user.role === 'admin') {
+    // 4. Discrepancies count (admin / audit - pending discrepancies)
+    if (req.user.role === 'admin' || req.user.role === 'audit') {
       const discrepanciesResult = await pool.query(
         `SELECT COUNT(*) FROM delivery_discrepancies WHERE status = 'pending'`
       );
       counts.discrepancies = parseInt(discrepanciesResult.rows[0].count);
     }
 
-    // 5. Pending sale cancellation requests (admin and branch_manager)
-    if (req.user.role === 'admin') {
+    // 5. Pending sale cancellation requests (admin / audit see all)
+    if (req.user.role === 'admin' || req.user.role === 'audit') {
       const cancelResult = await pool.query(
         `SELECT COUNT(*) FROM sales_transactions WHERE cancellation_status = 'pending'`
       );

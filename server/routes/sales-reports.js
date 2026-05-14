@@ -36,7 +36,7 @@ router.get('/', auth, async (req, res) => {
       query += ` AND sr.location_id = ANY($${paramCount})`;
       params.push(allowedIds);
       paramCount++;
-    } else if (req.user.role !== 'admin' && req.user.location_id) {
+    } else if (req.user.role !== 'admin' && req.user.role !== 'audit' && req.user.location_id) {
       query += ` AND sr.location_id = $${paramCount}`;
       params.push(req.user.location_id);
       paramCount++;

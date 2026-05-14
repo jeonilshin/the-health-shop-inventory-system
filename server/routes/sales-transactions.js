@@ -9,7 +9,7 @@ const { cleanupZeroInventory } = require('../utils/inventoryCleanup');
 // Get all sales transactions
 router.get('/', auth, async (req, res) => {
   try {
-    const { startDate, endDate, locationId } = req.query;
+    const { startDate, endDate, locationId, itemSearch } = req.query;
 
     let query = `
       SELECT st.*,
@@ -51,7 +51,7 @@ router.get('/', auth, async (req, res) => {
       params.push(req.user.location_id);
       paramCount++;
       query += ` AND (st.cancellation_status IS NULL OR st.cancellation_status = 'rejected')`;
-    } else if (req.user.role !== 'admin' && req.user.location_id) {
+    } else if (req.user.role !== 'admin' && req.user.role !== 'audit' && req.user.location_id) {
       query += ` AND st.location_id = $${paramCount}`;
       params.push(req.user.location_id);
       paramCount++;
@@ -71,6 +71,12 @@ router.get('/', auth, async (req, res) => {
     if (endDate) {
       query += ` AND st.transaction_date <= $${paramCount}`;
       params.push(endDate);
+      paramCount++;
+    }
+
+    if (itemSearch && itemSearch.trim()) {
+      query += ` AND st.item_description ILIKE $${paramCount}`;
+      params.push(`%${itemSearch.trim()}%`);
       paramCount++;
     }
 
@@ -872,7 +878,7 @@ router.get('/summary', auth, async (req, res) => {
         params.push(allowedIds);
         paramCount++;
       }
-    } else if (req.user.role !== 'admin' && req.user.location_id) {
+    } else if (req.user.role !== 'admin' && req.user.role !== 'audit' && req.user.location_id) {
       query += ` AND st.location_id = $${paramCount}`;
       params.push(req.user.location_id);
       paramCount++;

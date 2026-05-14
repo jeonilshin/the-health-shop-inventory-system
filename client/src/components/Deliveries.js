@@ -547,6 +547,7 @@ function Deliveries() {
                 <label>Search Item *</label>
                 <AutocompleteSearch
                   placeholder="Search for product..."
+                  locationId={user.role === 'warehouse' ? user.location_id : (deliveryFormData.from_location_id || undefined)}
                   onSelect={async (item) => {
                     // Get the from_location_id from the form
                     const formElement = document.querySelector('form');

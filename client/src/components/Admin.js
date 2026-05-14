@@ -1,8 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useContext } from 'react';
 import api from '../utils/api';
 import { FiMapPin, FiUsers, FiEdit2, FiTrash2, FiShield, FiGitBranch, FiX } from 'react-icons/fi';
+import { AuthContext } from '../context/AuthContext';
 
 function Admin() {
+  const { user: currentUser } = useContext(AuthContext);
+  const isAudit = currentUser?.role === 'audit';
   const [activeTab, setActiveTab] = useState('locations');
   const [locations, setLocations] = useState([]);
   const [users, setUsers] = useState([]);
@@ -251,16 +254,18 @@ function Admin() {
         <div className="card">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
             <h3>Locations ({locations.length})</h3>
-            <button
-              className="btn btn-primary"
-              onClick={() => {
-                setEditingLocation(null);
-                setLocationForm({ name: '', type: 'branch', address: '', contact_number: '' });
-                setShowLocationForm(!showLocationForm);
-              }}
-            >
-              {showLocationForm ? 'Cancel' : 'Add Location'}
-            </button>
+            {!isAudit && (
+              <button
+                className="btn btn-primary"
+                onClick={() => {
+                  setEditingLocation(null);
+                  setLocationForm({ name: '', type: 'branch', address: '', contact_number: '' });
+                  setShowLocationForm(!showLocationForm);
+                }}
+              >
+                {showLocationForm ? 'Cancel' : 'Add Location'}
+              </button>
+            )}
           </div>
 
           {showLocationForm && (
@@ -347,24 +352,26 @@ function Admin() {
                 <p style={{ margin: '10px 0', fontSize: '14px', color: '#666' }}>
                   <strong>Contact:</strong> {location.contact_number || 'N/A'}
                 </p>
-                <div style={{ display: 'flex', gap: '10px', marginTop: '15px' }}>
-                  <button
-                    className="btn btn-primary"
-                    style={{ flex: 1, padding: '5px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px' }}
-                    onClick={() => handleEditLocation(location)}
-                  >
-                    <FiEdit2 size={14} />
-                    Edit
-                  </button>
-                  <button
-                    className="btn"
-                    style={{ flex: 1, padding: '5px', backgroundColor: '#dc3545', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px' }}
-                    onClick={() => handleDeleteLocation(location.id)}
-                  >
-                    <FiTrash2 size={14} />
-                    Delete
-                  </button>
-                </div>
+                {!isAudit && (
+                  <div style={{ display: 'flex', gap: '10px', marginTop: '15px' }}>
+                    <button
+                      className="btn btn-primary"
+                      style={{ flex: 1, padding: '5px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px' }}
+                      onClick={() => handleEditLocation(location)}
+                    >
+                      <FiEdit2 size={14} />
+                      Edit
+                    </button>
+                    <button
+                      className="btn"
+                      style={{ flex: 1, padding: '5px', backgroundColor: '#dc3545', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px' }}
+                      onClick={() => handleDeleteLocation(location.id)}
+                    >
+                      <FiTrash2 size={14} />
+                      Delete
+                    </button>
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -382,16 +389,18 @@ function Admin() {
         <div className="card">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
             <h3>Users ({users.length})</h3>
-            <button
-              className="btn btn-primary"
-              onClick={() => {
-                setEditingUser(null);
-                setUserForm({ username: '', password: '', full_name: '', role: 'branch_staff', location_id: '' });
-                setShowUserForm(!showUserForm);
-              }}
-            >
-              {showUserForm ? 'Cancel' : 'Add User'}
-            </button>
+            {!isAudit && (
+              <button
+                className="btn btn-primary"
+                onClick={() => {
+                  setEditingUser(null);
+                  setUserForm({ username: '', password: '', full_name: '', role: 'branch_staff', location_id: '' });
+                  setShowUserForm(!showUserForm);
+                }}
+              >
+                {showUserForm ? 'Cancel' : 'Add User'}
+              </button>
+            )}
           </div>
 
           {showUserForm && (
@@ -438,6 +447,7 @@ function Admin() {
                   <option value="warehouse">Warehouse Staff</option>
                   <option value="branch_manager">Branch Manager</option>
                   <option value="branch_staff">Branch Staff</option>
+                  <option value="audit">Audit (view only, no cost)</option>
                 </select>
               </div>
               <div className="form-group">
@@ -491,6 +501,7 @@ function Admin() {
                         fontSize: '12px',
                         backgroundColor:
                           user.role === 'admin' ? '#ff9800' :
+                          user.role === 'audit' ? '#64748b' :
                           user.role === 'warehouse' ? '#2196f3' :
                           user.role === 'branch_manager' ? '#4caf50' : '#9e9e9e',
                         color: 'white'
@@ -499,7 +510,7 @@ function Admin() {
                       {user.role.replace('_', ' ').toUpperCase()}
                     </span>
                   </td>
-                  <td>{user.location_name || (user.role === 'admin' ? 'Administrator' : 'N/A')}</td>
+                  <td>{user.location_name || (user.role === 'admin' ? 'Administrator' : user.role === 'audit' ? 'All (view only)' : 'N/A')}</td>
                   <td>
                     {user.role === 'branch_manager' ? (
                       extraBranches.length > 0 ? (
@@ -523,42 +534,49 @@ function Admin() {
                   </td>
                   <td>{new Date(user.created_at).toLocaleDateString()}</td>
                   <td>
-                    <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap' }}>
-                      <button
-                        className="btn btn-primary"
-                        style={{ padding: '5px 10px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '5px' }}
-                        onClick={() => handleEditUser(user)}
-                      >
-                        <FiEdit2 size={12} />
-                        Edit
-                      </button>
-                      {user.role === 'branch_manager' && (
+                    {isAudit ? (
+                      <span style={{ padding: '5px 10px', fontSize: '12px', color: '#999', fontStyle: 'italic', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                        <FiShield size={12} />
+                        View only
+                      </span>
+                    ) : (
+                      <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap' }}>
                         <button
-                          className="btn"
-                          style={{ padding: '5px 10px', fontSize: '12px', backgroundColor: '#0891b2', color: 'white', display: 'flex', alignItems: 'center', gap: '5px' }}
-                          onClick={() => openManageBranches(user)}
+                          className="btn btn-primary"
+                          style={{ padding: '5px 10px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '5px' }}
+                          onClick={() => handleEditUser(user)}
                         >
-                          <FiGitBranch size={12} />
-                          Manage Branches
+                          <FiEdit2 size={12} />
+                          Edit
                         </button>
-                      )}
-                      {user.username !== 'admin' && (
-                        <button
-                          className="btn"
-                          style={{ padding: '5px 10px', fontSize: '12px', backgroundColor: '#dc3545', color: 'white', display: 'flex', alignItems: 'center', gap: '5px' }}
-                          onClick={() => handleDeleteUser(user.id)}
-                        >
-                          <FiTrash2 size={12} />
-                          Delete
-                        </button>
-                      )}
-                      {user.username === 'admin' && (
-                        <span style={{ padding: '5px 10px', fontSize: '12px', color: '#999', fontStyle: 'italic', display: 'flex', alignItems: 'center', gap: '5px' }}>
-                          <FiShield size={12} />
-                          Protected
-                        </span>
-                      )}
-                    </div>
+                        {user.role === 'branch_manager' && (
+                          <button
+                            className="btn"
+                            style={{ padding: '5px 10px', fontSize: '12px', backgroundColor: '#0891b2', color: 'white', display: 'flex', alignItems: 'center', gap: '5px' }}
+                            onClick={() => openManageBranches(user)}
+                          >
+                            <FiGitBranch size={12} />
+                            Manage Branches
+                          </button>
+                        )}
+                        {user.username !== 'admin' && (
+                          <button
+                            className="btn"
+                            style={{ padding: '5px 10px', fontSize: '12px', backgroundColor: '#dc3545', color: 'white', display: 'flex', alignItems: 'center', gap: '5px' }}
+                            onClick={() => handleDeleteUser(user.id)}
+                          >
+                            <FiTrash2 size={12} />
+                            Delete
+                          </button>
+                        )}
+                        {user.username === 'admin' && (
+                          <span style={{ padding: '5px 10px', fontSize: '12px', color: '#999', fontStyle: 'italic', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                            <FiShield size={12} />
+                            Protected
+                          </span>
+                        )}
+                      </div>
+                    )}
                   </td>
                 </tr>
                 );

@@ -39,7 +39,8 @@ function Sales() {
   const [filters, setFilters] = useState({
     startDate: getSevenDaysAgo(),
     endDate: new Date().toISOString().split('T')[0],
-    locationId: 'all'
+    locationId: 'all',
+    itemSearch: ''
   });
   
   const [formData, setFormData] = useState({
@@ -113,6 +114,7 @@ function Sales() {
       if (filters.startDate) params.append('startDate', filters.startDate);
       if (filters.endDate) params.append('endDate', filters.endDate);
       if (filters.locationId && filters.locationId !== 'all') params.append('locationId', filters.locationId);
+      if (filters.itemSearch && filters.itemSearch.trim()) params.append('itemSearch', filters.itemSearch.trim());
 
       const response = await api.get(`/sales-transactions?${params.toString()}`);
       setSales(response.data);
@@ -672,20 +674,41 @@ function Sales() {
                   style={{ fontSize: '14px' }}
                 />
               </div>
-              {(user.role === 'admin' || user.role === 'branch_manager') && (
+              {(user.role === 'admin' || user.role === 'audit' || user.role === 'branch_manager') && (
                 <div className="form-group" style={{ marginBottom: 0, minWidth: '180px' }}>
                   <label style={{ fontSize: '12px', marginBottom: '4px' }}>Location</label>
-                  <select 
-                    value={filters.locationId} 
+                  <select
+                    value={filters.locationId}
                     onChange={(e) => setFilters({...filters, locationId: e.target.value})}
                     style={{ fontSize: '14px' }}
                   >
-                    <option value="all">{user.role === 'admin' ? 'All Branches' : 'All My Branches'}</option>
+                    <option value="all">{user.role === 'admin' || user.role === 'audit' ? 'All Branches' : 'All My Branches'}</option>
                     {locations.map(loc => (
                       <option key={loc.id} value={loc.id}>{loc.name}</option>
                     ))}
                   </select>
                 </div>
+              )}
+              <div className="form-group" style={{ marginBottom: 0, minWidth: '200px', flex: 1 }}>
+                <label style={{ fontSize: '12px', marginBottom: '4px' }}>Search Item</label>
+                <input
+                  type="text"
+                  value={filters.itemSearch}
+                  onChange={(e) => setFilters({ ...filters, itemSearch: e.target.value })}
+                  placeholder="Filter by item description..."
+                  style={{ fontSize: '14px', width: '100%' }}
+                />
+              </div>
+              {filters.itemSearch && (
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => setFilters({ ...filters, itemSearch: '' })}
+                  style={{ height: 'fit-content', fontSize: '12px', padding: '6px 10px' }}
+                >
+                  <FiX size={14} />
+                  Clear
+                </button>
               )}
             </div>
           </div>

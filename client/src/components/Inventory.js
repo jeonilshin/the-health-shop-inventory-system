@@ -149,8 +149,8 @@ function Inventory() {
         availableLocations = response.data.filter(loc => loc.id === user.location_id);
         setLocations(availableLocations);
         setSelectedLocation(user.location_id);
-      } else if (user.role === 'admin') {
-        // Admin sees all locations, start with branch selector
+      } else if (user.role === 'admin' || user.role === 'audit') {
+        // Admin / audit see all locations, start with branch selector
         setLocations(response.data);
         setSelectedLocation(''); // Empty means show branch selector
         // Fetch all inventory for stats
@@ -938,7 +938,7 @@ function Inventory() {
       )}
       
       {/* Breadcrumb Navigation */}
-      {selectedLocation && (user.role === 'admin' || user.role === 'branch_manager') && locations.length > 1 && (
+      {selectedLocation && (user.role === 'admin' || user.role === 'audit' || user.role === 'branch_manager') && locations.length > 1 && (
         <div style={{ 
           marginBottom: '20px', 
           padding: '12px 16px', 
@@ -969,7 +969,7 @@ function Inventory() {
               font: 'inherit'
             }}
           >
-            {user.role === 'admin' ? 'All Locations' : 'All My Branches'}
+            {user.role === 'admin' || user.role === 'audit' ? 'All Locations' : 'All My Branches'}
           </button>
           <span style={{ color: 'var(--text-muted)' }}>/</span>
           <span style={{ fontWeight: '600' }}>
@@ -980,7 +980,7 @@ function Inventory() {
 
       <div className="card">
         {/* Branch Selector for Multi-Branch Users */}
-        {!selectedLocation && (user.role === 'admin' || user.role === 'branch_manager') && locations.length > 1 && (
+        {!selectedLocation && (user.role === 'admin' || user.role === 'audit' || user.role === 'branch_manager') && locations.length > 1 && (
           <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
               <h3 style={{ margin: 0 }}>Select a Location</h3>

@@ -6,7 +6,7 @@ const { auth } = require('../middleware/auth');
 // Get audit logs (admin only)
 router.get('/', auth, async (req, res) => {
   try {
-    if (req.user.role !== 'admin') {
+    if (req.user.role !== 'admin' && req.user.role !== 'audit') {
       return res.status(403).json({ error: 'Access denied' });
     }
 
@@ -94,7 +94,7 @@ router.get('/', auth, async (req, res) => {
 // Get audit log statistics (admin only)
 router.get('/stats', auth, async (req, res) => {
   try {
-    if (req.user.role !== 'admin') {
+    if (req.user.role !== 'admin' && req.user.role !== 'audit') {
       return res.status(403).json({ error: 'Access denied' });
     }
 

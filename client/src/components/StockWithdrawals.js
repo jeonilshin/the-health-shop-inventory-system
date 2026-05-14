@@ -178,7 +178,7 @@ function StockWithdrawals() {
             </select>
           </div>
 
-          {user.role === 'admin' && (
+          {(user.role === 'admin' || user.role === 'audit') && (
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <label style={{ fontSize: '13px', color: '#6b7280' }}>Location:</label>
               <select

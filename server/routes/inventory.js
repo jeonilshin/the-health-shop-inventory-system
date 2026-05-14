@@ -8,7 +8,7 @@ const { logAudit } = require('../middleware/auditLog');
 // Admin: every location. Branch manager: every branch they're assigned to (manager_branches + primary).
 router.get('/all', auth, authorize('admin', 'branch_manager'), async (req, res) => {
   try {
-    if (req.user.role === 'admin') {
+    if (req.user.role === 'admin' || req.user.role === 'audit') {
       const result = await pool.query(
         `SELECT i.*, l.name as location_name, l.type as location_type
          FROM inventory i
@@ -728,7 +728,7 @@ router.get('/expiring/:days', auth, async (req, res) => {
       if (locationIds.length === 0) return res.json([]);
       query += ' AND i.location_id = ANY($1)';
       params.push(locationIds);
-    } else if (req.user.role !== 'admin' && req.user.location_id) {
+    } else if (req.user.role !== 'admin' && req.user.role !== 'audit' && req.user.location_id) {
       query += ' AND i.location_id = $1';
       params.push(req.user.location_id);
     }
@@ -762,7 +762,7 @@ router.get('/expired', auth, async (req, res) => {
       if (locationIds.length === 0) return res.json([]);
       query += ' AND i.location_id = ANY($1)';
       params.push(locationIds);
-    } else if (req.user.role !== 'admin' && req.user.location_id) {
+    } else if (req.user.role !== 'admin' && req.user.role !== 'audit' && req.user.location_id) {
       query += ' AND i.location_id = $1';
       params.push(req.user.location_id);
     }

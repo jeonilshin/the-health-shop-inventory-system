@@ -106,13 +106,13 @@ function App() {
             <Route path="/" element={user ? <Dashboard /> : <Navigate to="/login" />} />
             <Route path="/inventory" element={user ? <Inventory /> : <Navigate to="/login" />} />
             <Route path="/transfers" element={user ? <Transfers /> : <Navigate to="/login" />} />
-            <Route 
-              path="/reports" 
+            <Route
+              path="/reports"
               element={
-                user && (user.role === 'admin' || user.role === 'branch_manager' || user.role === 'branch_staff') 
-                  ? <Reports /> 
+                user && (user.role === 'admin' || user.role === 'audit' || user.role === 'branch_manager' || user.role === 'branch_staff')
+                  ? <Reports />
                   : <Navigate to="/" />
-              } 
+              }
             />
             <Route
               path="/analytics"
@@ -125,7 +125,7 @@ function App() {
             <Route
               path="/deliveries"
               element={
-                user && (user.role === 'admin' || user.role === 'warehouse' || user.role === 'branch_manager' || user.role === 'branch_staff')
+                user && (user.role === 'admin' || user.role === 'audit' || user.role === 'warehouse' || user.role === 'branch_manager' || user.role === 'branch_staff')
                   ? <Deliveries />
                   : <Navigate to="/" />
               }
@@ -136,8 +136,8 @@ function App() {
             <Route path="/messages" element={user ? <Messages /> : <Navigate to="/login" />} />
             <Route path="/cost-points" element={user?.role === 'admin' ? <CostVariations /> : <Navigate to="/" />} />
             <Route path="/costs" element={user?.role === 'admin' ? <CostVariations /> : <Navigate to="/" />} />
-            <Route path="/admin" element={user?.role === 'admin' ? <Admin /> : <Navigate to="/" />} />
-            <Route path="/audit" element={user?.role === 'admin' ? <AuditLog /> : <Navigate to="/" />} />
+            <Route path="/admin" element={(user?.role === 'admin' || user?.role === 'audit') ? <Admin /> : <Navigate to="/" />} />
+            <Route path="/audit" element={(user?.role === 'admin' || user?.role === 'audit') ? <AuditLog /> : <Navigate to="/" />} />
           </Routes>
         </Router>
       </NotificationProvider>
