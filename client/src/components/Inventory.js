@@ -2309,7 +2309,7 @@ function Inventory() {
                                       <FiEdit2 size={12} />
                                     </button>
                                   ) : null}
-                                  {parseFloat(item.quantity) > 0 && (
+                                  {parseFloat(item.quantity) > 0 && user.role !== 'audit' && (
                                     <button
                                       className="btn"
                                       style={{ padding: '6px 10px', fontSize: '12px', background: '#fee2e2', color: '#b91c1c', border: '1px solid #fca5a5' }}
