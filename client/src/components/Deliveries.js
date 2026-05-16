@@ -9,6 +9,17 @@ import {
   FiCheckCircle, FiAlertTriangle, FiRefreshCw, FiX, FiInfo, FiXCircle, FiChevronDown
 } from 'react-icons/fi';
 
+// Each delivery/request form holds an array of item rows so multiple products
+// can be moved in one delivery. These factories build blank rows; `uid` gives
+// React a stable key when rows are added or removed.
+let _uidCounter = 0;
+const newUid = () => `row-${++_uidCounter}`;
+const blankRequestItem = () => ({ uid: newUid(), description: '', unit: '', quantity: '' });
+const blankDeliveryItem = () => ({
+  uid: newUid(), description: '', unit: '', unit_cost: '', quantity: '',
+  available_quantity: null, cost_batch_id: '', costBatches: []
+});
+
 function Deliveries() {
   const { user } = useContext(AuthContext);
 
@@ -28,29 +39,22 @@ function Deliveries() {
 
   // ── history visibility ──
   const [showDiscHistory, setShowDiscHistory] = useState(false);
-  
+
   // ── warehouse delivery creation ──
   const [showCreateDelivery, setShowCreateDelivery] = useState(false);
   const [showRequestForm, setShowRequestForm] = useState(false);
   const [locations, setLocations] = useState([]);
-  const [requestFormData, setRequestFormData] = useState({
-    description: '',
-    unit: '',
-    quantity: '',
-    unit_cost: '',
-    notes: ''
-  });
-  const [deliveryFormData, setDeliveryFormData] = useState({
-    from_location_id: '',
-    description: '',
-    unit: '',
-    quantity: '',
-    unit_cost: '',
-    notes: '',
-    available_quantity: null,
-    cost_batch_id: ''
-  });
-  const [costBatches, setCostBatches] = useState([]);
+
+  // Multi-item forms: each form holds an array of item rows plus shared fields.
+  const [requestItems, setRequestItems] = useState(() => [blankRequestItem()]);
+  const [requestNotes, setRequestNotes] = useState('');
+
+  const [deliveryItems, setDeliveryItems] = useState(() => [blankDeliveryItem()]);
+  const [deliveryNotes, setDeliveryNotes] = useState('');
+  const [deliveryFrom, setDeliveryFrom]   = useState(
+    () => (user.role === 'warehouse' ? String(user.location_id ?? '') : '')
+  );
+  const [deliveryTo, setDeliveryTo]       = useState('');
 
   useEffect(() => {
     fetchLocations();
@@ -80,7 +84,11 @@ function Deliveries() {
       setDeliveries(all);
 
       if (user.role === 'admin') {
-        setAwaitingAdmin(all.filter(d => d.status === 'awaiting_admin'));
+        // 'pending' = directly-created deliveries (Create Delivery / branch
+        // requests); 'awaiting_admin' = transfer-shipped. Admin confirms both.
+        setAwaitingAdmin(all.filter(d =>
+          d.status === 'awaiting_admin' || d.status === 'pending'
+        ));
       }
       if (user.role === 'branch_manager' || user.role === 'branch_staff') {
         setIncomingDeliveries(all.filter(d =>
@@ -240,6 +248,7 @@ function Deliveries() {
     (user.role === 'branch_manager' || user.role === 'branch_staff' || user.role === 'admin');
 
   const isBranch = user.role === 'branch_manager' || user.role === 'branch_staff';
+  const isAdmin  = user.role === 'admin'; // only admins may see item/batch costs
 
   const [openReturnId, setOpenReturnId] = useState(null);
 
@@ -260,6 +269,26 @@ function Deliveries() {
       ) return true;
       return false;
     });
+
+  // ── multi-item form helpers ──────────────────────────────────────────────
+  const updateRequestItem = (i, patch) =>
+    setRequestItems(rows => rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
+  const addRequestItem = () => setRequestItems(rows => [...rows, blankRequestItem()]);
+  const removeRequestItem = (i) =>
+    setRequestItems(rows => (rows.length > 1 ? rows.filter((_, idx) => idx !== i) : rows));
+  const resetRequestForm = () => { setRequestItems([blankRequestItem()]); setRequestNotes(''); };
+
+  const updateDeliveryItem = (i, patch) =>
+    setDeliveryItems(rows => rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
+  const addDeliveryItem = () => setDeliveryItems(rows => [...rows, blankDeliveryItem()]);
+  const removeDeliveryItem = (i) =>
+    setDeliveryItems(rows => (rows.length > 1 ? rows.filter((_, idx) => idx !== i) : rows));
+  const resetDeliveryForm = () => {
+    setDeliveryItems([blankDeliveryItem()]);
+    setDeliveryNotes('');
+    setDeliveryTo('');
+    if (user.role !== 'warehouse') setDeliveryFrom('');
+  };
 
   return (
     <div className="container">
@@ -298,7 +327,7 @@ function Deliveries() {
               </button>
             </>
           )}
-          
+
           {/* Warehouse/Admin: Create Delivery */}
           {(user.role === 'admin' || user.role === 'warehouse') && (
             <button
@@ -336,20 +365,13 @@ function Deliveries() {
           </div>
           <form onSubmit={async (e) => {
             e.preventDefault();
-            const formData = new FormData(e.target);
-            const description = formData.get('description');
-            const unit = formData.get('unit');
-            const quantity = formData.get('quantity');
-            const unitCost = formData.get('unit_cost');
-            const notes = formData.get('notes');
 
-            if (!description || !unit || !quantity || !unitCost) {
-              alert('Please fill in all required fields');
+            if (requestItems.some(it => !it.description || !it.unit || !it.quantity)) {
+              alert('Please fill in all required fields for every item');
               return;
             }
 
             try {
-              // Find warehouse location
               const warehouse = locations.find(loc => loc.type === 'warehouse');
               if (!warehouse) {
                 alert('No warehouse found. Please contact admin.');
@@ -359,87 +381,93 @@ function Deliveries() {
               await api.post('/deliveries', {
                 from_location_id: warehouse.id,
                 to_location_id: user.location_id,
-                notes: notes || null,
-                items: [{
-                  description,
-                  unit,
-                  quantity: parseFloat(quantity),
-                  unit_cost: parseFloat(unitCost)
-                }]
+                notes: requestNotes || null,
+                // Cost is re-derived from warehouse inventory server-side;
+                // branch users never see or enter it.
+                items: requestItems.map(it => ({
+                  description: it.description,
+                  unit: it.unit,
+                  quantity: parseFloat(it.quantity),
+                  unit_cost: 0
+                }))
               });
               alert('Request submitted to warehouse!');
               setShowRequestForm(false);
-              setRequestFormData({
-                description: '',
-                unit: '',
-                quantity: '',
-                unit_cost: '',
-                notes: ''
-              });
-              e.target.reset();
+              resetRequestForm();
               fetchAll();
             } catch (error) {
               alert(error.response?.data?.error || 'Error submitting request');
             }
           }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px', marginBottom: '16px' }}>
-              <div className="form-group">
-                <label>Item Description *</label>
-                <input 
-                  type="text" 
-                  name="description" 
-                  required 
-                  placeholder="Enter item description"
-                  value={requestFormData.description}
-                  onChange={(e) => setRequestFormData({...requestFormData, description: e.target.value})}
-                />
+            {requestItems.map((item, index) => (
+              <div key={item.uid} style={{
+                border: '1px solid var(--border-color, #e5e7eb)',
+                borderRadius: '8px', padding: '12px', marginBottom: '12px'
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                  <strong style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Item {index + 1}</strong>
+                  {requestItems.length > 1 && (
+                    <button
+                      type="button"
+                      className="btn"
+                      style={{ padding: '2px 8px', fontSize: '12px', background: '#fee2e2', color: '#b91c1c', border: '1px solid #fca5a5' }}
+                      onClick={() => removeRequestItem(index)}
+                    >
+                      <FiX size={12} /> Remove
+                    </button>
+                  )}
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px' }}>
+                  <div className="form-group">
+                    <label>Item Description *</label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="Enter item description"
+                      value={item.description}
+                      onChange={(e) => updateRequestItem(index, { description: e.target.value })}
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>Unit *</label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g., PC, BOX, BOT"
+                      value={item.unit}
+                      onChange={(e) => updateRequestItem(index, { unit: e.target.value })}
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>Quantity *</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0.01"
+                      required
+                      placeholder="0.00"
+                      value={item.quantity}
+                      onChange={(e) => updateRequestItem(index, { quantity: e.target.value })}
+                    />
+                  </div>
+                </div>
               </div>
-              <div className="form-group">
-                <label>Unit *</label>
-                <input 
-                  type="text" 
-                  name="unit" 
-                  required 
-                  placeholder="e.g., PC, BOX, BOT"
-                  value={requestFormData.unit}
-                  onChange={(e) => setRequestFormData({...requestFormData, unit: e.target.value})}
-                />
-              </div>
-              <div className="form-group">
-                <label>Quantity *</label>
-                <input 
-                  type="number" 
-                  name="quantity" 
-                  step="0.01" 
-                  min="0.01" 
-                  required 
-                  placeholder="0.00"
-                  value={requestFormData.quantity}
-                  onChange={(e) => setRequestFormData({...requestFormData, quantity: e.target.value})}
-                />
-              </div>
-              <div className="form-group">
-                <label>Unit Cost *</label>
-                <input 
-                  type="number" 
-                  name="unit_cost" 
-                  step="0.01" 
-                  min="0.01" 
-                  required 
-                  placeholder="0.00"
-                  value={requestFormData.unit_cost}
-                  onChange={(e) => setRequestFormData({...requestFormData, unit_cost: e.target.value})}
-                />
-              </div>
-            </div>
+            ))}
+            <button
+              type="button"
+              className="btn"
+              style={{ marginBottom: '16px', background: '#ecfdf5', color: '#047857', border: '1px solid #6ee7b7' }}
+              onClick={addRequestItem}
+            >
+              <FiPackage size={14} /> Add Item
+            </button>
             <div className="form-group" style={{ marginBottom: '16px' }}>
               <label>Notes (Optional)</label>
-              <textarea 
-                name="notes" 
-                rows="3" 
+              <textarea
+                rows="3"
                 placeholder="Add any notes about this request..."
-                value={requestFormData.notes}
-                onChange={(e) => setRequestFormData({...requestFormData, notes: e.target.value})}
+                value={requestNotes}
+                onChange={(e) => setRequestNotes(e.target.value)}
               ></textarea>
             </div>
             <div style={{ display: 'flex', gap: '10px' }}>
@@ -449,13 +477,7 @@ function Deliveries() {
               </button>
               <button type="button" className="btn btn-secondary" onClick={() => {
                 setShowRequestForm(false);
-                setRequestFormData({
-                  description: '',
-                  unit: '',
-                  quantity: '',
-                  unit_cost: '',
-                  notes: ''
-                });
+                resetRequestForm();
               }}>
                 <FiX size={16} />
                 Cancel
@@ -478,48 +500,39 @@ function Deliveries() {
           </div>
           <form onSubmit={async (e) => {
             e.preventDefault();
-            const formData = new FormData(e.target);
-            // A disabled <select> is omitted from FormData, so warehouse users
-            // (whose "From Warehouse" field is disabled) won't have it here —
-            // fall back to their own location_id.
-            const fromLocationId = formData.get('from_location_id')
-              || (user.role === 'warehouse' ? user.location_id : '');
-            const toLocationId = formData.get('to_location_id');
-            const quantity = formData.get('quantity');
-            const unitCost = formData.get('unit_cost');
-            const notes = formData.get('notes');
 
-            if (!fromLocationId || !toLocationId || !deliveryFormData.description || !deliveryFormData.unit || !quantity || !unitCost) {
-              alert('Please fill in all required fields');
+            const fromId = deliveryFrom || (user.role === 'warehouse' ? user.location_id : '');
+            if (!fromId || !deliveryTo) {
+              alert('Please select both a warehouse and a branch');
+              return;
+            }
+            // Every row needs an item, a quantity, a batch (when batches exist),
+            // and — for admins only — a unit cost.
+            if (deliveryItems.some(it =>
+              !it.description || !it.unit || !it.quantity ||
+              (it.costBatches.length > 0 && !it.cost_batch_id) ||
+              (isAdmin && !it.unit_cost)
+            )) {
+              alert('Please fill in all required fields for every item');
               return;
             }
 
             try {
               await api.post('/deliveries', {
-                from_location_id: parseInt(fromLocationId),
-                to_location_id: parseInt(toLocationId),
-                notes: notes || null,
-                items: [{
-                  description: deliveryFormData.description,
-                  unit: deliveryFormData.unit,
-                  quantity: parseFloat(quantity),
-                  unit_cost: parseFloat(unitCost)
-                }]
+                from_location_id: parseInt(fromId),
+                to_location_id: parseInt(deliveryTo),
+                notes: deliveryNotes || null,
+                items: deliveryItems.map(it => ({
+                  description: it.description,
+                  unit: it.unit,
+                  quantity: parseFloat(it.quantity),
+                  // Server re-derives unit_cost from inventory; this is a hint only.
+                  unit_cost: parseFloat(it.unit_cost) || 0
+                }))
               });
               alert('Delivery created successfully!');
               setShowCreateDelivery(false);
-              setDeliveryFormData({
-                from_location_id: '',
-                description: '',
-                unit: '',
-                quantity: '',
-                unit_cost: '',
-                notes: '',
-                available_quantity: null,
-                cost_batch_id: ''
-              });
-              setCostBatches([]);
-              e.target.reset();
+              resetDeliveryForm();
               fetchAll();
             } catch (error) {
               alert(error.response?.data?.error || 'Error creating delivery');
@@ -528,11 +541,15 @@ function Deliveries() {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px', marginBottom: '16px' }}>
               <div className="form-group">
                 <label>From Warehouse *</label>
-                <select 
-                  name="from_location_id" 
+                <select
                   required
-                  defaultValue={user.role === 'warehouse' ? user.location_id : ''}
+                  value={deliveryFrom}
                   disabled={user.role === 'warehouse'}
+                  onChange={(e) => {
+                    setDeliveryFrom(e.target.value);
+                    // Items were searched against the old warehouse — reset them.
+                    setDeliveryItems([blankDeliveryItem()]);
+                  }}
                 >
                   <option value="">Select warehouse</option>
                   {locations.filter(loc => loc.type === 'warehouse').map(loc => (
@@ -542,7 +559,11 @@ function Deliveries() {
               </div>
               <div className="form-group">
                 <label>To Branch *</label>
-                <select name="to_location_id" required>
+                <select
+                  required
+                  value={deliveryTo}
+                  onChange={(e) => setDeliveryTo(e.target.value)}
+                >
                   <option value="">Select branch</option>
                   {locations.filter(loc => loc.type === 'branch').map(loc => (
                     <option key={loc.id} value={loc.id}>{loc.name}</option>
@@ -550,244 +571,212 @@ function Deliveries() {
                 </select>
               </div>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px', marginBottom: '16px' }}>
-              <div className="form-group">
-                <label>Search Item *</label>
-                <AutocompleteSearch
-                  placeholder="Search for product..."
-                  locationId={user.role === 'warehouse' ? user.location_id : (deliveryFormData.from_location_id || undefined)}
-                  onSelect={async (item) => {
-                    // Get the from_location_id from the form
-                    const formElement = document.querySelector('form');
-                    const fromLocationId = formElement?.querySelector('[name="from_location_id"]')?.value;
-                    
-                    let availableQty = null;
-                    let batches = [];
-                    
-                    // Fetch available quantity and cost batches if warehouse is selected
-                    if (fromLocationId) {
-                      try {
-                        // Fetch inventory — sum across all batch rows for this item,
-                        // since inventory stores one row per cost batch (depleted
-                        // batches stay as 0-qty rows and would mislead a .find()).
-                        const response = await api.get(`/inventory/location/${fromLocationId}`);
-                        availableQty = response.data
-                          .filter(inv => inv.description === item.description && inv.unit === item.unit)
-                          .reduce((sum, inv) => sum + parseFloat(inv.quantity || 0), 0);
-                        
-                        // Fetch cost batches
-                        const batchResponse = await api.get(`/inventory/cost-batches/${fromLocationId}/${encodeURIComponent(item.description)}/${encodeURIComponent(item.unit)}`);
-                        batches = batchResponse.data;
-                        setCostBatches(batches);
-                      } catch (error) {
-                        console.error('Error fetching inventory:', error);
-                      }
-                    }
-                    
-                    setDeliveryFormData({
-                      ...deliveryFormData,
-                      from_location_id: fromLocationId,
-                      description: item.description,
-                      unit: item.unit,
-                      unit_cost: item.unit_cost || '',
-                      available_quantity: availableQty,
-                      cost_batch_id: ''
-                    });
-                  }}
-                />
-                {deliveryFormData.description && (
-                  <div style={{ 
-                    marginTop: '8px', 
-                    padding: '8px', 
-                    backgroundColor: 'rgba(59, 130, 246, 0.1)', 
-                    borderRadius: 'var(--radius)',
-                    fontSize: '13px',
-                    color: 'var(--primary)',
-                    border: '1px solid rgba(59, 130, 246, 0.2)'
-                  }}>
-                    <div>Selected: <strong>{deliveryFormData.description}</strong> ({deliveryFormData.unit})</div>
-                    {deliveryFormData.available_quantity !== null && (
-                      <div style={{ 
-                        marginTop: '4px', 
-                        fontSize: '12px',
-                        color: deliveryFormData.available_quantity > 0 ? '#10b981' : '#ef4444',
-                        fontWeight: 600
-                      }}>
-                        Available in warehouse: {formatQuantity(deliveryFormData.available_quantity)} {deliveryFormData.unit}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            </div>
-            {deliveryFormData.description && (
-              <>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px', marginBottom: '16px' }}>
-                  <div className="form-group">
-                    <label>Item Description</label>
-                    <input 
-                      type="text" 
-                      value={deliveryFormData.description}
-                      disabled
-                      style={{ backgroundColor: 'var(--bg-secondary)' }}
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label>Unit</label>
-                    <input 
-                      type="text" 
-                      value={deliveryFormData.unit}
-                      disabled
-                      style={{ backgroundColor: 'var(--bg-secondary)' }}
-                    />
-                  </div>
+
+            {deliveryItems.map((item, index) => (
+              <div key={item.uid} style={{
+                border: '1px solid var(--border-color, #e5e7eb)',
+                borderRadius: '8px', padding: '12px', marginBottom: '12px'
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                  <strong style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Item {index + 1}</strong>
+                  {deliveryItems.length > 1 && (
+                    <button
+                      type="button"
+                      className="btn"
+                      style={{ padding: '2px 8px', fontSize: '12px', background: '#fee2e2', color: '#b91c1c', border: '1px solid #fca5a5' }}
+                      onClick={() => removeDeliveryItem(index)}
+                    >
+                      <FiX size={12} /> Remove
+                    </button>
+                  )}
                 </div>
 
-                {/* Batch Selection */}
-                {costBatches.length > 0 && (
-                  <div className="form-group" style={{ marginBottom: '16px' }}>
-                    <label>Select Batch *</label>
-                    <select
-                      value={deliveryFormData.cost_batch_id}
-                      onChange={(e) => {
-                        const selectedBatch = costBatches.find(b => b.cost_batch_id === e.target.value);
-                        setDeliveryFormData({
-                          ...deliveryFormData,
-                          cost_batch_id: e.target.value,
-                          unit_cost: selectedBatch ? selectedBatch.unit_cost : deliveryFormData.unit_cost
-                        });
-                      }}
-                      required
-                    >
-                      <option value="">Select batch...</option>
-                      {costBatches.map((batch, batchIndex) => (
-                        <option key={batch.cost_batch_id} value={batch.cost_batch_id}>
-                          {batch.batch_number || `BATCH-${batchIndex + 1}`} - Qty: {formatQuantity(batch.quantity)} - 
-                          Cost: ₱{formatPrice(batch.unit_cost)} - 
-                          Exp: {batch.expiry_date ? new Date(batch.expiry_date).toLocaleDateString() : 'N/A'}
-                        </option>
-                      ))}
-                    </select>
-                    {deliveryFormData.cost_batch_id && (
-                      <div style={{ 
-                        marginTop: '8px', 
-                        padding: '8px', 
-                        backgroundColor: 'rgba(59, 130, 246, 0.1)', 
-                        borderRadius: 'var(--radius)',
-                        fontSize: '12px',
-                        color: 'var(--primary)',
-                        border: '1px solid rgba(59, 130, 246, 0.2)'
-                      }}>
-                        {(() => {
-                          const selectedBatch = costBatches.find(b => b.cost_batch_id === deliveryFormData.cost_batch_id);
-                          return selectedBatch ? (
-                            <div>
-                              <strong>Batch Details:</strong> {selectedBatch.batch_number || 'N/A'} | 
-                              Available: {formatQuantity(selectedBatch.quantity)} {deliveryFormData.unit} | 
-                              Expires: {selectedBatch.expiry_date ? new Date(selectedBatch.expiry_date).toLocaleDateString() : 'N/A'}
+                <div className="form-group">
+                  <label>Search Item *</label>
+                  <AutocompleteSearch
+                    placeholder="Search for product..."
+                    locationId={user.role === 'warehouse' ? user.location_id : (deliveryFrom || undefined)}
+                    onSelect={async (product) => {
+                      const fromId = user.role === 'warehouse' ? user.location_id : deliveryFrom;
+                      let availableQty = null;
+                      let batches = [];
+                      if (fromId) {
+                        try {
+                          // Sum across all batch rows — inventory keeps one row per
+                          // cost batch and depleted batches stay as 0-qty rows.
+                          const response = await api.get(`/inventory/location/${fromId}`);
+                          availableQty = response.data
+                            .filter(inv => inv.description === product.description && inv.unit === product.unit)
+                            .reduce((sum, inv) => sum + parseFloat(inv.quantity || 0), 0);
+
+                          const batchResponse = await api.get(`/inventory/cost-batches/${fromId}/${encodeURIComponent(product.description)}/${encodeURIComponent(product.unit)}`);
+                          batches = batchResponse.data;
+                        } catch (error) {
+                          console.error('Error fetching inventory:', error);
+                        }
+                      }
+                      updateDeliveryItem(index, {
+                        description: product.description,
+                        unit: product.unit,
+                        unit_cost: product.unit_cost || '',
+                        available_quantity: availableQty,
+                        cost_batch_id: '',
+                        costBatches: batches,
+                        quantity: ''
+                      });
+                    }}
+                  />
+                  {item.description && (
+                    <div style={{
+                      marginTop: '8px', padding: '8px',
+                      backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                      borderRadius: 'var(--radius)', fontSize: '13px',
+                      color: 'var(--primary)', border: '1px solid rgba(59, 130, 246, 0.2)'
+                    }}>
+                      <div>Selected: <strong>{item.description}</strong> ({item.unit})</div>
+                      {item.available_quantity !== null && (
+                        <div style={{
+                          marginTop: '4px', fontSize: '12px', fontWeight: 600,
+                          color: item.available_quantity > 0 ? '#10b981' : '#ef4444'
+                        }}>
+                          Available in warehouse: {formatQuantity(item.available_quantity)} {item.unit}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {item.description && (
+                  <>
+                    {item.costBatches.length > 0 && (
+                      <div className="form-group" style={{ marginTop: '12px' }}>
+                        <label>Select Batch *</label>
+                        <select
+                          required
+                          value={item.cost_batch_id}
+                          onChange={(e) => {
+                            const b = item.costBatches.find(cb => cb.cost_batch_id === e.target.value);
+                            updateDeliveryItem(index, {
+                              cost_batch_id: e.target.value,
+                              unit_cost: b ? b.unit_cost : item.unit_cost,
+                              quantity: ''
+                            });
+                          }}
+                        >
+                          <option value="">Select batch...</option>
+                          {item.costBatches.map((batch, bi) => (
+                            <option key={batch.cost_batch_id} value={batch.cost_batch_id}>
+                              {[
+                                batch.batch_number || `BATCH-${bi + 1}`,
+                                `Qty: ${formatQuantity(batch.quantity)}`,
+                                ...(isAdmin ? [`Cost: ₱${formatPrice(batch.unit_cost)}`] : []),
+                                `Exp: ${batch.expiry_date ? new Date(batch.expiry_date).toLocaleDateString() : 'N/A'}`
+                              ].join(' - ')}
+                            </option>
+                          ))}
+                        </select>
+                        {item.cost_batch_id && (() => {
+                          const b = item.costBatches.find(cb => cb.cost_batch_id === item.cost_batch_id);
+                          return b ? (
+                            <div style={{
+                              marginTop: '8px', padding: '8px',
+                              backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                              borderRadius: 'var(--radius)', fontSize: '12px',
+                              color: 'var(--primary)', border: '1px solid rgba(59, 130, 246, 0.2)'
+                            }}>
+                              <strong>Batch Details:</strong> {b.batch_number || 'N/A'} | Available: {formatQuantity(b.quantity)} {item.unit} | Expires: {b.expiry_date ? new Date(b.expiry_date).toLocaleDateString() : 'N/A'}
                             </div>
-                          ) : '';
+                          ) : null;
                         })()}
                       </div>
                     )}
-                  </div>
-                )}
 
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px', marginBottom: '16px' }}>
-                  <div className="form-group">
-                    <label>Quantity *</label>
-                    <input 
-                      type="number" 
-                      name="quantity" 
-                      step="0.01" 
-                      min="0.01" 
-                      max={(() => {
-                        if (deliveryFormData.cost_batch_id) {
-                          const batch = costBatches.find(b => b.cost_batch_id === deliveryFormData.cost_batch_id);
-                          return batch ? batch.quantity : undefined;
-                        }
-                        return deliveryFormData.available_quantity || undefined;
-                      })()}
-                      required 
-                      placeholder={(() => {
-                        if (!deliveryFormData.cost_batch_id && costBatches.length > 0) return 'Select batch first';
-                        if (deliveryFormData.cost_batch_id) {
-                          const batch = costBatches.find(b => b.cost_batch_id === deliveryFormData.cost_batch_id);
-                          return batch ? `Max: ${batch.quantity}` : '0.00';
-                        }
-                        return '0.00';
-                      })()}
-                      value={deliveryFormData.quantity}
-                      onChange={(e) => {
-                        const qty = parseFloat(e.target.value);
-                        let maxQty = deliveryFormData.available_quantity;
-                        
-                        if (deliveryFormData.cost_batch_id) {
-                          const batch = costBatches.find(b => b.cost_batch_id === deliveryFormData.cost_batch_id);
-                          maxQty = batch ? parseFloat(batch.quantity) : maxQty;
-                        }
-                        
-                        if (maxQty !== null && qty > maxQty) {
-                          alert(`Cannot exceed available quantity: ${formatQuantity(maxQty)} ${deliveryFormData.unit}`);
-                          return;
-                        }
-                        setDeliveryFormData({...deliveryFormData, quantity: e.target.value});
-                      }}
-                      disabled={costBatches.length > 0 && !deliveryFormData.cost_batch_id}
-                    />
-                    {deliveryFormData.available_quantity !== null && deliveryFormData.available_quantity === 0 && (
-                      <div style={{ fontSize: '11px', color: '#ef4444', marginTop: '4px' }}>
-                        ⚠️ No stock available in warehouse
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px', marginTop: '12px' }}>
+                      <div className="form-group">
+                        <label>Quantity *</label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0.01"
+                          required
+                          max={(() => {
+                            const b = item.costBatches.find(cb => cb.cost_batch_id === item.cost_batch_id);
+                            if (b) return b.quantity;
+                            return item.available_quantity || undefined;
+                          })()}
+                          placeholder={item.costBatches.length > 0 && !item.cost_batch_id ? 'Select batch first' : '0.00'}
+                          value={item.quantity}
+                          disabled={item.costBatches.length > 0 && !item.cost_batch_id}
+                          onChange={(e) => {
+                            const qty = parseFloat(e.target.value);
+                            let maxQty = item.available_quantity;
+                            const b = item.costBatches.find(cb => cb.cost_batch_id === item.cost_batch_id);
+                            if (b) maxQty = parseFloat(b.quantity);
+                            if (maxQty !== null && maxQty !== undefined && qty > maxQty) {
+                              alert(`Cannot exceed available quantity: ${formatQuantity(maxQty)} ${item.unit}`);
+                              return;
+                            }
+                            updateDeliveryItem(index, { quantity: e.target.value });
+                          }}
+                        />
+                        {item.available_quantity === 0 && (
+                          <div style={{ fontSize: '11px', color: '#ef4444', marginTop: '4px' }}>
+                            ⚠️ No stock available in warehouse
+                          </div>
+                        )}
                       </div>
-                    )}
-                  </div>
-                  <div className="form-group">
-                    <label>Unit Cost *</label>
-                    <input 
-                      type="number" 
-                      name="unit_cost" 
-                      step="0.01" 
-                      min="0.01" 
-                      required 
-                      placeholder="0.00"
-                      value={deliveryFormData.unit_cost}
-                      onChange={(e) => setDeliveryFormData({...deliveryFormData, unit_cost: e.target.value})}
-                      disabled={costBatches.length > 0 && !deliveryFormData.cost_batch_id}
-                    />
-                  </div>
-                </div>
-              </>
-            )}
-            {deliveryFormData.description && (
-              <div className="form-group" style={{ marginBottom: '16px' }}>
-                <label>Notes (Optional)</label>
-                <textarea 
-                  name="notes" 
-                  rows="3" 
-                  placeholder="Add any notes about this delivery..."
-                  value={deliveryFormData.notes}
-                  onChange={(e) => setDeliveryFormData({...deliveryFormData, notes: e.target.value})}
-                ></textarea>
+                      {isAdmin && (
+                        <div className="form-group">
+                          <label>Unit Cost *</label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            min="0.01"
+                            required
+                            placeholder="0.00"
+                            value={item.unit_cost}
+                            disabled={item.costBatches.length > 0 && !item.cost_batch_id}
+                            onChange={(e) => updateDeliveryItem(index, { unit_cost: e.target.value })}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  </>
+                )}
               </div>
-            )}
+            ))}
+
+            <button
+              type="button"
+              className="btn"
+              style={{ marginBottom: '16px', background: '#eff6ff', color: '#1d4ed8', border: '1px solid #93c5fd' }}
+              onClick={addDeliveryItem}
+            >
+              <FiPackage size={14} /> Add Item
+            </button>
+
+            <div className="form-group" style={{ marginBottom: '16px' }}>
+              <label>Notes (Optional)</label>
+              <textarea
+                rows="3"
+                placeholder="Add any notes about this delivery..."
+                value={deliveryNotes}
+                onChange={(e) => setDeliveryNotes(e.target.value)}
+              ></textarea>
+            </div>
+
             <div style={{ display: 'flex', gap: '10px' }}>
-              <button type="submit" className="btn btn-success" disabled={!deliveryFormData.description}>
+              <button
+                type="submit"
+                className="btn btn-success"
+                disabled={deliveryItems.every(it => !it.description)}
+              >
                 <FiCheck size={16} />
                 Create Delivery
               </button>
               <button type="button" className="btn btn-secondary" onClick={() => {
                 setShowCreateDelivery(false);
-                setDeliveryFormData({
-                  from_location_id: '',
-                  description: '',
-                  unit: '',
-                  quantity: '',
-                  unit_cost: '',
-                  notes: '',
-                  available_quantity: null,
-                  cost_batch_id: ''
-                });
-                setCostBatches([]);
+                resetDeliveryForm();
               }}>
                 <FiX size={16} />
                 Cancel
@@ -806,7 +795,7 @@ function Deliveries() {
           </h3>
           <div className="alert alert-warning" style={{ marginBottom: '16px' }}>
             <FiAlertCircle size={16} />
-            These deliveries have been shipped and need your confirmation before branches can receive them
+            These deliveries need your confirmation before branches can receive and accept them
           </div>
           <table>
             <thead>

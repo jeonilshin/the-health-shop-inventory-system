@@ -411,7 +411,10 @@ router.post('/:id/admin-confirm', auth, authorize('admin'), async (req, res) => 
 
     const deliveryData = delivery.rows[0];
 
-    if (deliveryData.status !== 'awaiting_admin') {
+    // Directly-created deliveries (warehouse "Create Delivery" / branch
+    // "Request from Warehouse") start as 'pending'; transfer-shipped ones start
+    // as 'awaiting_admin'. The admin confirms either into 'admin_confirmed'.
+    if (deliveryData.status !== 'awaiting_admin' && deliveryData.status !== 'pending') {
       await client.query('ROLLBACK');
       return res.status(400).json({ error: 'Delivery is not awaiting admin confirmation' });
     }
