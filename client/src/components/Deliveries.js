@@ -477,7 +477,11 @@ function Deliveries() {
           <form onSubmit={async (e) => {
             e.preventDefault();
             const formData = new FormData(e.target);
-            const fromLocationId = formData.get('from_location_id');
+            // A disabled <select> is omitted from FormData, so warehouse users
+            // (whose "From Warehouse" field is disabled) won't have it here —
+            // fall back to their own location_id.
+            const fromLocationId = formData.get('from_location_id')
+              || (user.role === 'warehouse' ? user.location_id : '');
             const toLocationId = formData.get('to_location_id');
             const quantity = formData.get('quantity');
             const unitCost = formData.get('unit_cost');
