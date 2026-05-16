@@ -559,12 +559,13 @@ function Deliveries() {
                     // Fetch available quantity and cost batches if warehouse is selected
                     if (fromLocationId) {
                       try {
-                        // Fetch inventory
+                        // Fetch inventory — sum across all batch rows for this item,
+                        // since inventory stores one row per cost batch (depleted
+                        // batches stay as 0-qty rows and would mislead a .find()).
                         const response = await api.get(`/inventory/location/${fromLocationId}`);
-                        const inventoryItem = response.data.find(
-                          inv => inv.description === item.description && inv.unit === item.unit
-                        );
-                        availableQty = inventoryItem ? parseFloat(inventoryItem.quantity) : 0;
+                        availableQty = response.data
+                          .filter(inv => inv.description === item.description && inv.unit === item.unit)
+                          .reduce((sum, inv) => sum + parseFloat(inv.quantity || 0), 0);
                         
                         // Fetch cost batches
                         const batchResponse = await api.get(`/inventory/cost-batches/${fromLocationId}/${encodeURIComponent(item.description)}/${encodeURIComponent(item.unit)}`);
