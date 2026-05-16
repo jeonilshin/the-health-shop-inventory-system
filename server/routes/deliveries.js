@@ -159,15 +159,23 @@ router.post('/', auth, authorize('admin', 'warehouse'), async (req, res) => {
         });
       }
       
-      if (inventoryCheck.rows[0].quantity < item.quantity) {
+      // Inventory stores one row per cost batch; depleted batches remain as
+      // 0-qty rows. Sum across all rows for the true available quantity.
+      const availableQty = inventoryCheck.rows.reduce(
+        (sum, r) => sum + parseFloat(r.quantity || 0), 0
+      );
+
+      if (availableQty < item.quantity) {
         await client.query('ROLLBACK');
-        return res.status(400).json({ 
-          error: `Insufficient quantity for "${item.description}". Available: ${inventoryCheck.rows[0].quantity}, Requested: ${item.quantity}` 
+        return res.status(400).json({
+          error: `Insufficient quantity for "${item.description}". Available: ${availableQty.toFixed(2)}, Requested: ${item.quantity}`
         });
       }
-      
-      // Add unit_cost from inventory
-      item.unit_cost = inventoryCheck.rows[0].unit_cost;
+
+      // Use unit_cost from a batch that still has stock (fall back to first row).
+      const costRow = inventoryCheck.rows.find(r => parseFloat(r.quantity || 0) > 0)
+        || inventoryCheck.rows[0];
+      item.unit_cost = costRow.unit_cost;
     }
     
     // Create delivery
