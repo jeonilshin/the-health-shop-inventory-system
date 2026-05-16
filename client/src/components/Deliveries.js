@@ -359,11 +359,13 @@ function Deliveries() {
               await api.post('/deliveries', {
                 from_location_id: warehouse.id,
                 to_location_id: user.location_id,
-                description,
-                unit,
-                quantity: parseFloat(quantity),
-                unit_cost: parseFloat(unitCost),
-                notes: notes || null
+                notes: notes || null,
+                items: [{
+                  description,
+                  unit,
+                  quantity: parseFloat(quantity),
+                  unit_cost: parseFloat(unitCost)
+                }]
               });
               alert('Request submitted to warehouse!');
               setShowRequestForm(false);
@@ -496,11 +498,13 @@ function Deliveries() {
               await api.post('/deliveries', {
                 from_location_id: parseInt(fromLocationId),
                 to_location_id: parseInt(toLocationId),
-                description: deliveryFormData.description,
-                unit: deliveryFormData.unit,
-                quantity: parseFloat(quantity),
-                unit_cost: parseFloat(unitCost),
-                notes: notes || null
+                notes: notes || null,
+                items: [{
+                  description: deliveryFormData.description,
+                  unit: deliveryFormData.unit,
+                  quantity: parseFloat(quantity),
+                  unit_cost: parseFloat(unitCost)
+                }]
               });
               alert('Delivery created successfully!');
               setShowCreateDelivery(false);
