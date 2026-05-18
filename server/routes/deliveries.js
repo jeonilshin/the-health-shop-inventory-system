@@ -744,4 +744,106 @@ router.post('/:id/manager-confirm', auth, authorize('branch_manager'), async (re
   }
 });
 
+// Reject delivery (Admin or Manager)
+router.post('/:id/reject', auth, authorize('admin', 'branch_manager'), async (req, res) => {
+  const { id } = req.params;
+  const { rejection_reason } = req.body;
+  const client = await pool.connect();
+  
+  try {
+    await client.query('BEGIN');
+    
+    // Get delivery details
+    const deliveryResult = await client.query(
+      `SELECT d.*, 
+              from_loc.name as from_location_name,
+              to_loc.name as to_location_name
+       FROM deliveries d
+       LEFT JOIN locations from_loc ON d.from_location_id = from_loc.id
+       LEFT JOIN locations to_loc ON d.to_location_id = to_loc.id
+       WHERE d.id = $1`,
+      [id]
+    );
+    
+    if (deliveryResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Delivery not found' });
+    }
+    
+    const delivery = deliveryResult.rows[0];
+    
+    // Check permissions
+    if (req.user.role === 'branch_manager') {
+      // Manager can only reject deliveries to their managed branches
+      const managerBranchesRes = await client.query(
+        `SELECT location_id FROM manager_branches WHERE user_id = $1
+         UNION
+         SELECT location_id FROM users WHERE id = $1`,
+        [req.user.id]
+      );
+      const managerLocationIds = managerBranchesRes.rows.map(row => row.location_id);
+      
+      if (!managerLocationIds.includes(delivery.to_location_id)) {
+        await client.query('ROLLBACK');
+        return res.status(403).json({ error: 'You can only reject deliveries to your managed branches' });
+      }
+    }
+    
+    // Update delivery status to rejected
+    await client.query(
+      `UPDATE deliveries 
+       SET status = 'rejected',
+           rejection_reason = $1,
+           rejected_by = $2,
+           rejected_at = CURRENT_TIMESTAMP,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = $3`,
+      [rejection_reason || null, req.user.id, id]
+    );
+    
+    // If there's a linked transfer, update it to rejected as well
+    if (delivery.transfer_id) {
+      await client.query(
+        `UPDATE transfers 
+         SET status = 'rejected',
+             rejection_reason = $1,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $2`,
+        [rejection_reason || 'Delivery rejected', delivery.transfer_id]
+      );
+    }
+    
+    await client.query('COMMIT');
+    
+    // Log audit
+    await logAudit({
+      userId: req.user.id,
+      username: req.user.username,
+      action: 'DELIVERY_REJECT',
+      tableName: 'deliveries',
+      recordId: id,
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+      description: `Rejected delivery from ${delivery.from_location_name} to ${delivery.to_location_name}. Reason: ${rejection_reason || 'No reason provided'}`
+    });
+    
+    // Notify relevant parties
+    await notifyLocation(
+      delivery.from_location_id,
+      'delivery_rejected',
+      'Delivery Rejected',
+      `Delivery to ${delivery.to_location_name} was rejected. Reason: ${rejection_reason || 'No reason provided'}`,
+      '/deliveries'
+    );
+    
+    res.json({ message: 'Delivery rejected successfully' });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Error rejecting delivery:', error);
+    res.status(500).json({ error: error.message });
+  } finally {
+    client.release();
+  }
+});
+
 module.exports = router;

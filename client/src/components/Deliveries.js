@@ -37,6 +37,7 @@ function Deliveries() {
   const [rejectState, setRejectState]     = useState({ id: null, note: '' });
   const [rejectDeliveryState, setRejectDeliveryState] = useState({ id: null, reason: '' });
   const [issueMenuDeliveryId, setIssueMenuDeliveryId] = useState(null); // which delivery has the sub-menu open
+  const [viewItemsModal, setViewItemsModal] = useState({ open: false, delivery: null });
 
   // ── history visibility ──
   const [showDiscHistory, setShowDiscHistory] = useState(false);
@@ -91,7 +92,32 @@ function Deliveries() {
           d.status === 'awaiting_admin' || d.status === 'pending'
         ));
       }
-      if (user.role === 'branch_manager' || user.role === 'branch_staff') {
+      if (user.role === 'branch_manager') {
+        // Get manager's assigned branches
+        try {
+          const managerBranchesRes = await api.get(`/users/${user.id}/branches`);
+          const managerBranchIds = managerBranchesRes.data.map(b => b.location_id);
+          const allManagerLocationIds = [...new Set([user.location_id, ...managerBranchIds])];
+          
+          // Show deliveries for all managed branches
+          setIncomingDeliveries(all.filter(d =>
+            (d.status === 'admin_confirmed' || d.status === 'in_transit' || d.status === 'pending_manager_confirmation') &&
+            allManagerLocationIds.includes(d.to_location_id)
+          ));
+          
+          // Show pending deliveries that need manager confirmation
+          setAwaitingAdmin(all.filter(d =>
+            (d.status === 'awaiting_admin' || d.status === 'pending') &&
+            allManagerLocationIds.includes(d.to_location_id)
+          ));
+        } catch (error) {
+          // Fallback to primary location if can't fetch managed branches
+          setIncomingDeliveries(all.filter(d =>
+            (d.status === 'admin_confirmed' || d.status === 'in_transit' || d.status === 'pending_manager_confirmation') &&
+            d.to_location_id === user.location_id
+          ));
+        }
+      } else if (user.role === 'branch_staff') {
         setIncomingDeliveries(all.filter(d =>
           (d.status === 'admin_confirmed' || d.status === 'in_transit' || d.status === 'pending_manager_confirmation') &&
           d.to_location_id === user.location_id
@@ -804,21 +830,23 @@ function Deliveries() {
         </div>
       )}
 
-      {/* ── Admin: Awaiting Confirmation ─────────────────────────────────── */}
-      {user.role === 'admin' && awaitingAdmin.length > 0 && (
+      {/* ── Admin/Manager: Awaiting Confirmation ─────────────────────────────────── */}
+      {(user.role === 'admin' || user.role === 'branch_manager') && awaitingAdmin.length > 0 && (
         <div className="card" style={{ borderLeft: '4px solid #f59e0b', marginBottom: '24px' }}>
           <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#f59e0b' }}>
             <FiClock size={20} />
-            Deliveries Awaiting Your Confirmation ({awaitingAdmin.length})
+            Deliveries Awaiting {user.role === 'admin' ? 'Your' : 'Manager'} Confirmation ({awaitingAdmin.length})
           </h3>
           <div className="alert alert-warning" style={{ marginBottom: '16px' }}>
             <FiAlertCircle size={16} />
-            These deliveries need your confirmation before branches can receive and accept them
+            These deliveries need {user.role === 'admin' ? 'your' : 'manager'} confirmation before branches can receive and accept them
           </div>
           <table>
             <thead>
               <tr>
-                <th>Date</th><th>From</th><th>To</th><th>Items</th><th>Total Value</th><th>Actions</th>
+                <th>Date</th><th>From</th><th>To</th><th>Items</th>
+                {user.role === 'admin' && <th>Total Value</th>}
+                <th>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -828,13 +856,32 @@ function Deliveries() {
                   <td>{delivery.from_location_name}</td>
                   <td>{delivery.to_location_name}</td>
                   <td>
-                    {delivery.items && delivery.items.map((item, idx) => (
-                      <div key={idx} style={{ fontSize: '12px', marginBottom: '5px' }}>
-                        <strong>{item.description}</strong> - {formatQuantity(item.quantity)} {item.unit}
+                    {delivery.items && delivery.items.length > 0 ? (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ fontSize: '13px', fontWeight: 600 }}>
+                          ({delivery.items.length}) item{delivery.items.length > 1 ? 's' : ''}
+                        </span>
+                        <button
+                          className="btn"
+                          style={{ 
+                            padding: '2px 8px', 
+                            fontSize: '11px',
+                            backgroundColor: '#3b82f6',
+                            color: '#fff',
+                            border: 'none'
+                          }}
+                          onClick={() => setViewItemsModal({ open: true, delivery })}
+                        >
+                          View
+                        </button>
                       </div>
-                    ))}
+                    ) : (
+                      <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>No items</span>
+                    )}
                   </td>
-                  <td style={{ fontWeight: 600 }}>₱{formatPrice(delivery.total_value)}</td>
+                  {user.role === 'admin' && (
+                    <td style={{ fontWeight: 600 }}>₱{formatPrice(delivery.total_value)}</td>
+                  )}
                   <td>
                     {rejectDeliveryState.id === delivery.id ? (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', minWidth: '200px' }}>
@@ -1050,11 +1097,28 @@ function Deliveries() {
                   </td>
                   <td>{delivery.from_location_name}</td>
                   <td>
-                    {delivery.items && delivery.items.map((item, idx) => (
-                      <div key={idx} style={{ fontSize: '12px', marginBottom: '5px' }}>
-                        <strong>{item.description}</strong> - {formatQuantity(item.quantity)} {item.unit}
+                    {delivery.items && delivery.items.length > 0 ? (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ fontSize: '13px', fontWeight: 600 }}>
+                          ({delivery.items.length}) item{delivery.items.length > 1 ? 's' : ''}
+                        </span>
+                        <button
+                          className="btn"
+                          style={{ 
+                            padding: '2px 8px', 
+                            fontSize: '11px',
+                            backgroundColor: '#3b82f6',
+                            color: '#fff',
+                            border: 'none'
+                          }}
+                          onClick={() => setViewItemsModal({ open: true, delivery })}
+                        >
+                          View
+                        </button>
                       </div>
-                    ))}
+                    ) : (
+                      <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>No items</span>
+                    )}
                   </td>
                   <td>{getStatusBadge(delivery.status)}</td>
                   {(user.role === 'branch_manager' || user.role === 'branch_staff') && (
@@ -1443,6 +1507,116 @@ function Deliveries() {
             fetchAll();
           }}
         />
+      )}
+
+      {/* ── View Items Modal ──────────────────────────────────────────────── */}
+      {viewItemsModal.open && viewItemsModal.delivery && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.5)', display: 'flex',
+          alignItems: 'center', justifyContent: 'center', zIndex: 1000
+        }}>
+          <div style={{
+            backgroundColor: 'var(--bg-card, #fff)',
+            borderRadius: '12px', padding: '24px',
+            maxWidth: '800px', width: '90%', maxHeight: '80vh',
+            overflow: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.3)'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+              <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <FiPackage size={20} />
+                Delivery Items
+              </h3>
+              <button
+                onClick={() => setViewItemsModal({ open: false, delivery: null })}
+                style={{
+                  background: 'none', border: 'none', fontSize: '24px',
+                  cursor: 'pointer', color: 'var(--text-secondary)', padding: '0'
+                }}
+              >
+                ×
+              </button>
+            </div>
+
+            <div style={{ marginBottom: '16px', padding: '12px', backgroundColor: 'var(--bg-secondary)', borderRadius: '8px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', fontSize: '13px' }}>
+                <div>
+                  <strong>From:</strong> {viewItemsModal.delivery.from_location_name}
+                </div>
+                <div>
+                  <strong>To:</strong> {viewItemsModal.delivery.to_location_name}
+                </div>
+                <div>
+                  <strong>Date:</strong> {new Date(viewItemsModal.delivery.delivery_date || viewItemsModal.delivery.created_at).toLocaleDateString()}
+                </div>
+                <div>
+                  <strong>Status:</strong> {getStatusBadge(viewItemsModal.delivery.status)}
+                </div>
+              </div>
+            </div>
+
+            <div style={{ marginBottom: '16px' }}>
+              <h4 style={{ marginBottom: '12px', fontSize: '14px', color: 'var(--text-secondary)' }}>
+                Items ({viewItemsModal.delivery.items?.length || 0})
+              </h4>
+              <table style={{ width: '100%', fontSize: '13px' }}>
+                <thead>
+                  <tr style={{ backgroundColor: 'var(--bg-secondary)' }}>
+                    <th style={{ padding: '8px', textAlign: 'left' }}>#</th>
+                    <th style={{ padding: '8px', textAlign: 'left' }}>Description</th>
+                    <th style={{ padding: '8px', textAlign: 'right' }}>Quantity</th>
+                    <th style={{ padding: '8px', textAlign: 'left' }}>Unit</th>
+                    {user.role === 'admin' && (
+                      <>
+                        <th style={{ padding: '8px', textAlign: 'right' }}>Unit Cost</th>
+                        <th style={{ padding: '8px', textAlign: 'right' }}>Subtotal</th>
+                      </>
+                    )}
+                  </tr>
+                </thead>
+                <tbody>
+                  {viewItemsModal.delivery.items && viewItemsModal.delivery.items.map((item, idx) => (
+                    <tr key={idx} style={{ borderBottom: '1px solid var(--border)' }}>
+                      <td style={{ padding: '8px' }}>{idx + 1}</td>
+                      <td style={{ padding: '8px', fontWeight: 600 }}>{item.description}</td>
+                      <td style={{ padding: '8px', textAlign: 'right' }}>{formatQuantity(item.quantity)}</td>
+                      <td style={{ padding: '8px' }}>{item.unit}</td>
+                      {user.role === 'admin' && (
+                        <>
+                          <td style={{ padding: '8px', textAlign: 'right' }}>₱{formatPrice(item.unit_cost)}</td>
+                          <td style={{ padding: '8px', textAlign: 'right', fontWeight: 600 }}>
+                            ₱{formatPrice(parseFloat(item.quantity) * parseFloat(item.unit_cost))}
+                          </td>
+                        </>
+                      )}
+                    </tr>
+                  ))}
+                </tbody>
+                {user.role === 'admin' && (
+                  <tfoot>
+                    <tr style={{ backgroundColor: 'var(--bg-secondary)', fontWeight: 700 }}>
+                      <td colSpan={user.role === 'admin' ? 5 : 3} style={{ padding: '8px', textAlign: 'right' }}>
+                        Total:
+                      </td>
+                      <td style={{ padding: '8px', textAlign: 'right', fontSize: '16px' }}>
+                        ₱{formatPrice(viewItemsModal.delivery.total_value)}
+                      </td>
+                    </tr>
+                  </tfoot>
+                )}
+              </table>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+              <button
+                className="btn btn-secondary"
+                onClick={() => setViewItemsModal({ open: false, delivery: null })}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
