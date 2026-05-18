@@ -35,6 +35,7 @@ function Deliveries() {
   // ── modals / inline reject ──
   const [discModal, setDiscModal]         = useState({ open: false, type: null, delivery: null });
   const [rejectState, setRejectState]     = useState({ id: null, note: '' });
+  const [rejectDeliveryState, setRejectDeliveryState] = useState({ id: null, reason: '' });
   const [issueMenuDeliveryId, setIssueMenuDeliveryId] = useState(null); // which delivery has the sub-menu open
 
   // ── history visibility ──
@@ -148,6 +149,23 @@ function Deliveries() {
       await fetchAll();
     } catch (error) {
       alert(error.response?.data?.error || 'Error confirming delivery');
+    }
+  };
+
+  const handleRejectDelivery = async () => {
+    if (!rejectDeliveryState.reason.trim()) {
+      alert('Please enter a rejection reason.');
+      return;
+    }
+    try {
+      await api.post(`/deliveries/${rejectDeliveryState.id}/reject`, {
+        rejection_reason: rejectDeliveryState.reason.trim()
+      });
+      alert('Delivery rejected successfully.');
+      setRejectDeliveryState({ id: null, reason: '' });
+      fetchAll();
+    } catch (error) {
+      alert(error.response?.data?.error || 'Error rejecting delivery');
     }
   };
 
@@ -818,13 +836,54 @@ function Deliveries() {
                   </td>
                   <td style={{ fontWeight: 600 }}>₱{formatPrice(delivery.total_value)}</td>
                   <td>
-                    <button
-                      className="btn btn-success"
-                      style={{ padding: '4px 12px', fontSize: '12px' }}
-                      onClick={() => handleAdminConfirm(delivery.id)}
-                    >
-                      <FiCheck size={12} /> Confirm Delivery
-                    </button>
+                    {rejectDeliveryState.id === delivery.id ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', minWidth: '200px' }}>
+                        <textarea
+                          rows={2}
+                          placeholder="Rejection reason (required)"
+                          value={rejectDeliveryState.reason}
+                          onChange={e => setRejectDeliveryState(s => ({ ...s, reason: e.target.value }))}
+                          style={{
+                            width: '100%', padding: '6px 8px', fontSize: '12px',
+                            border: '1px solid #d1d5db', borderRadius: '6px',
+                            resize: 'none', fontFamily: 'inherit', boxSizing: 'border-box'
+                          }}
+                        />
+                        <div style={{ display: 'flex', gap: '6px' }}>
+                          <button
+                            className="btn"
+                            style={{ flex: 1, padding: '4px 8px', fontSize: '12px', background: '#ef4444', color: '#fff', border: 'none' }}
+                            onClick={handleRejectDelivery}
+                          >
+                            Confirm Reject
+                          </button>
+                          <button
+                            className="btn"
+                            style={{ padding: '4px 8px', fontSize: '12px' }}
+                            onClick={() => setRejectDeliveryState({ id: null, reason: '' })}
+                          >
+                            <FiX size={12} />
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', gap: '6px' }}>
+                        <button
+                          className="btn btn-success"
+                          style={{ padding: '4px 12px', fontSize: '12px' }}
+                          onClick={() => handleAdminConfirm(delivery.id)}
+                        >
+                          <FiCheck size={12} /> Confirm
+                        </button>
+                        <button
+                          className="btn btn-danger"
+                          style={{ padding: '4px 12px', fontSize: '12px' }}
+                          onClick={() => setRejectDeliveryState({ id: delivery.id, reason: '' })}
+                        >
+                          <FiX size={12} /> Reject
+                        </button>
+                      </div>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -1002,26 +1061,108 @@ function Deliveries() {
                     <td>
                       {delivery.status === 'pending_manager_confirmation' ? (
                         user.role === 'branch_manager' ? (
-                          <button
-                            className="btn btn-success"
-                            style={{ padding: '4px 12px', fontSize: '12px' }}
-                            onClick={() => handleManagerConfirm(delivery.id)}
-                          >
-                            <FiCheckCircle size={12} /> Confirm Delivery
-                          </button>
+                          rejectDeliveryState.id === delivery.id ? (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', minWidth: '200px' }}>
+                              <textarea
+                                rows={2}
+                                placeholder="Rejection reason (required)"
+                                value={rejectDeliveryState.reason}
+                                onChange={e => setRejectDeliveryState(s => ({ ...s, reason: e.target.value }))}
+                                style={{
+                                  width: '100%', padding: '6px 8px', fontSize: '12px',
+                                  border: '1px solid #d1d5db', borderRadius: '6px',
+                                  resize: 'none', fontFamily: 'inherit', boxSizing: 'border-box'
+                                }}
+                              />
+                              <div style={{ display: 'flex', gap: '6px' }}>
+                                <button
+                                  className="btn"
+                                  style={{ flex: 1, padding: '4px 8px', fontSize: '12px', background: '#ef4444', color: '#fff', border: 'none' }}
+                                  onClick={handleRejectDelivery}
+                                >
+                                  Confirm Reject
+                                </button>
+                                <button
+                                  className="btn"
+                                  style={{ padding: '4px 8px', fontSize: '12px' }}
+                                  onClick={() => setRejectDeliveryState({ id: null, reason: '' })}
+                                >
+                                  <FiX size={12} />
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div style={{ display: 'flex', gap: '6px' }}>
+                              <button
+                                className="btn btn-success"
+                                style={{ padding: '4px 12px', fontSize: '12px' }}
+                                onClick={() => handleManagerConfirm(delivery.id)}
+                              >
+                                <FiCheckCircle size={12} /> Confirm
+                              </button>
+                              <button
+                                className="btn btn-danger"
+                                style={{ padding: '4px 12px', fontSize: '12px' }}
+                                onClick={() => setRejectDeliveryState({ id: delivery.id, reason: '' })}
+                              >
+                                <FiX size={12} /> Reject
+                              </button>
+                            </div>
+                          )
                         ) : (
                           <span style={{ fontSize: '12px', color: 'var(--text-muted)', fontStyle: 'italic' }}>
                             Awaiting manager confirmation
                           </span>
                         )
                       ) : (
-                        <button
-                          className="btn btn-success"
-                          style={{ padding: '4px 12px', fontSize: '12px' }}
-                          onClick={() => handleBranchAccept(delivery.id)}
-                        >
-                          <FiCheckCircle size={12} /> Accept Delivery
-                        </button>
+                        rejectDeliveryState.id === delivery.id ? (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', minWidth: '200px' }}>
+                            <textarea
+                              rows={2}
+                              placeholder="Rejection reason (required)"
+                              value={rejectDeliveryState.reason}
+                              onChange={e => setRejectDeliveryState(s => ({ ...s, reason: e.target.value }))}
+                              style={{
+                                width: '100%', padding: '6px 8px', fontSize: '12px',
+                                border: '1px solid #d1d5db', borderRadius: '6px',
+                                resize: 'none', fontFamily: 'inherit', boxSizing: 'border-box'
+                              }}
+                            />
+                            <div style={{ display: 'flex', gap: '6px' }}>
+                              <button
+                                className="btn"
+                                style={{ flex: 1, padding: '4px 8px', fontSize: '12px', background: '#ef4444', color: '#fff', border: 'none' }}
+                                onClick={handleRejectDelivery}
+                              >
+                                Confirm Reject
+                              </button>
+                              <button
+                                className="btn"
+                                style={{ padding: '4px 8px', fontSize: '12px' }}
+                                onClick={() => setRejectDeliveryState({ id: null, reason: '' })}
+                              >
+                                <FiX size={12} />
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div style={{ display: 'flex', gap: '6px' }}>
+                            <button
+                              className="btn btn-success"
+                              style={{ padding: '4px 12px', fontSize: '12px' }}
+                              onClick={() => handleBranchAccept(delivery.id)}
+                            >
+                              <FiCheckCircle size={12} /> Accept
+                            </button>
+                            <button
+                              className="btn btn-danger"
+                              style={{ padding: '4px 12px', fontSize: '12px' }}
+                              onClick={() => setRejectDeliveryState({ id: delivery.id, reason: '' })}
+                            >
+                              <FiX size={12} /> Reject
+                            </button>
+                          </div>
+                        )
                       )}
                     </td>
                   )}
