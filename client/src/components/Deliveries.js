@@ -857,24 +857,36 @@ function Deliveries() {
                   <td>{delivery.to_location_name}</td>
                   <td>
                     {delivery.items && delivery.items.length > 0 ? (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <span style={{ fontSize: '13px', fontWeight: 600 }}>
-                          ({delivery.items.length}) item{delivery.items.length > 1 ? 's' : ''}
-                        </span>
-                        <button
-                          className="btn"
-                          style={{ 
-                            padding: '2px 8px', 
-                            fontSize: '11px',
-                            backgroundColor: '#3b82f6',
-                            color: '#fff',
-                            border: 'none'
-                          }}
-                          onClick={() => setViewItemsModal({ open: true, delivery })}
-                        >
-                          View
-                        </button>
-                      </div>
+                      delivery.items.length <= 3 ? (
+                        // Show items directly if 3 or fewer
+                        <div>
+                          {delivery.items.map((item, idx) => (
+                            <div key={idx} style={{ fontSize: '12px', marginBottom: '4px' }}>
+                              <strong>{item.description}</strong> - {formatQuantity(item.quantity)} {item.unit}
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        // Show count with View button if more than 3
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span style={{ fontSize: '13px', fontWeight: 600 }}>
+                            ({delivery.items.length}) items
+                          </span>
+                          <button
+                            className="btn"
+                            style={{ 
+                              padding: '2px 8px', 
+                              fontSize: '11px',
+                              backgroundColor: '#3b82f6',
+                              color: '#fff',
+                              border: 'none'
+                            }}
+                            onClick={() => setViewItemsModal({ open: true, delivery })}
+                          >
+                            View
+                          </button>
+                        </div>
+                      )
                     ) : (
                       <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>No items</span>
                     )}
@@ -1098,24 +1110,36 @@ function Deliveries() {
                   <td>{delivery.from_location_name}</td>
                   <td>
                     {delivery.items && delivery.items.length > 0 ? (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <span style={{ fontSize: '13px', fontWeight: 600 }}>
-                          ({delivery.items.length}) item{delivery.items.length > 1 ? 's' : ''}
-                        </span>
-                        <button
-                          className="btn"
-                          style={{ 
-                            padding: '2px 8px', 
-                            fontSize: '11px',
-                            backgroundColor: '#3b82f6',
-                            color: '#fff',
-                            border: 'none'
-                          }}
-                          onClick={() => setViewItemsModal({ open: true, delivery })}
-                        >
-                          View
-                        </button>
-                      </div>
+                      delivery.items.length <= 3 ? (
+                        // Show items directly if 3 or fewer
+                        <div>
+                          {delivery.items.map((item, idx) => (
+                            <div key={idx} style={{ fontSize: '12px', marginBottom: '4px' }}>
+                              <strong>{item.description}</strong> - {formatQuantity(item.quantity)} {item.unit}
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        // Show count with View button if more than 3
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span style={{ fontSize: '13px', fontWeight: 600 }}>
+                            ({delivery.items.length}) items
+                          </span>
+                          <button
+                            className="btn"
+                            style={{ 
+                              padding: '2px 8px', 
+                              fontSize: '11px',
+                              backgroundColor: '#3b82f6',
+                              color: '#fff',
+                              border: 'none'
+                            }}
+                            onClick={() => setViewItemsModal({ open: true, delivery })}
+                          >
+                            View
+                          </button>
+                        </div>
+                      )
                     ) : (
                       <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>No items</span>
                     )}
