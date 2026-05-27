@@ -79,8 +79,8 @@ router.post('/', auth, authorize('admin', 'branch_manager', 'branch_staff', 'war
       return res.status(400).json({ error: 'All fields are required including note' });
     }
 
-    if (!['shortage', 'return', 'damage'].includes(type)) {
-      return res.status(400).json({ error: 'Type must be "shortage", "return", or "damage"' });
+    if (!['shortage', 'return', 'damage', 'overage'].includes(type)) {
+      return res.status(400).json({ error: 'Type must be "shortage", "return", "damage", or "overage"' });
     }
 
     if (type === 'shortage') {
@@ -89,6 +89,15 @@ router.post('/', auth, authorize('admin', 'branch_manager', 'branch_staff', 'war
       }
       if (parseFloat(received_quantity) >= parseFloat(expected_quantity)) {
         return res.status(400).json({ error: 'Received quantity must be less than expected quantity' });
+      }
+    }
+
+    if (type === 'overage') {
+      if (!delivery_id) {
+        return res.status(400).json({ error: 'delivery_id is required for overage reports' });
+      }
+      if (parseFloat(received_quantity) <= parseFloat(expected_quantity)) {
+        return res.status(400).json({ error: 'Received quantity must be greater than expected quantity for overage' });
       }
     }
 
@@ -102,7 +111,7 @@ router.post('/', auth, authorize('admin', 'branch_manager', 'branch_staff', 'war
 
     // Damage can originate from a branch (e.g. staff broke a bottle while
     // sorting) OR a warehouse — the report just needs at least one location
-    // to deduct from. Shortage and return always involve a warehouse.
+    // to deduct from. Shortage, overage, and return always involve a warehouse.
     if (type !== 'damage' && !warehouse_location_id) {
       return res.status(400).json({ error: 'warehouse_location_id is required' });
     }
@@ -110,14 +119,14 @@ router.post('/', auth, authorize('admin', 'branch_manager', 'branch_staff', 'war
       return res.status(400).json({ error: 'A branch or warehouse location is required for damage reports' });
     }
 
-    // For damage we keep whichever location the reporter sent. For shortage
-    // and return the branch is implicit from the reporter when not provided.
+    // For damage we keep whichever location the reporter sent. For shortage,
+    // overage, and return the branch is implicit from the reporter when not provided.
     const branchLocId = type === 'damage'
       ? (branch_location_id || null)
       : (branch_location_id || req.user.location_id);
 
-    // ── For shortage: verify delivery exists and is delivered ──
-    if (type === 'shortage') {
+    // ── For shortage and overage: verify delivery exists and is delivered ──
+    if (type === 'shortage' || type === 'overage') {
       const deliveryCheck = await pool.query(
         "SELECT id FROM deliveries WHERE id = $1 AND status = 'delivered'",
         [delivery_id]
@@ -155,9 +164,11 @@ router.post('/', auth, authorize('admin', 'branch_manager', 'branch_staff', 'war
     const locInfo = await pool.query('SELECT name FROM locations WHERE id = $1', [reporterLocId]);
     const locName = locInfo.rows[0]?.name || 'Location';
 
-    const typeLabel  = type === 'shortage' ? 'Shortage Report' : type === 'return' ? 'Return Request' : 'Damage Report';
+    const typeLabel  = type === 'shortage' ? 'Shortage Report' : type === 'return' ? 'Return Request' : type === 'overage' ? 'Overage Report' : 'Damage Report';
     const actionDesc = type === 'shortage'
       ? `Shortage: ${item_description} — expected ${expected_quantity}, received ${received_quantity} ${unit}`
+      : type === 'overage'
+      ? `Overage: ${item_description} — expected ${expected_quantity}, received ${received_quantity} ${unit} (${parseFloat(received_quantity) - parseFloat(expected_quantity)} extra)`
       : type === 'return'
       ? `Return Request: ${received_quantity} ${unit} of ${item_description} from ${locName}`
       : `Damage Report: ${expected_quantity} ${unit} of ${item_description} damaged at ${locName}`;
@@ -165,7 +176,7 @@ router.post('/', auth, authorize('admin', 'branch_manager', 'branch_staff', 'war
     await logAudit({
       userId: req.user.id,
       username: req.user.username,
-      action: type === 'shortage' ? 'DISCREPANCY_REPORT' : type === 'return' ? 'RETURN_REQUEST' : 'DAMAGE_REPORT',
+      action: type === 'shortage' ? 'DISCREPANCY_REPORT' : type === 'overage' ? 'OVERAGE_REPORT' : type === 'return' ? 'RETURN_REQUEST' : 'DAMAGE_REPORT',
       tableName: 'delivery_discrepancies',
       recordId: disc.id,
       newValues: disc,
@@ -176,7 +187,7 @@ router.post('/', auth, authorize('admin', 'branch_manager', 'branch_staff', 'war
 
     // Notify all admins
     await notifyAdmins(
-      type === 'shortage' ? 'shortage_report' : type === 'return' ? 'return_request' : 'damage_report',
+      type === 'shortage' ? 'shortage_report' : type === 'overage' ? 'overage_report' : type === 'return' ? 'return_request' : 'damage_report',
       `${typeLabel} Filed by ${locName}`,
       `${item_description}: ${actionDesc}. Needs your review.`,
       '/discrepancy'
@@ -285,6 +296,8 @@ router.put('/:id/add-to-inventory', auth, authorize('admin'), async (req, res) =
     // Calculate adjustment quantity
     const adjustQty = disc.type === 'shortage'
       ? parseFloat(disc.expected_quantity) - parseFloat(disc.received_quantity)
+      : disc.type === 'overage'
+      ? parseFloat(disc.received_quantity) - parseFloat(disc.expected_quantity)
       : parseFloat(disc.received_quantity); // return and damage use received_quantity
 
     if (adjustQty <= 0) {
@@ -360,6 +373,56 @@ router.put('/:id/add-to-inventory', auth, authorize('admin'), async (req, res) =
       }
 
       console.log(`[SHORTAGE] Completed: ${adjustQty} returned to warehouse, deducted from branch`);
+
+    // ── OVERAGE ──────────────────────────────────────────────────────────
+    // Warehouse delivered 10, branch received 12 → overage = 2
+    // Fix: deduct 2 from warehouse (they sent extra) AND branch keeps the extra (already credited)
+    } else if (disc.type === 'overage') {
+      console.log(`[OVERAGE] Deducting ${adjustQty} ${disc.unit} of "${disc.item_description}" from warehouse ${disc.warehouse_location_id}`);
+
+      const warehouseInv = await client.query(
+        `SELECT id, quantity, cost_batch_id
+         FROM inventory
+         WHERE location_id = $1
+           AND LOWER(TRIM(description)) = LOWER(TRIM($2))
+           AND LOWER(TRIM(unit))        = LOWER(TRIM($3))
+         ORDER BY created_at ASC`,
+        [disc.warehouse_location_id, disc.item_description, disc.unit]
+      );
+
+      if (warehouseInv.rows.length === 0) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({
+          error: `Cannot adjust warehouse inventory: "${disc.item_description}" (${disc.unit}) not found in warehouse.`
+        });
+      }
+
+      const totalWarehouseAvailable = warehouseInv.rows.reduce((sum, b) => sum + parseFloat(b.quantity), 0);
+      if (totalWarehouseAvailable < adjustQty) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({
+          error: `Insufficient stock in warehouse to correct overage. Available: ${totalWarehouseAvailable} ${disc.unit}, overage amount: ${adjustQty}.`
+        });
+      }
+
+      // Deduct from warehouse using FIFO
+      let warehouseRemaining = adjustQty;
+      for (const batch of warehouseInv.rows) {
+        if (warehouseRemaining <= 0) break;
+        const batchQty = parseFloat(batch.quantity);
+        const deduct = Math.min(batchQty, warehouseRemaining);
+        if (deduct >= batchQty) {
+          await client.query('DELETE FROM inventory WHERE id = $1', [batch.id]);
+        } else {
+          await client.query(
+            'UPDATE inventory SET quantity = quantity - $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+            [deduct, batch.id]
+          );
+        }
+        warehouseRemaining -= deduct;
+      }
+
+      console.log(`[OVERAGE] Completed: ${adjustQty} deducted from warehouse, branch keeps the extra items`);
 
     // ── RETURN ────────────────────────────────────────────────────────────
     // Branch sends items back to warehouse
@@ -510,6 +573,8 @@ router.put('/:id/add-to-inventory', auth, authorize('admin'), async (req, res) =
 
     const auditDesc = disc.type === 'shortage'
       ? `Shortage confirmed: ${adjustQty} ${disc.unit} of "${disc.item_description}" returned to warehouse, deducted from branch`
+      : disc.type === 'overage'
+      ? `Overage confirmed: ${adjustQty} ${disc.unit} of "${disc.item_description}" deducted from warehouse (branch received extra items)`
       : disc.type === 'return'
       ? `Returned ${adjustQty} ${disc.unit} of "${disc.item_description}" from branch to warehouse`
       : /* damage */ disc.branch_location_id
@@ -530,9 +595,11 @@ router.put('/:id/add-to-inventory', auth, authorize('admin'), async (req, res) =
 
     // Notify branch (only if branch is involved)
     if (disc.branch_location_id) {
-      const notifyLabel = disc.type === 'shortage' ? 'Shortage' : disc.type === 'damage' ? 'Damage Report' : 'Return';
+      const notifyLabel = disc.type === 'shortage' ? 'Shortage' : disc.type === 'overage' ? 'Overage' : disc.type === 'damage' ? 'Damage Report' : 'Return';
       const detail = disc.type === 'shortage'
         ? 'Missing items corrected — your inventory has been adjusted.'
+        : disc.type === 'overage'
+        ? 'Extra items confirmed — you received more than expected, warehouse inventory adjusted.'
         : disc.type === 'damage'
         ? 'Damaged items have been written off from your inventory.'
         : 'Items removed from your inventory and returned to warehouse.';
@@ -547,6 +614,8 @@ router.put('/:id/add-to-inventory', auth, authorize('admin'), async (req, res) =
 
     const successMsg = disc.type === 'shortage'
       ? `Shortage confirmed: ${adjustQty} ${disc.unit} of "${disc.item_description}" added to warehouse and removed from branch inventory`
+      : disc.type === 'overage'
+      ? `Overage confirmed: ${adjustQty} ${disc.unit} of "${disc.item_description}" deducted from warehouse. Branch keeps the extra items.`
       : disc.type === 'return'
       ? `Returned ${adjustQty} ${disc.unit} of "${disc.item_description}" to warehouse. Removed from branch.`
       : disc.branch_location_id

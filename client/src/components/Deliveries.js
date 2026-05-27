@@ -38,6 +38,8 @@ function Deliveries() {
   const [rejectDeliveryState, setRejectDeliveryState] = useState({ id: null, reason: '' });
   const [issueMenuDeliveryId, setIssueMenuDeliveryId] = useState(null); // which delivery has the sub-menu open
   const [viewItemsModal, setViewItemsModal] = useState({ open: false, delivery: null });
+  const [batchSelectionModal, setBatchSelectionModal] = useState({ open: false, delivery: null, batches: null });
+  const [selectedBatches, setSelectedBatches] = useState({}); // { item_id: [{ batch_id, quantity }] }
 
   // ── history visibility ──
   const [showDiscHistory, setShowDiscHistory] = useState(false);
@@ -161,6 +163,61 @@ function Deliveries() {
       const response = await api.post(`/deliveries/${id}/accept`);
       alert(response.data.message || 'Delivery accepted! Items have been added to your inventory.');
       // Force a fresh fetch
+      await fetchAll();
+    } catch (error) {
+      alert(error.response?.data?.error || 'Error accepting delivery');
+    }
+  };
+
+  const handleBranchAcceptWithBatchSelection = async (deliveryId) => {
+    try {
+      // Fetch available batches
+      const response = await api.get(`/deliveries/${deliveryId}/available-batches`);
+      const batchData = response.data;
+      
+      // Check if any item has multiple batches
+      const hasMultipleBatches = batchData.items.some(item => item.available_batches.length > 1);
+      
+      if (!hasMultipleBatches) {
+        // No batch selection needed, accept directly
+        handleBranchAccept(deliveryId);
+        return;
+      }
+      
+      // Initialize selected batches with default (all from first batch)
+      const initialSelections = {};
+      batchData.items.forEach(item => {
+        if (item.available_batches.length > 0) {
+          initialSelections[item.item_id] = [{
+            batch_id: item.available_batches[0].id,
+            quantity: item.requested_quantity
+          }];
+        }
+      });
+      
+      setSelectedBatches(initialSelections);
+      setBatchSelectionModal({ open: true, delivery: deliveryId, batches: batchData });
+    } catch (error) {
+      alert(error.response?.data?.error || 'Error loading batch information');
+    }
+  };
+
+  const handleConfirmBatchSelection = async () => {
+    try {
+      // Build batch_selections array
+      const batch_selections = Object.entries(selectedBatches).map(([item_id, selections]) => ({
+        item_id: parseInt(item_id),
+        batch_ids: selections.map(s => s.batch_id),
+        quantities: selections.map(s => s.quantity)
+      }));
+      
+      await api.post(`/deliveries/${batchSelectionModal.delivery}/accept`, {
+        batch_selections
+      });
+      
+      alert('Delivery accepted with selected batches!');
+      setBatchSelectionModal({ open: false, delivery: null, batches: null });
+      setSelectedBatches({});
       await fetchAll();
     } catch (error) {
       alert(error.response?.data?.error || 'Error accepting delivery');
@@ -1238,7 +1295,7 @@ function Deliveries() {
                             <button
                               className="btn btn-success"
                               style={{ padding: '4px 12px', fontSize: '12px' }}
-                              onClick={() => handleBranchAccept(delivery.id)}
+                              onClick={() => handleBranchAcceptWithBatchSelection(delivery.id)}
                             >
                               <FiCheckCircle size={12} /> Accept
                             </button>
@@ -1666,6 +1723,239 @@ function Deliveries() {
                 onClick={() => setViewItemsModal({ open: false, delivery: null })}
               >
                 Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* ── Batch Selection Modal ────────────────────────────────────────── */}
+      {batchSelectionModal.open && batchSelectionModal.batches && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.5)', display: 'flex',
+          alignItems: 'center', justifyContent: 'center', zIndex: 1000
+        }}>
+          <div style={{
+            backgroundColor: 'var(--bg-card, #fff)',
+            borderRadius: '12px', padding: '24px',
+            maxWidth: '900px', width: '95%', maxHeight: '85vh',
+            overflow: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.3)'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+              <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <FiPackage size={20} />
+                Select Batches to Receive
+              </h3>
+              <button
+                onClick={() => {
+                  setBatchSelectionModal({ open: false, delivery: null, batches: null });
+                  setSelectedBatches({});
+                }}
+                style={{
+                  background: 'none', border: 'none', fontSize: '24px',
+                  cursor: 'pointer', color: 'var(--text-secondary)', padding: '0'
+                }}
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="alert alert-info" style={{ marginBottom: '20px', fontSize: '13px' }}>
+              <FiInfo size={16} />
+              <div>
+                <strong>Choose which batches to receive</strong>
+                <p style={{ margin: '4px 0 0 0' }}>
+                  Items with multiple batches allow you to select specific batches based on expiry dates or batch numbers.
+                </p>
+              </div>
+            </div>
+
+            {batchSelectionModal.batches.items.map((item, itemIdx) => {
+              const itemSelections = selectedBatches[item.item_id] || [];
+              const totalSelected = itemSelections.reduce((sum, sel) => sum + parseFloat(sel.quantity || 0), 0);
+              const isComplete = Math.abs(totalSelected - parseFloat(item.requested_quantity)) < 0.01;
+
+              return (
+                <div key={item.item_id} style={{
+                  border: '2px solid ' + (isComplete ? '#10b981' : '#f59e0b'),
+                  borderRadius: '8px',
+                  padding: '16px',
+                  marginBottom: '16px',
+                  backgroundColor: isComplete ? '#f0fdf4' : '#fffbeb'
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                    <div>
+                      <h4 style={{ margin: '0 0 4px 0', fontSize: '15px' }}>
+                        {item.description} ({item.unit})
+                      </h4>
+                      <div style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+                        Requested: {formatQuantity(item.requested_quantity)} {item.unit} • 
+                        Selected: <strong style={{ color: isComplete ? '#10b981' : '#f59e0b' }}>
+                          {formatQuantity(totalSelected)} {item.unit}
+                        </strong>
+                      </div>
+                    </div>
+                    {!isComplete && (
+                      <span style={{
+                        padding: '4px 12px',
+                        borderRadius: '12px',
+                        fontSize: '12px',
+                        fontWeight: 600,
+                        backgroundColor: '#fef3c7',
+                        color: '#92400e'
+                      }}>
+                        {totalSelected < item.requested_quantity ? 'Need more' : 'Too much'}
+                      </span>
+                    )}
+                  </div>
+
+                  {item.available_batches.length === 0 ? (
+                    <div style={{ padding: '12px', backgroundColor: '#fee2e2', borderRadius: '6px', color: '#b91c1c', fontSize: '13px' }}>
+                      ⚠️ No batches available for this item
+                    </div>
+                  ) : item.available_batches.length === 1 ? (
+                    <div style={{ padding: '12px', backgroundColor: '#e0f2fe', borderRadius: '6px', fontSize: '13px' }}>
+                      <strong>Single batch available:</strong> {formatQuantity(item.available_batches[0].quantity)} {item.unit}
+                      {item.available_batches[0].batch_number && ` • Batch: ${item.available_batches[0].batch_number}`}
+                      {item.available_batches[0].expiry_date && ` • Expires: ${new Date(item.available_batches[0].expiry_date).toLocaleDateString()}`}
+                    </div>
+                  ) : (
+                    <div>
+                      <div style={{ fontSize: '12px', fontWeight: 600, marginBottom: '8px', color: 'var(--text-secondary)' }}>
+                        Available Batches ({item.available_batches.length}):
+                      </div>
+                      <div style={{ display: 'grid', gap: '8px' }}>
+                        {item.available_batches.map((batch, batchIdx) => {
+                          const isExpired = batch.expiry_status === 'EXPIRED';
+                          const isExpiringSoon = batch.expiry_status === 'EXPIRING_SOON';
+                          const selectedQty = itemSelections.find(s => s.batch_id === batch.id)?.quantity || 0;
+
+                          return (
+                            <div key={batch.id} style={{
+                              display: 'grid',
+                              gridTemplateColumns: '1fr auto auto',
+                              gap: '12px',
+                              alignItems: 'center',
+                              padding: '10px',
+                              backgroundColor: 'var(--bg-card)',
+                              border: '1px solid var(--border-color)',
+                              borderRadius: '6px'
+                            }}>
+                              <div style={{ fontSize: '12px' }}>
+                                <div style={{ fontWeight: 600, marginBottom: '4px' }}>
+                                  {batch.batch_number || `Batch ${batchIdx + 1}`}
+                                  {isExpired && <span style={{ marginLeft: '8px', color: '#ef4444', fontSize: '11px' }}>⚠️ EXPIRED</span>}
+                                  {isExpiringSoon && <span style={{ marginLeft: '8px', color: '#f59e0b', fontSize: '11px' }}>⏰ Expiring Soon</span>}
+                                </div>
+                                <div style={{ color: 'var(--text-secondary)' }}>
+                                  Available: {formatQuantity(batch.quantity)} {item.unit}
+                                  {batch.expiry_date && ` • Exp: ${new Date(batch.expiry_date).toLocaleDateString()}`}
+                                </div>
+                              </div>
+                              <input
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                max={batch.quantity}
+                                value={selectedQty}
+                                onChange={(e) => {
+                                  const qty = parseFloat(e.target.value) || 0;
+                                  setSelectedBatches(prev => {
+                                    const itemSels = prev[item.item_id] || [];
+                                    const existingIdx = itemSels.findIndex(s => s.batch_id === batch.id);
+                                    
+                                    if (qty === 0) {
+                                      // Remove this batch
+                                      return {
+                                        ...prev,
+                                        [item.item_id]: itemSels.filter(s => s.batch_id !== batch.id)
+                                      };
+                                    } else if (existingIdx >= 0) {
+                                      // Update existing
+                                      const updated = [...itemSels];
+                                      updated[existingIdx] = { batch_id: batch.id, quantity: qty };
+                                      return { ...prev, [item.item_id]: updated };
+                                    } else {
+                                      // Add new
+                                      return {
+                                        ...prev,
+                                        [item.item_id]: [...itemSels, { batch_id: batch.id, quantity: qty }]
+                                      };
+                                    }
+                                  });
+                                }}
+                                style={{
+                                  width: '100px',
+                                  padding: '6px 8px',
+                                  fontSize: '13px',
+                                  border: '1px solid var(--border-color)',
+                                  borderRadius: '4px'
+                                }}
+                              />
+                              <button
+                                className="btn"
+                                style={{
+                                  padding: '6px 12px',
+                                  fontSize: '12px',
+                                  backgroundColor: '#3b82f6',
+                                  color: '#fff',
+                                  border: 'none'
+                                }}
+                                onClick={() => {
+                                  const remaining = parseFloat(item.requested_quantity) - totalSelected + parseFloat(selectedQty);
+                                  const maxFromBatch = Math.min(parseFloat(batch.quantity), remaining);
+                                  
+                                  setSelectedBatches(prev => {
+                                    const itemSels = prev[item.item_id] || [];
+                                    const existingIdx = itemSels.findIndex(s => s.batch_id === batch.id);
+                                    
+                                    if (existingIdx >= 0) {
+                                      const updated = [...itemSels];
+                                      updated[existingIdx] = { batch_id: batch.id, quantity: maxFromBatch };
+                                      return { ...prev, [item.item_id]: updated };
+                                    } else {
+                                      return {
+                                        ...prev,
+                                        [item.item_id]: [...itemSels, { batch_id: batch.id, quantity: maxFromBatch }]
+                                      };
+                                    }
+                                  });
+                                }}
+                              >
+                                Fill
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+
+            <div style={{ display: 'flex', gap: '12px', marginTop: '24px', paddingTop: '16px', borderTop: '1px solid var(--border-color)' }}>
+              <button
+                className="btn btn-success"
+                style={{ flex: 1, padding: '12px', fontSize: '14px', fontWeight: 600 }}
+                onClick={handleConfirmBatchSelection}
+                disabled={batchSelectionModal.batches.items.some(item => {
+                  const itemSelections = selectedBatches[item.item_id] || [];
+                  const totalSelected = itemSelections.reduce((sum, sel) => sum + parseFloat(sel.quantity || 0), 0);
+                  return Math.abs(totalSelected - parseFloat(item.requested_quantity)) >= 0.01;
+                })}
+              >
+                <FiCheckCircle size={16} /> Confirm & Accept Delivery
+              </button>
+              <button
+                className="btn"
+                style={{ padding: '12px 24px', fontSize: '14px' }}
+                onClick={() => {
+                  setBatchSelectionModal({ open: false, delivery: null, batches: null });
+                  setSelectedBatches({});
+                }}
+              >
+                Cancel
               </button>
             </div>
           </div>

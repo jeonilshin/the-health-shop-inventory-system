@@ -42,6 +42,7 @@ function Transfers() {
     endDate: ''
   });
   const [locationFilter, setLocationFilter] = useState({ from: '', to: '' });
+  const [searchTerm, setSearchTerm] = useState(''); // Add search term state
   const [showTransferHistoryModal, setShowTransferHistoryModal] = useState(false);
   const [historyTab, setHistoryTab] = useState('received');
   const [historyModalFilter, setHistoryModalFilter] = useState({ startDate: '', endDate: '', from: '', to: '' });
@@ -655,6 +656,18 @@ function Transfers() {
       return true;
     });
 
+    // Apply search filter
+    if (searchTerm) {
+      filtered = filtered.filter(t => 
+        t.description?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        t.unit?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        t.from_location_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        t.to_location_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        t.transferred_by_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        t.notes?.toLowerCase().includes(searchTerm.toLowerCase())
+      );
+    }
+
     // Apply date filters
     if (dateFilter.startDate) {
       filtered = filtered.filter(t => new Date(t.transfer_date) >= new Date(dateFilter.startDate));
@@ -954,6 +967,16 @@ function Transfers() {
           border: '1px solid var(--border)'
         }}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px', alignItems: 'end' }}>
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label>Search Product</label>
+              <input
+                type="text"
+                placeholder="Search by product, location, or user..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                style={{ width: '100%' }}
+              />
+            </div>
             <div className="form-group" style={{ marginBottom: 0 }}>
               <label>Start Date</label>
               <input

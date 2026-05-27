@@ -2633,13 +2633,16 @@ function Inventory() {
                         const isReceived = entry.type === 'received';
                         const isTransferred = entry.type === 'transferred';
                         const isSale = entry.type === 'sale';
-                        const typeColor = isReceived ? '#16a34a' : isTransferred ? '#d97706' : isSale ? '#dc2626' : '#2563eb';
+                        const isEdited = entry.type === 'edited';
+                        const typeColor = isReceived ? '#16a34a' : isTransferred ? '#d97706' : isSale ? '#dc2626' : isEdited ? '#8b5cf6' : '#2563eb';
                         const typeLabel = isReceived
                           ? (entry.from_location_type === 'warehouse' ? 'Received (Warehouse)' : 'Received (Outlet)')
                           : isTransferred
                           ? (entry.to_location_type === 'warehouse' ? 'Transferred (Warehouse)' : 'Transferred (Outlet)')
                           : isSale
                           ? 'Sale'
+                          : isEdited
+                          ? `Edited by ${entry.user_role === 'admin' ? 'Admin' : 'Warehouse'}`
                           : 'Added by Admin';
                         const sourceDest = isReceived
                           ? `From: ${entry.from_location_name}`
@@ -2647,8 +2650,10 @@ function Inventory() {
                           ? `To: ${entry.to_location_name}`
                           : isSale
                           ? (entry.customer_name ? `Customer: ${entry.customer_name}` : (entry.payment_method || '—'))
+                          : isEdited
+                          ? entry.audit_description || '—'
                           : entry.audit_description || '—';
-                        const icon = isReceived ? '⬇ ' : isTransferred ? '⬆ ' : isSale ? '💰 ' : '＋ ';
+                        const icon = isReceived ? '⬇ ' : isTransferred ? '⬆ ' : isSale ? '💰 ' : isEdited ? '✏️ ' : '＋ ';
 
                         return (
                           <tr key={idx} style={{ borderBottom: '1px solid var(--border)' }}>
@@ -2662,7 +2667,25 @@ function Inventory() {
                               </span>
                             </td>
                             <td style={{ padding: '10px 8px', fontWeight: 600 }}>
-                              {entry.quantity != null ? formatQuantity(entry.quantity) : '—'}
+                              {isEdited ? (
+                                <div>
+                                  <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                                    {entry.old_quantity} → {entry.quantity}
+                                  </div>
+                                  {entry.old_unit_cost !== entry.unit_cost && (
+                                    <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                                      Cost: ₱{formatPrice(entry.old_unit_cost)} → ₱{formatPrice(entry.unit_cost)}
+                                    </div>
+                                  )}
+                                  {entry.old_suggested_selling_price !== entry.suggested_selling_price && (
+                                    <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                                      Price: ₱{formatPrice(entry.old_suggested_selling_price)} → ₱{formatPrice(entry.suggested_selling_price)}
+                                    </div>
+                                  )}
+                                </div>
+                              ) : (
+                                entry.quantity != null ? formatQuantity(entry.quantity) : '—'
+                              )}
                             </td>
                             <td style={{ padding: '10px 8px', color: 'var(--text-secondary)', fontSize: '13px' }}>
                               {sourceDest}

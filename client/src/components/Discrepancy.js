@@ -68,10 +68,14 @@ function Discrepancy() {
   const handleAddToInventory = async (disc) => {
     const adjustQty = disc.type === 'shortage'
       ? parseFloat(disc.expected_quantity) - parseFloat(disc.received_quantity)
+      : disc.type === 'overage'
+      ? parseFloat(disc.received_quantity) - parseFloat(disc.expected_quantity)
       : parseFloat(disc.received_quantity);
 
     const confirmMsg = disc.type === 'shortage'
       ? `Confirm shortage: Add ${adjustQty} ${disc.unit} of "${disc.item_description}" back to warehouse AND remove from branch inventory?`
+      : disc.type === 'overage'
+      ? `Confirm overage: Deduct ${adjustQty} ${disc.unit} of "${disc.item_description}" from warehouse? Branch keeps the extra items.`
       : disc.type === 'return'
       ? `Return ${adjustQty} ${disc.unit} of "${disc.item_description}" from branch to warehouse? This will remove items from branch inventory.`
       : `Write off ${adjustQty} ${disc.unit} of "${disc.item_description}" from warehouse inventory? This cannot be undone.`;
@@ -193,6 +197,7 @@ function Discrepancy() {
   const getTypeBadge = (type) => {
     const map = {
       shortage: { bg: '#fef3c7', color: '#92400e', icon: <FiAlertTriangle size={11} />, label: 'Shortage' },
+      overage:  { bg: '#dbeafe', color: '#1e40af', icon: <FiPackage        size={11} />, label: 'Overage'  },
       return:   { bg: '#ede9fe', color: '#5b21b6', icon: <FiRefreshCw     size={11} />, label: 'Return'   },
       damage:   { bg: '#fee2e2', color: '#b91c1c', icon: <FiXCircle        size={11} />, label: 'Damage'   },
     };
@@ -299,6 +304,7 @@ function Discrepancy() {
             >
               <option value="all">All Types</option>
               <option value="shortage">Shortage Only</option>
+              <option value="overage">Overage Only</option>
               <option value="return">Return Only</option>
               <option value="damage">Damage Only</option>
             </select>
@@ -504,6 +510,11 @@ function Discrepancy() {
                               Expected: {formatQuantity(disc.expected_quantity)} {disc.unit} • 
                               Received: {formatQuantity(disc.received_quantity)} {disc.unit}
                             </>
+                          ) : disc.type === 'overage' ? (
+                            <>
+                              Expected: {formatQuantity(disc.expected_quantity)} {disc.unit} • 
+                              Received: {formatQuantity(disc.received_quantity)} {disc.unit} (+{formatQuantity(parseFloat(disc.received_quantity) - parseFloat(disc.expected_quantity))} extra)
+                            </>
                           ) : (
                             <>
                               Return Quantity: {formatQuantity(disc.received_quantity)} {disc.unit}
@@ -537,7 +548,7 @@ function Discrepancy() {
                       {/* Adjustment Amount */}
                       <div style={{ textAlign: 'center' }}>
                         <div style={{ fontSize: '11px', color: '#6b7280', marginBottom: '2px' }}>
-                          {disc.type === 'shortage' ? 'Missing' : 'Returned'}
+                          {disc.type === 'shortage' ? 'Missing' : disc.type === 'overage' ? 'Extra' : 'Returned'}
                         </div>
                         <div style={{
                           fontWeight: 700,
@@ -639,6 +650,8 @@ function Discrepancy() {
                               >
                                 {disc.type === 'damage'
                                   ? <><FiXCircle size={14} /> Confirm Write-Off</>
+                                  : disc.type === 'overage'
+                                  ? <><FiPlus size={14} /> Confirm Overage</>
                                   : <><FiPlus size={14} /> {disc.type === 'shortage' ? 'Confirm Shortage' : 'Add to Inventory'}</>
                                 }
                               </button>

@@ -921,6 +921,33 @@ router.get('/history/:id', auth, async (req, res) => {
       [locationId, item.description, item.unit]
     );
 
+    // Items EDITED (from audit log) - admin and warehouse only
+    const editedResult = await pool.query(
+      `SELECT
+        'edited' as type,
+        al.id,
+        al.created_at as date,
+        al.new_values->>'description' as description,
+        al.new_values->>'unit' as unit,
+        al.old_values->>'quantity' as old_quantity,
+        al.new_values->>'quantity' as quantity,
+        al.old_values->>'unit_cost' as old_unit_cost,
+        al.new_values->>'unit_cost' as unit_cost,
+        al.old_values->>'suggested_selling_price' as old_suggested_selling_price,
+        al.new_values->>'suggested_selling_price' as suggested_selling_price,
+        al.username as by_who,
+        al.description as audit_description,
+        u.role as user_role
+      FROM audit_log al
+      LEFT JOIN users u ON al.user_id = u.id
+      WHERE al.table_name = 'inventory'
+        AND al.action = 'INVENTORY_UPDATE'
+        AND al.record_id = $4
+      ORDER BY al.created_at DESC
+      LIMIT 500`,
+      [locationId, item.description, item.unit, item.id]
+    );
+
     // Sales of this product at this location
     const salesResult = await pool.query(
       `SELECT
@@ -949,6 +976,7 @@ router.get('/history/:id', auth, async (req, res) => {
       ...receivedResult.rows,
       ...sentResult.rows,
       ...addedResult.rows,
+      ...editedResult.rows,
       ...salesResult.rows
     ].sort((a, b) => new Date(b.date) - new Date(a.date));
 
