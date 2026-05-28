@@ -55,6 +55,19 @@ BEGIN
   END IF;
 END $$;
 
+-- Update status check constraint to include 'rejected'
+DO $ 
+BEGIN
+  -- Drop the existing constraint
+  ALTER TABLE thehealthshop.deliveries DROP CONSTRAINT IF EXISTS deliveries_status_check;
+  
+  -- Add the updated constraint with 'rejected' status
+  ALTER TABLE thehealthshop.deliveries ADD CONSTRAINT deliveries_status_check
+    CHECK (status IN ('pending', 'awaiting_admin', 'admin_confirmed', 'in_transit', 'pending_manager_confirmation', 'delivered', 'cancelled', 'rejected'));
+  
+  RAISE NOTICE 'Updated deliveries_status_check constraint to include rejected status';
+END $;
+
 -- Verify the changes
 SELECT 
   column_name, 

@@ -1,4 +1,5 @@
 import { useState, useEffect, useContext } from 'react';
+import * as XLSX from 'xlsx';
 import api from '../utils/api';
 import { AuthContext } from '../context/AuthContext';
 import { formatQuantity, formatPrice } from '../utils/formatNumber';
@@ -6,7 +7,7 @@ import DiscrepancyModal from './DiscrepancyModal';
 import AutocompleteSearch from './AutocompleteSearch';
 import {
   FiTruck, FiPackage, FiCheck, FiClock, FiAlertCircle,
-  FiCheckCircle, FiAlertTriangle, FiRefreshCw, FiX, FiInfo, FiXCircle, FiChevronDown
+  FiCheckCircle, FiAlertTriangle, FiRefreshCw, FiX, FiInfo, FiXCircle, FiChevronDown, FiDownload, FiFilter
 } from 'react-icons/fi';
 
 // Each delivery/request form holds an array of item rows so multiple products
@@ -48,6 +49,17 @@ function Deliveries() {
   const [showCreateDelivery, setShowCreateDelivery] = useState(false);
   const [showRequestForm, setShowRequestForm] = useState(false);
   const [locations, setLocations] = useState([]);
+
+  // ── filters ──
+  const [filters, setFilters] = useState({
+    productSearch: '',
+    fromLocation: '',
+    toLocation: '',
+    startDate: '',
+    endDate: '',
+    status: ''
+  });
+  const [showFilters, setShowFilters] = useState(false);
 
   // Multi-item forms: each form holds an array of item rows plus shared fields.
   const [requestItems, setRequestItems] = useState(() => [blankRequestItem()]);
@@ -299,7 +311,8 @@ function Deliveries() {
       in_transit:      { color: '#8b5cf6', icon: <FiTruck size={12} />,       text: 'Shipped' },
       pending_manager_confirmation: { color: '#f59e0b', icon: <FiClock size={12} />, text: 'Awaiting Manager' },
       delivered:       { color: '#10b981', icon: <FiCheckCircle size={12} />, text: 'Delivered' },
-      cancelled:       { color: '#6b7280', icon: <FiAlertCircle size={12} />, text: 'Cancelled' }
+      cancelled:       { color: '#6b7280', icon: <FiAlertCircle size={12} />, text: 'Cancelled' },
+      rejected:        { color: '#ef4444', icon: <FiX size={12} />,           text: 'Rejected' }
     };
     const badge = badges[status] || badges.pending;
     return (
@@ -391,6 +404,132 @@ function Deliveries() {
     if (user.role !== 'warehouse') setDeliveryFrom('');
   };
 
+  // ── filter deliveries ──────────────────────────────────────────────────
+  const getFilteredDeliveries = (deliveryList) => {
+    return deliveryList.filter(delivery => {
+      // Product search
+      if (filters.productSearch) {
+        const searchLower = filters.productSearch.toLowerCase();
+        const hasProduct = delivery.items?.some(item =>
+          item.description?.toLowerCase().includes(searchLower)
+        );
+        if (!hasProduct) return false;
+      }
+
+      // From location
+      if (filters.fromLocation && delivery.from_location_id !== parseInt(filters.fromLocation)) {
+        return false;
+      }
+
+      // To location
+      if (filters.toLocation && delivery.to_location_id !== parseInt(filters.toLocation)) {
+        return false;
+      }
+
+      // Date range
+      const deliveryDate = new Date(delivery.delivery_date || delivery.created_at);
+      if (filters.startDate) {
+        const startDate = new Date(filters.startDate);
+        if (deliveryDate < startDate) return false;
+      }
+      if (filters.endDate) {
+        const endDate = new Date(filters.endDate);
+        endDate.setHours(23, 59, 59, 999); // Include the entire end date
+        if (deliveryDate > endDate) return false;
+      }
+
+      // Status
+      if (filters.status && delivery.status !== filters.status) {
+        return false;
+      }
+
+      return true;
+    });
+  };
+
+  // ── export to XLSX ──────────────────────────────────────────────────────
+  const handleDownloadXLSX = (deliveryList) => {
+    const filtered = getFilteredDeliveries(deliveryList);
+    
+    if (filtered.length === 0) {
+      alert('No deliveries to export');
+      return;
+    }
+
+    // Flatten deliveries with items
+    const rows = [];
+    filtered.forEach(delivery => {
+      if (delivery.items && delivery.items.length > 0) {
+        delivery.items.forEach((item, idx) => {
+          rows.push({
+            'Delivery ID': delivery.id,
+            'Date': new Date(delivery.delivery_date || delivery.created_at).toLocaleDateString(),
+            'From': delivery.from_location_name,
+            'To': delivery.to_location_name,
+            'Status': delivery.status,
+            'Item': item.description,
+            'Unit': item.unit,
+            'Quantity': parseFloat(item.quantity),
+            'Unit Cost': isAdmin ? parseFloat(item.unit_cost || 0) : '',
+            'Total Cost': isAdmin ? (parseFloat(item.quantity) * parseFloat(item.unit_cost || 0)) : '',
+            'Notes': delivery.notes || '',
+            'Created By': delivery.created_by_name || ''
+          });
+        });
+      } else {
+        rows.push({
+          'Delivery ID': delivery.id,
+          'Date': new Date(delivery.delivery_date || delivery.created_at).toLocaleDateString(),
+          'From': delivery.from_location_name,
+          'To': delivery.to_location_name,
+          'Status': delivery.status,
+          'Item': '',
+          'Unit': '',
+          'Quantity': '',
+          'Unit Cost': '',
+          'Total Cost': '',
+          'Notes': delivery.notes || '',
+          'Created By': delivery.created_by_name || ''
+        });
+      }
+    });
+
+    const ws = XLSX.utils.json_to_sheet(rows);
+    
+    // Set column widths
+    ws['!cols'] = [
+      { wch: 12 }, // Delivery ID
+      { wch: 12 }, // Date
+      { wch: 20 }, // From
+      { wch: 20 }, // To
+      { wch: 15 }, // Status
+      { wch: 30 }, // Item
+      { wch: 10 }, // Unit
+      { wch: 10 }, // Quantity
+      { wch: 12 }, // Unit Cost
+      { wch: 12 }, // Total Cost
+      { wch: 30 }, // Notes
+      { wch: 20 }  // Created By
+    ];
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Deliveries');
+    
+    const fileName = `Deliveries_${new Date().toISOString().split('T')[0]}.xlsx`;
+    XLSX.writeFile(wb, fileName);
+  };
+
+  const clearFilters = () => {
+    setFilters({
+      productSearch: '',
+      fromLocation: '',
+      toLocation: '',
+      startDate: '',
+      endDate: '',
+      status: ''
+    });
+  };
+
   return (
     <div className="container">
 
@@ -451,6 +590,100 @@ function Deliveries() {
             This page is for warehouse deliveries to branches. For branch-to-branch transfers, go to the <strong>Transfers</strong> page.
           </p>
         </div>
+      </div>
+
+      {/* ── Filters ──────────────────────────────────────────────────────── */}
+      <div className="card" style={{ marginBottom: '24px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+          <button
+            className="btn"
+            onClick={() => setShowFilters(!showFilters)}
+            style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#f3f4f6', color: '#374151' }}
+          >
+            <FiFilter size={16} />
+            {showFilters ? 'Hide Filters' : 'Show Filters'}
+          </button>
+          {(filters.productSearch || filters.fromLocation || filters.toLocation || filters.startDate || filters.endDate || filters.status) && (
+            <button
+              className="btn btn-secondary"
+              onClick={clearFilters}
+              style={{ fontSize: '13px' }}
+            >
+              Clear Filters
+            </button>
+          )}
+        </div>
+
+        {showFilters && (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}>
+            <div className="form-group">
+              <label>Search Product</label>
+              <input
+                type="text"
+                placeholder="Search by product name..."
+                value={filters.productSearch}
+                onChange={(e) => setFilters({ ...filters, productSearch: e.target.value })}
+              />
+            </div>
+            <div className="form-group">
+              <label>From Location</label>
+              <select
+                value={filters.fromLocation}
+                onChange={(e) => setFilters({ ...filters, fromLocation: e.target.value })}
+              >
+                <option value="">All Locations</option>
+                {locations.map(loc => (
+                  <option key={loc.id} value={loc.id}>{loc.name}</option>
+                ))}
+              </select>
+            </div>
+            <div className="form-group">
+              <label>To Location</label>
+              <select
+                value={filters.toLocation}
+                onChange={(e) => setFilters({ ...filters, toLocation: e.target.value })}
+              >
+                <option value="">All Locations</option>
+                {locations.map(loc => (
+                  <option key={loc.id} value={loc.id}>{loc.name}</option>
+                ))}
+              </select>
+            </div>
+            <div className="form-group">
+              <label>Start Date</label>
+              <input
+                type="date"
+                value={filters.startDate}
+                onChange={(e) => setFilters({ ...filters, startDate: e.target.value })}
+              />
+            </div>
+            <div className="form-group">
+              <label>End Date</label>
+              <input
+                type="date"
+                value={filters.endDate}
+                onChange={(e) => setFilters({ ...filters, endDate: e.target.value })}
+              />
+            </div>
+            <div className="form-group">
+              <label>Status</label>
+              <select
+                value={filters.status}
+                onChange={(e) => setFilters({ ...filters, status: e.target.value })}
+              >
+                <option value="">All Statuses</option>
+                <option value="pending">Pending</option>
+                <option value="awaiting_admin">Awaiting Admin</option>
+                <option value="admin_confirmed">Admin Confirmed</option>
+                <option value="in_transit">In Transit</option>
+                <option value="pending_manager_confirmation">Awaiting Manager</option>
+                <option value="delivered">Delivered</option>
+                <option value="cancelled">Cancelled</option>
+                <option value="rejected">Rejected</option>
+              </select>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* ── Request from Warehouse Form (Branch) ──────────────────────────── */}
@@ -890,10 +1123,20 @@ function Deliveries() {
       {/* ── Admin/Manager: Awaiting Confirmation ─────────────────────────────────── */}
       {(user.role === 'admin' || user.role === 'branch_manager') && awaitingAdmin.length > 0 && (
         <div className="card" style={{ borderLeft: '4px solid #f59e0b', marginBottom: '24px' }}>
-          <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#f59e0b' }}>
-            <FiClock size={20} />
-            Deliveries Awaiting {user.role === 'admin' ? 'Your' : 'Manager'} Confirmation ({awaitingAdmin.length})
-          </h3>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+            <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#f59e0b', margin: 0 }}>
+              <FiClock size={20} />
+              Deliveries Awaiting {user.role === 'admin' ? 'Your' : 'Manager'} Confirmation ({getFilteredDeliveries(awaitingAdmin).length})
+            </h3>
+            <button
+              className="btn btn-success"
+              onClick={() => handleDownloadXLSX(awaitingAdmin)}
+              style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px' }}
+            >
+              <FiDownload size={14} />
+              Export XLSX
+            </button>
+          </div>
           <div className="alert alert-warning" style={{ marginBottom: '16px' }}>
             <FiAlertCircle size={16} />
             These deliveries need {user.role === 'admin' ? 'your' : 'manager'} confirmation before branches can receive and accept them
@@ -907,7 +1150,7 @@ function Deliveries() {
               </tr>
             </thead>
             <tbody>
-              {awaitingAdmin.map((delivery) => (
+              {getFilteredDeliveries(awaitingAdmin).map((delivery) => (
                 <tr key={delivery.id}>
                   <td>{new Date(delivery.delivery_date || delivery.created_at).toLocaleDateString()}</td>
                   <td>{delivery.from_location_name}</td>
@@ -918,8 +1161,10 @@ function Deliveries() {
                         // Show items directly if 3 or fewer
                         <div>
                           {delivery.items.map((item, idx) => (
-                            <div key={idx} style={{ fontSize: '12px', marginBottom: '4px' }}>
-                              <strong>{item.description}</strong> - {formatQuantity(item.quantity)} {item.unit}
+                            <div key={idx} style={{ fontSize: '12px', marginBottom: '4px', display: 'flex', gap: '8px', alignItems: 'baseline' }}>
+                              <span style={{ fontWeight: 600, flex: 1 }}>{item.description}</span>
+                              <span style={{ color: 'var(--text-secondary)', minWidth: '50px' }}>{item.unit}</span>
+                              <span style={{ fontWeight: 600, minWidth: '60px', textAlign: 'right' }}>{formatQuantity(item.quantity)}</span>
                             </div>
                           ))}
                         </div>
@@ -1140,10 +1385,20 @@ function Deliveries() {
       {/* ── Branch: Incoming Deliveries ──────────────────────────────────── */}
       {isBranch && incomingDeliveries.length > 0 && (
         <div className="card" style={{ borderLeft: '4px solid #3b82f6', marginBottom: '24px' }}>
-          <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#3b82f6' }}>
-            <FiPackage size={20} />
-            Incoming Deliveries ({incomingDeliveries.length})
-          </h3>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+            <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#3b82f6', margin: 0 }}>
+              <FiPackage size={20} />
+              Incoming Deliveries ({getFilteredDeliveries(incomingDeliveries).length})
+            </h3>
+            <button
+              className="btn btn-success"
+              onClick={() => handleDownloadXLSX(incomingDeliveries)}
+              style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px' }}
+            >
+              <FiDownload size={14} />
+              Export XLSX
+            </button>
+          </div>
           <div className="alert alert-info" style={{ marginBottom: '16px' }}>
             <FiAlertCircle size={16} />
             These items are ready for delivery. Accept them to add to your inventory.
@@ -1156,7 +1411,7 @@ function Deliveries() {
               </tr>
             </thead>
             <tbody>
-              {incomingDeliveries.map((delivery) => (
+              {getFilteredDeliveries(incomingDeliveries).map((delivery) => (
                 <tr key={delivery.id}>
                   <td>
                     {new Date(delivery.delivery_date || delivery.created_at).toLocaleDateString()}
@@ -1171,8 +1426,10 @@ function Deliveries() {
                         // Show items directly if 3 or fewer
                         <div>
                           {delivery.items.map((item, idx) => (
-                            <div key={idx} style={{ fontSize: '12px', marginBottom: '4px' }}>
-                              <strong>{item.description}</strong> - {formatQuantity(item.quantity)} {item.unit}
+                            <div key={idx} style={{ fontSize: '12px', marginBottom: '4px', display: 'flex', gap: '8px', alignItems: 'baseline' }}>
+                              <span style={{ fontWeight: 600, flex: 1 }}>{item.description}</span>
+                              <span style={{ color: 'var(--text-secondary)', minWidth: '50px' }}>{item.unit}</span>
+                              <span style={{ fontWeight: 600, minWidth: '60px', textAlign: 'right' }}>{formatQuantity(item.quantity)}</span>
                             </div>
                           ))}
                         </div>
@@ -1320,16 +1577,28 @@ function Deliveries() {
 
       {/* ── Delivery History ─────────────────────────────────────────────── */}
       <div className="card" style={{ marginBottom: '24px' }}>
-        <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <FiTruck size={20} />
-          {user.role === 'warehouse' ? 'Outgoing Deliveries' : 'Delivery History'}
-        </h3>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+          <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
+            <FiTruck size={20} />
+            {user.role === 'warehouse' ? 'Outgoing Deliveries' : 'Delivery History'} ({getFilteredDeliveries(deliveries).length})
+          </h3>
+          {deliveries.length > 0 && (
+            <button
+              className="btn btn-success"
+              onClick={() => handleDownloadXLSX(deliveries)}
+              style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px' }}
+            >
+              <FiDownload size={14} />
+              Export XLSX
+            </button>
+          )}
+        </div>
 
-        {deliveries.length === 0 ? (
+        {getFilteredDeliveries(deliveries).length === 0 ? (
           <div className="empty-state">
             <div className="empty-state-icon"><FiTruck /></div>
-            <h3>No Deliveries Yet</h3>
-            <p>Deliveries are automatically created when transfers are shipped</p>
+            <h3>No Deliveries Found</h3>
+            <p>{deliveries.length === 0 ? 'Deliveries are automatically created when transfers are shipped' : 'No deliveries match your filters'}</p>
           </div>
         ) : (
           <div style={{ overflowX: 'auto' }}>
@@ -1348,7 +1617,7 @@ function Deliveries() {
                 </tr>
               </thead>
               <tbody>
-                {deliveries.map((delivery) => {
+                {getFilteredDeliveries(deliveries).map((delivery) => {
                   const approvedReturns = getApprovedReturns(delivery);
                   return (
                   <tr key={delivery.id}>

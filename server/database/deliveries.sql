@@ -6,7 +6,7 @@ CREATE TABLE IF NOT EXISTS deliveries (
   driver_name VARCHAR(255),
   driver_contact VARCHAR(50),
   vehicle_info VARCHAR(255),
-  status VARCHAR(50) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'in_transit', 'delivered', 'cancelled')),
+  status VARCHAR(50) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'in_transit', 'delivered', 'cancelled', 'awaiting_admin', 'admin_confirmed', 'pending_manager_confirmation', 'rejected')),
   scheduled_date TIMESTAMP,
   delivered_date TIMESTAMP,
   notes TEXT,
