@@ -2643,7 +2643,7 @@ function Inventory() {
                           ? 'Sale'
                           : isEdited
                           ? `Edited by ${entry.user_role === 'admin' ? 'Admin' : 'Warehouse'}`
-                          : 'Added by Admin';
+                          : 'Added';
                         const sourceDest = isReceived
                           ? `From: ${entry.from_location_name}`
                           : isTransferred

@@ -921,6 +921,44 @@ router.get('/history/:id', auth, async (req, res) => {
       [locationId, item.description, item.unit]
     );
 
+    // Fallback "created" entries: inventory batch rows that have no INVENTORY_ADD
+    // audit record (e.g. created via delivery, import, transfer or unit conversion).
+    // Without this, products not added through the manual "Add Inventory" form show
+    // no history at all. We surface the row's own creation date and, where possible,
+    // attribute it to whoever first touched the row in the audit log.
+    const createdResult = await pool.query(
+      `SELECT
+        'added' as type,
+        inv.id,
+        inv.created_at as date,
+        inv.description,
+        inv.unit,
+        inv.quantity,
+        inv.unit_cost,
+        COALESCE(
+          (SELECT al2.username
+             FROM audit_log al2
+            WHERE al2.table_name = 'inventory'
+              AND al2.record_id = inv.id
+              AND al2.username IS NOT NULL
+            ORDER BY al2.created_at ASC
+            LIMIT 1),
+          'System'
+        ) as by_who,
+        'Item created in inventory' as audit_description
+      FROM inventory inv
+      WHERE inv.location_id = $1 AND inv.description = $2 AND inv.unit = $3
+        AND NOT EXISTS (
+          SELECT 1 FROM audit_log al
+          WHERE al.table_name = 'inventory'
+            AND al.action = 'INVENTORY_ADD'
+            AND al.record_id = inv.id
+        )
+      ORDER BY inv.created_at DESC
+      LIMIT 500`,
+      [locationId, item.description, item.unit]
+    );
+
     // Items EDITED (from audit log) - admin and warehouse only
     const editedResult = await pool.query(
       `SELECT
@@ -976,6 +1014,7 @@ router.get('/history/:id', auth, async (req, res) => {
       ...receivedResult.rows,
       ...sentResult.rows,
       ...addedResult.rows,
+      ...createdResult.rows,
       ...editedResult.rows,
       ...salesResult.rows
     ].sort((a, b) => new Date(b.date) - new Date(a.date));
