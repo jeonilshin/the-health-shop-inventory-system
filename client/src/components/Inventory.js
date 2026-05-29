@@ -2634,7 +2634,8 @@ function Inventory() {
                         const isTransferred = entry.type === 'transferred';
                         const isSale = entry.type === 'sale';
                         const isEdited = entry.type === 'edited';
-                        const typeColor = isReceived ? '#16a34a' : isTransferred ? '#d97706' : isSale ? '#dc2626' : isEdited ? '#8b5cf6' : '#2563eb';
+                        const isConverted = entry.type === 'converted';
+                        const typeColor = isReceived ? '#16a34a' : isTransferred ? '#d97706' : isSale ? '#dc2626' : isEdited ? '#8b5cf6' : isConverted ? '#0891b2' : '#2563eb';
                         const typeLabel = isReceived
                           ? (entry.from_location_type === 'warehouse' ? 'Received (Warehouse)' : 'Received (Outlet)')
                           : isTransferred
@@ -2643,6 +2644,8 @@ function Inventory() {
                           ? 'Sale'
                           : isEdited
                           ? `Edited by ${entry.user_role === 'admin' ? 'Admin' : 'Warehouse'}`
+                          : isConverted
+                          ? (entry.conversion_direction === 'out' ? 'Converted Out' : 'Converted In')
                           : 'Added';
                         const sourceDest = isReceived
                           ? `From: ${entry.from_location_name}`
@@ -2653,7 +2656,7 @@ function Inventory() {
                           : isEdited
                           ? entry.audit_description || '—'
                           : entry.audit_description || '—';
-                        const icon = isReceived ? '⬇ ' : isTransferred ? '⬆ ' : isSale ? '💰 ' : isEdited ? '✏️ ' : '＋ ';
+                        const icon = isReceived ? '⬇ ' : isTransferred ? '⬆ ' : isSale ? '💰 ' : isEdited ? '✏️ ' : isConverted ? '🔄 ' : '＋ ';
 
                         return (
                           <tr key={idx} style={{ borderBottom: '1px solid var(--border)' }}>

@@ -852,6 +852,15 @@ router.get('/history/:id', auth, async (req, res) => {
       return res.status(403).json({ error: 'Access denied' });
     }
 
+    // All inventory batch row ids for this product (same description + unit at this
+    // location). Audit-log lookups below key off these ids rather than the product
+    // description text, so history still resolves after an item has been renamed.
+    const idsResult = await pool.query(
+      'SELECT id FROM inventory WHERE location_id = $1 AND description = $2 AND unit = $3',
+      [locationId, item.description, item.unit]
+    );
+    const batchIds = idsResult.rows.map(r => r.id);
+
     // Items RECEIVED (transfers delivered TO this location) — same source as Inventory History
     const receivedResult = await pool.query(
       `SELECT
@@ -913,12 +922,10 @@ router.get('/history/:id', auth, async (req, res) => {
       FROM audit_log al
       WHERE al.table_name = 'inventory'
         AND al.action = 'INVENTORY_ADD'
-        AND (al.new_values->>'location_id')::integer = $1
-        AND al.new_values->>'description' = $2
-        AND al.new_values->>'unit' = $3
+        AND al.record_id = ANY($1::int[])
       ORDER BY al.created_at DESC
       LIMIT 500`,
-      [locationId, item.description, item.unit]
+      [batchIds]
     );
 
     // Fallback "created" entries: inventory batch rows that have no INVENTORY_ADD
@@ -947,7 +954,7 @@ router.get('/history/:id', auth, async (req, res) => {
         ) as by_who,
         'Item created in inventory' as audit_description
       FROM inventory inv
-      WHERE inv.location_id = $1 AND inv.description = $2 AND inv.unit = $3
+      WHERE inv.id = ANY($1::int[])
         AND NOT EXISTS (
           SELECT 1 FROM audit_log al
           WHERE al.table_name = 'inventory'
@@ -956,7 +963,7 @@ router.get('/history/:id', auth, async (req, res) => {
         )
       ORDER BY inv.created_at DESC
       LIMIT 500`,
-      [locationId, item.description, item.unit]
+      [batchIds]
     );
 
     // Items EDITED (from audit log) - admin and warehouse only
@@ -980,10 +987,10 @@ router.get('/history/:id', auth, async (req, res) => {
       LEFT JOIN users u ON al.user_id = u.id
       WHERE al.table_name = 'inventory'
         AND al.action = 'INVENTORY_UPDATE'
-        AND al.record_id = $4
+        AND al.record_id = ANY($1::int[])
       ORDER BY al.created_at DESC
       LIMIT 500`,
-      [locationId, item.description, item.unit, item.id]
+      [batchIds]
     );
 
     // Sales of this product at this location
@@ -1010,13 +1017,44 @@ router.get('/history/:id', auth, async (req, res) => {
       [locationId, item.description, item.unit]
     );
 
+    // Unit conversions involving any of this product's batch rows. convert-units
+    // logs a single UNIT_CONVERSION row (record_id = the "from" batch); the "to"
+    // batch only appears inside new_values, so we match both sides. Without this,
+    // stock created/increased purely through conversions shows no history at all.
+    const conversionResult = await pool.query(
+      `SELECT
+        'converted' as type,
+        al.id,
+        al.created_at as date,
+        CASE WHEN al.record_id = ANY($1::int[])
+             THEN al.new_values->>'boxesToConvert'
+             ELSE al.new_values->>'piecesToAdd' END as quantity,
+        al.username as by_who,
+        al.description as audit_description,
+        CASE WHEN al.record_id = ANY($1::int[]) THEN 'out' ELSE 'in' END as conversion_direction
+      FROM audit_log al
+      WHERE al.table_name = 'inventory'
+        AND al.action = 'UNIT_CONVERSION'
+        AND (
+          al.record_id = ANY($1::int[])
+          OR (CASE WHEN al.new_values->>'toItemId' ~ '^[0-9]+$'
+                   THEN (al.new_values->>'toItemId')::int END) = ANY($1::int[])
+          OR (CASE WHEN al.new_values->>'fromItemId' ~ '^[0-9]+$'
+                   THEN (al.new_values->>'fromItemId')::int END) = ANY($1::int[])
+        )
+      ORDER BY al.created_at DESC
+      LIMIT 500`,
+      [batchIds]
+    );
+
     const allHistory = [
       ...receivedResult.rows,
       ...sentResult.rows,
       ...addedResult.rows,
       ...createdResult.rows,
       ...editedResult.rows,
-      ...salesResult.rows
+      ...salesResult.rows,
+      ...conversionResult.rows
     ].sort((a, b) => new Date(b.date) - new Date(a.date));
 
     res.json(allHistory);
