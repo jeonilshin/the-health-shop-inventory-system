@@ -1,12 +1,15 @@
 const { Pool } = require('pg');
 require('dotenv').config({ path: require('path').join(__dirname, '../../.env') });
 
+const schema = process.env.DB_SCHEMA || 'thehealthshop';
+
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: process.env.DATABASE_SSL === 'true' ? { rejectUnauthorized: false } : false,
   max: 20,
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 2000,
+  options: `-c search_path=${schema}`,
 });
 
 pool.on('error', (err) => {
