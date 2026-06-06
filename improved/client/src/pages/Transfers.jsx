@@ -136,6 +136,8 @@ export default function Transfers() {
   useEffect(() => {
     fetchItems();
     fetchLocations();
+    const iv = setInterval(fetchItems, 5000);
+    return () => clearInterval(iv);
   }, []);
 
   useEffect(() => {

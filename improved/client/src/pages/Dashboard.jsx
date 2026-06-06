@@ -169,7 +169,11 @@ export default function Dashboard() {
     else setLoading(false);
   }, []);
 
-  useEffect(() => { loadDashboard(); }, [loadDashboard]);
+  useEffect(() => {
+    loadDashboard();
+    const iv = setInterval(() => loadDashboard(), 30000);
+    return () => clearInterval(iv);
+  }, [loadDashboard]);
 
   /* ── Derived stats ── */
   // Group inventory by location for the summary table
@@ -270,20 +274,20 @@ export default function Dashboard() {
   ].filter(Boolean);
 
   const salesCards = [
-    !isWarehouse && {
+    !isWarehouse && !isStaff && {
       label: 'Total Sales Revenue',
       value: fmtPrice(salesStats.revenue),
       tooltip: `₱${salesStats.revenue.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
       borderColor: '#7c3aed',
       icon: Icon.dollar,
     },
-    !isWarehouse && {
+    !isWarehouse && !isStaff && {
       label: 'Total Transactions',
       value: salesStats.transactions,
       borderColor: '#2563eb',
       icon: Icon.cart,
     },
-    !isWarehouse && {
+    !isWarehouse && !isStaff && {
       label: 'Items Sold',
       value: salesStats.itemsSold.toLocaleString(),
       borderColor: '#10b981',
@@ -371,8 +375,8 @@ export default function Dashboard() {
         ))}
       </div>
 
-      {/* ── Sales Stat Cards ── */}
-      {!isWarehouse && (
+      {/* ── Sales Stat Cards — hidden for warehouse and staff ── */}
+      {!isWarehouse && !isStaff && (
         <div className="grid gap-4 grid-cols-2 sm:grid-cols-3 xl:grid-cols-4">
           {salesCards.map((c) => (
             <StatCard key={c.label} loading={loading} {...c} />

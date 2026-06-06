@@ -35,7 +35,7 @@ function formatCurrency(n) {
 }
 
 export default function Sales() {
-  const { user, isAdmin, isManager, isAudit, canEdit } = useAuth();
+  const { user, isAdmin, isManager, isAudit, isStaff, canEdit } = useAuth();
   const { showToast } = useToast();
 
   const [sales, setSales] = useState([]);
@@ -363,37 +363,39 @@ export default function Sales() {
         )}
       </div>
 
-      {/* Summary Stats */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4" style={{ borderTop: '3px solid #7c3aed' }}>
-          {loading ? <div className="h-8 bg-gray-100 rounded animate-pulse mb-2" /> : (
-            <div className="text-2xl font-bold text-gray-900">
-              {totalRevenue >= 1_000_000 ? `₱${(totalRevenue / 1_000_000).toFixed(1)}M` : totalRevenue >= 1_000 ? `₱${(totalRevenue / 1_000).toFixed(1)}K` : `₱${totalRevenue.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+      {/* Summary Stats — hidden entirely for staff */}
+      {!isStaff && (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4" style={{ borderTop: '3px solid #7c3aed' }}>
+            {loading ? <div className="h-8 bg-gray-100 rounded animate-pulse mb-2" /> : (
+              <div className="text-2xl font-bold text-gray-900">
+                {totalRevenue >= 1_000_000 ? `₱${(totalRevenue / 1_000_000).toFixed(1)}M` : totalRevenue >= 1_000 ? `₱${(totalRevenue / 1_000).toFixed(1)}K` : `₱${totalRevenue.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+              </div>
+            )}
+            <div className="text-sm text-gray-500 mt-0.5">Total Sales</div>
+          </div>
+          <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4" style={{ borderTop: '3px solid #2563eb' }}>
+            {loading ? <div className="h-8 bg-gray-100 rounded animate-pulse mb-2" /> : (
+              <div className="text-2xl font-bold text-gray-900">{totalTransactions.toLocaleString()}</div>
+            )}
+            <div className="text-sm text-gray-500 mt-0.5">Transactions</div>
+          </div>
+          <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4" style={{ borderTop: '3px solid #10b981' }}>
+            {loading ? <div className="h-8 bg-gray-100 rounded animate-pulse mb-2" /> : (
+              <div className="text-2xl font-bold text-gray-900">{totalItemsSold.toLocaleString()}</div>
+            )}
+            <div className="text-sm text-gray-500 mt-0.5">Items Sold</div>
+          </div>
+          {isAdmin && (
+            <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4" style={{ borderTop: `3px solid ${pendingCancelCount > 0 ? '#f59e0b' : '#e5e7eb'}` }}>
+              {loading ? <div className="h-8 bg-gray-100 rounded animate-pulse mb-2" /> : (
+                <div className={`text-2xl font-bold ${pendingCancelCount > 0 ? 'text-amber-600' : 'text-gray-400'}`}>{pendingCancelCount}</div>
+              )}
+              <div className="text-sm text-gray-500 mt-0.5">Cancel Requests</div>
             </div>
           )}
-          <div className="text-sm text-gray-500 mt-0.5">Total Sales</div>
         </div>
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4" style={{ borderTop: '3px solid #2563eb' }}>
-          {loading ? <div className="h-8 bg-gray-100 rounded animate-pulse mb-2" /> : (
-            <div className="text-2xl font-bold text-gray-900">{totalTransactions.toLocaleString()}</div>
-          )}
-          <div className="text-sm text-gray-500 mt-0.5">Transactions</div>
-        </div>
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4" style={{ borderTop: '3px solid #10b981' }}>
-          {loading ? <div className="h-8 bg-gray-100 rounded animate-pulse mb-2" /> : (
-            <div className="text-2xl font-bold text-gray-900">{totalItemsSold.toLocaleString()}</div>
-          )}
-          <div className="text-sm text-gray-500 mt-0.5">Items Sold</div>
-        </div>
-        {isAdmin && (
-          <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4" style={{ borderTop: `3px solid ${pendingCancelCount > 0 ? '#f59e0b' : '#e5e7eb'}` }}>
-            {loading ? <div className="h-8 bg-gray-100 rounded animate-pulse mb-2" /> : (
-              <div className={`text-2xl font-bold ${pendingCancelCount > 0 ? 'text-amber-600' : 'text-gray-400'}`}>{pendingCancelCount}</div>
-            )}
-            <div className="text-sm text-gray-500 mt-0.5">Cancel Requests</div>
-          </div>
-        )}
-      </div>
+      )}
 
       {/* Pending Sale Cancellation Requests (admin only) */}
       {isAdmin && pendingRequests.length > 0 && (
@@ -542,7 +544,7 @@ export default function Sales() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-gray-50 border-b border-gray-200 text-left">
-                  {['ID', 'Location', 'Customer', 'Total', 'Discount', 'Date', 'Sold By', 'Status', 'Actions'].map((h) => (
+                  {['ID', 'Location', 'Customer', ...(!isStaff ? ['Total', 'Discount'] : []), 'Date', 'Sold By', 'Status', 'Actions'].map((h) => (
                     <th key={h} className="px-5 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
@@ -553,8 +555,8 @@ export default function Sales() {
                     <td className="px-5 py-3 font-medium text-gray-900">#{sale.id}</td>
                     <td className="px-5 py-3 text-gray-700">{sale.location_name}</td>
                     <td className="px-5 py-3 text-gray-600">{sale.customer_name || '—'}</td>
-                    <td className="px-5 py-3 font-semibold text-gray-900">{formatCurrency(sale.total_amount)}</td>
-                    <td className="px-5 py-3 text-gray-600">{sale.discount_amount > 0 ? formatCurrency(sale.discount_amount) : '—'}</td>
+                    {!isStaff && <td className="px-5 py-3 font-semibold text-gray-900">{formatCurrency(sale.total_amount)}</td>}
+                    {!isStaff && <td className="px-5 py-3 text-gray-600">{sale.discount_amount > 0 ? formatCurrency(sale.discount_amount) : '—'}</td>}
                     <td className="px-5 py-3 text-gray-500 whitespace-nowrap">{formatDate(sale.created_at)}</td>
                     <td className="px-5 py-3 text-gray-600">{sale.sold_by_name}</td>
                     <td className="px-5 py-3"><StatusBadge status={sale.status} /></td>
@@ -620,7 +622,7 @@ export default function Sales() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="bg-gray-50 border-b border-gray-200">
-                    {['Product', 'Unit', 'Qty', 'Unit Price', 'Subtotal'].map((h) => (
+                    {['Product', 'Unit', 'Qty', ...(!isStaff ? ['Unit Price', 'Subtotal'] : [])].map((h) => (
                       <th key={h} className="px-4 py-2.5 text-xs font-semibold text-gray-600 text-left">{h}</th>
                     ))}
                   </tr>
@@ -631,30 +633,32 @@ export default function Sales() {
                       <td className="px-4 py-2.5 font-medium">{item.product_name}</td>
                       <td className="px-4 py-2.5 text-gray-600">{item.unit}</td>
                       <td className="px-4 py-2.5">{item.quantity}</td>
-                      <td className="px-4 py-2.5">{formatCurrency(item.unit_price)}</td>
-                      <td className="px-4 py-2.5 font-medium">{formatCurrency(item.subtotal)}</td>
+                      {!isStaff && <td className="px-4 py-2.5">{formatCurrency(item.unit_price)}</td>}
+                      {!isStaff && <td className="px-4 py-2.5 font-medium">{formatCurrency(item.subtotal)}</td>}
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
 
-            <div className="bg-gray-50 rounded-lg p-4 text-sm space-y-1.5">
-              <div className="flex justify-between">
-                <span className="text-gray-600">Subtotal</span>
-                <span>{formatCurrency(selectedDetail.total_amount)}</span>
-              </div>
-              {selectedDetail.discount_amount > 0 && (
-                <div className="flex justify-between text-red-600">
-                  <span>Discount</span>
-                  <span>- {formatCurrency(selectedDetail.discount_amount)}</span>
+            {!isStaff && (
+              <div className="bg-gray-50 rounded-lg p-4 text-sm space-y-1.5">
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Subtotal</span>
+                  <span>{formatCurrency(selectedDetail.total_amount)}</span>
                 </div>
-              )}
-              <div className="flex justify-between font-bold text-gray-900 border-t border-gray-200 pt-1.5">
-                <span>Total</span>
-                <span>{formatCurrency((parseFloat(selectedDetail.total_amount) || 0) - (parseFloat(selectedDetail.discount_amount) || 0))}</span>
+                {selectedDetail.discount_amount > 0 && (
+                  <div className="flex justify-between text-red-600">
+                    <span>Discount</span>
+                    <span>- {formatCurrency(selectedDetail.discount_amount)}</span>
+                  </div>
+                )}
+                <div className="flex justify-between font-bold text-gray-900 border-t border-gray-200 pt-1.5">
+                  <span>Total</span>
+                  <span>{formatCurrency((parseFloat(selectedDetail.total_amount) || 0) - (parseFloat(selectedDetail.discount_amount) || 0))}</span>
+                </div>
               </div>
-            </div>
+            )}
 
             {selectedDetail.notes && (
               <div>
@@ -835,7 +839,7 @@ export default function Sales() {
                                 >
                                   <div className="font-semibold">{batch.batch_number || 'No Batch #'}</div>
                                   <div className={`mt-0.5 ${expiryColor}`}>{batch.expiry_date ? new Date(batch.expiry_date).toLocaleDateString('en-PH', {month:'short', day:'numeric', year:'numeric'}) : 'No Expiry'}</div>
-                                  <div className="text-gray-500 mt-0.5">{Math.round(parseFloat(batch.quantity)).toLocaleString('en-PH')} avail · {batch.unit_cost ? `₱${parseFloat(batch.unit_cost).toFixed(2)}` : '—'}</div>
+                                  <div className="text-gray-500 mt-0.5">{Math.round(parseFloat(batch.quantity)).toLocaleString('en-PH')} avail{!isStaff && batch.unit_cost ? ` · ₱${parseFloat(batch.unit_cost).toFixed(2)}` : ''}</div>
                                 </button>
                               );
                             })}

@@ -30,11 +30,14 @@ const authorize = (...roles) => {
   return (req, res, next) => {
     if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
 
-    // Audit role can only read (plus change own password)
     if (req.user.role === 'audit') {
       const isChangePassword = req.path === '/change-password' && req.method === 'POST';
       if (!['GET', 'HEAD'].includes(req.method) && !isChangePassword) {
         return res.status(403).json({ error: 'Audit users have read-only access' });
+      }
+      // Audit can read any route that admin is allowed to access
+      if (['GET', 'HEAD'].includes(req.method) && roles.includes('admin')) {
+        return next();
       }
     }
 

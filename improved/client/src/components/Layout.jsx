@@ -137,7 +137,7 @@ function getMenuItems(user) {
     warehouse: ['dashboard', 'inventory', 'withdrawals', 'transfers', 'deliveries', 'discrepancy', 'messages'],
     manager:   ['dashboard', 'sales', 'inventory', 'withdrawals', 'transfers', 'reports', 'analysis', 'deliveries', 'discrepancy', 'costs', 'messages'],
     staff:     ['dashboard', 'sales', 'inventory', 'withdrawals', 'transfers', 'messages'],
-    audit:     ['dashboard', 'sales', 'inventory', 'transfers', 'reports', 'analysis', 'history'],
+    audit:     ['dashboard', 'sales', 'inventory', 'withdrawals', 'transfers', 'reports', 'analysis', 'deliveries', 'discrepancy', 'messages', 'admin', 'history'],
   };
 
   let allowed = menuMap[effectiveRole] || ['dashboard'];
@@ -195,8 +195,9 @@ export default function Layout({ children }) {
   useEffect(() => {
     fetchNotifications();
     fetchPendingCounts();
-    const iv = setInterval(fetchPendingCounts, 30000);
-    return () => clearInterval(iv);
+    const ivNotif = setInterval(fetchNotifications, 5000);
+    const ivCounts = setInterval(fetchPendingCounts, 10000);
+    return () => { clearInterval(ivNotif); clearInterval(ivCounts); };
   }, []);
 
   useEffect(() => {
