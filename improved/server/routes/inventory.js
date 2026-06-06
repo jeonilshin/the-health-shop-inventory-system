@@ -63,17 +63,16 @@ router.get('/location-stats', auth, async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT
-         i.location_id,
-         COUNT(DISTINCT i.product_id)  AS products,
-         SUM(i.quantity)               AS total_qty,
-         COUNT(*) FILTER (WHERE i.quantity < 10 AND i.quantity > 0) AS low_stock,
-         COUNT(*) FILTER (
-           WHERE i.expiry_date IS NOT NULL
-             AND i.expiry_date <= CURRENT_DATE + INTERVAL '30 days'
-         ) AS expiring
-       FROM inventory i
-       WHERE i.quantity > 0
-       GROUP BY i.location_id`
+         l.id AS location_id,
+         l.name AS location_name,
+         l.type AS location_type,
+         COUNT(i.id) AS total_items,
+         COALESCE(SUM(GREATEST(i.quantity, 0)), 0) AS total_qty,
+         COALESCE(SUM(GREATEST(i.quantity, 0) * COALESCE(i.unit_cost, 0)), 0) AS total_value
+       FROM locations l
+       LEFT JOIN inventory i ON i.location_id = l.id
+       GROUP BY l.id, l.name, l.type
+       ORDER BY l.name`
     );
     res.json(result.rows);
   } catch (err) {

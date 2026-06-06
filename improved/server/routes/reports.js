@@ -83,6 +83,33 @@ router.get('/sales', auth, async (req, res) => {
   }
 });
 
+router.get('/sales-summary', auth, async (req, res) => {
+  try {
+    const locIds = await getAccessibleLocationIds(req.user);
+    let conditions = [];
+    let params = [];
+    let idx = 1;
+    if (locIds) { conditions.push(`s.location_id = ANY($${idx})`); params.push(locIds); idx++; }
+    else if (req.query.location_id) { conditions.push(`s.location_id = $${idx}`); params.push(req.query.location_id); idx++; }
+    const where = conditions.length > 0 ? 'WHERE ' + conditions.join(' AND ') : '';
+    const result = await pool.query(
+      `SELECT
+         COUNT(CASE WHEN s.status = 'completed' THEN 1 END)::int AS total_transactions,
+         COALESCE(SUM(CASE WHEN s.status = 'completed'
+           THEN s.total_amount - COALESCE(s.discount_amount, 0) ELSE 0 END), 0) AS total_revenue,
+         COUNT(CASE WHEN s.status = 'completed' THEN 1 END)::int AS items_sold,
+         COUNT(CASE WHEN s.status = 'cancel_requested' THEN 1 END)::int AS cancel_requests
+       FROM sales s
+       JOIN locations l ON s.location_id = l.id
+       ${where}`,
+      params
+    );
+    res.json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.get('/transfers', auth, async (req, res) => {
   try {
     const result = await pool.query(

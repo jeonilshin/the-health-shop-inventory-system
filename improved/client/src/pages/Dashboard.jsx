@@ -131,11 +131,13 @@ export default function Dashboard() {
   const { showToast } = useToast();
 
   const [inventoryReport, setInventoryReport]   = useState([]);
+  const [locationStats, setLocationStats]       = useState([]);
   const [lowStockItems, setLowStockItems]        = useState([]);
   const [expiringItems, setExpiringItems]        = useState([]);
   const [recentTransfers, setRecentTransfers]    = useState([]);
   const [recentActivity, setRecentActivity]      = useState([]);
   const [salesData, setSalesData]                = useState([]);
+  const [salesSummary, setSalesSummary]          = useState({ total_transactions: 0, total_revenue: 0, items_sold: 0, cancel_requests: 0 });
   const [pendingCancelReqs, setPendingCancelReqs] = useState([]);
   const [cancelActionLoading, setCancelActionLoading] = useState(null);
   const [loading, setLoading]   = useState(true);
@@ -146,16 +148,19 @@ export default function Dashboard() {
     if (isRefresh) setRefreshing(true);
     else setLoading(true);
 
-    const [invR, lowR, expR, trR, histR, salesR] = await Promise.allSettled([
+    const [invR, locR, lowR, expR, trR, histR, salesR, summR] = await Promise.allSettled([
       apiClient.get('/api/reports/inventory'),
+      apiClient.get('/api/inventory/location-stats'),
       apiClient.get('/api/reports/low-stock', { params: { threshold: 10 } }),
       apiClient.get('/api/reports/expiring', { params: { days: 30 } }),
       apiClient.get('/api/transfers', { params: { limit: 10 } }),
       apiClient.get('/api/history', { params: { limit: 8 } }),
-      apiClient.get('/api/sales', { params: { limit: 100 } }),
+      apiClient.get('/api/sales', { params: { limit: 10 } }),
+      apiClient.get('/api/reports/sales-summary'),
     ]);
 
     setInventoryReport(invR.status === 'fulfilled' ? invR.value.data : []);
+    setLocationStats(locR.status === 'fulfilled' ? locR.value.data : []);
     setLowStockItems(lowR.status === 'fulfilled' ? lowR.value.data : []);
     setExpiringItems(expR.status === 'fulfilled' ? expR.value.data : []);
     setRecentTransfers(trR.status === 'fulfilled' ? trR.value.data.slice(0, 5) : []);
@@ -163,6 +168,7 @@ export default function Dashboard() {
     const salesList = salesR.status === 'fulfilled' ? salesR.value.data : [];
     setSalesData(salesList);
     setPendingCancelReqs(salesList.filter((s) => s.status === 'cancel_requested'));
+    if (summR.status === 'fulfilled') setSalesSummary(summR.value.data);
     setLastUpdated(new Date());
 
     if (isRefresh) setRefreshing(false);
@@ -176,26 +182,13 @@ export default function Dashboard() {
   }, [loadDashboard]);
 
   /* ── Derived stats ── */
-  // Group inventory by location for the summary table
-  const locationSummary = React.useMemo(() => {
-    const map = new Map();
-    for (const row of inventoryReport) {
-      if (!map.has(row.location_name)) {
-        map.set(row.location_name, {
-          location_name: row.location_name,
-          location_type: row.location_type,
-          total_products: 0,
-          total_quantity: 0,
-          total_value: 0,
-        });
-      }
-      const entry = map.get(row.location_name);
-      entry.total_products += 1;
-      entry.total_quantity += parseFloat(row.total_quantity || 0);
-      entry.total_value    += parseFloat(row.total_value    || 0);
-    }
-    return Array.from(map.values()).sort((a, b) => a.location_name.localeCompare(b.location_name));
-  }, [inventoryReport]);
+  const locationSummary = locationStats.map((l) => ({
+    location_name: l.location_name,
+    location_type: l.location_type,
+    total_products: parseInt(l.total_items || 0),
+    total_quantity: parseFloat(l.total_qty || 0),
+    total_value: parseFloat(l.total_value || 0),
+  }));
 
   const totalValue    = inventoryReport.reduce((s, r) => s + parseFloat(r.total_value || 0), 0);
   const totalProducts = inventoryReport.reduce((s, r) => s + parseFloat(r.total_quantity || 0), 0);
@@ -203,14 +196,11 @@ export default function Dashboard() {
 
   const hasAlerts = lowStockItems.length > 0 || expiringItems.length > 0;
 
-  const salesStats = React.useMemo(() => {
-    const completed = salesData.filter((s) => s.status === 'completed');
-    return {
-      revenue: completed.reduce((sum, s) => sum + Math.max(0, parseFloat(s.total_amount || 0) - parseFloat(s.discount_amount || 0)), 0),
-      transactions: completed.length,
-      itemsSold: completed.reduce((sum, s) => sum + parseInt(s.item_count || 0), 0),
-    };
-  }, [salesData]);
+  const salesStats = {
+    revenue: parseFloat(salesSummary.total_revenue || 0),
+    transactions: parseInt(salesSummary.total_transactions || 0),
+    itemsSold: parseInt(salesSummary.items_sold || 0),
+  };
 
   const handleApproveCancel = async (saleId) => {
     setCancelActionLoading(`approve-${saleId}`);
@@ -295,9 +285,9 @@ export default function Dashboard() {
     },
     isAdmin && {
       label: 'Cancel Requests',
-      value: pendingCancelReqs.length,
-      borderColor: pendingCancelReqs.length > 0 ? '#f59e0b' : '#d1d5db',
-      valueColor: pendingCancelReqs.length > 0 ? '#d97706' : '#9ca3af',
+      value: salesSummary.cancel_requests || 0,
+      borderColor: (salesSummary.cancel_requests || 0) > 0 ? '#f59e0b' : '#d1d5db',
+      valueColor: (salesSummary.cancel_requests || 0) > 0 ? '#d97706' : '#9ca3af',
       icon: Icon.cancelReq,
     },
   ].filter(Boolean);
@@ -535,7 +525,7 @@ export default function Dashboard() {
       <Section
         title="Inventory by Location"
         icon={<span style={{ color: '#2563eb' }}>{Icon.package}</span>}
-        badge={locationSummary.length > 0 ? `${locationSummary.length} location${locationSummary.length !== 1 ? 's' : ''}` : undefined}
+        badge={locationStats.length > 0 ? `${locationStats.length} location${locationStats.length !== 1 ? 's' : ''}` : undefined}
         action={<Link to="/inventory" className="text-sm text-blue-600 hover:underline font-medium">View All</Link>}
       >
         {loading ? (
@@ -546,7 +536,7 @@ export default function Dashboard() {
           <DataTable headers={[
             { label: 'Location' },
             { label: 'Type' },
-            { label: 'Products', right: true },
+            { label: 'Items', right: true },
             { label: 'Total Qty', right: true },
             ...(isAdmin ? [{ label: 'Total Value', right: true }] : []),
           ]}>
