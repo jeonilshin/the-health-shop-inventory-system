@@ -11,6 +11,7 @@ const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: { rejectUnauthorized: false },
   max: 5,
+  options: '-c search_path=improved',
 });
 
 function mapRole(r) {
@@ -20,13 +21,14 @@ function mapTransferStatus(s) {
   return { pending: 'pending', approved: 'approved', delivered: 'received', rejected: 'rejected' }[s] || 'pending';
 }
 
-// ─── Step 1: clear public schema ─────────────────────────────────────────────
+// ─── Step 1: clear improved schema ───────────────────────────────────────────
 async function clearDestination(client) {
-  console.log('[1] Clearing public schema data...');
+  console.log('[1] Clearing improved schema data...');
   const tables = [
-    'stock_withdrawals', 'unit_conversions', 'sale_items', 'sales',
+    'stock_withdrawal_items', 'stock_withdrawals', 'unit_conversions', 'sale_items', 'sales',
     'delivery_items', 'deliveries', 'transfer_items', 'transfers',
     'manager_branches', 'inventory', 'users', 'products', 'locations',
+    'activity_log', 'notifications',
   ];
   for (const t of tables) {
     await client.query('SAVEPOINT sp');
@@ -418,12 +420,16 @@ async function migrateUnitConversions(client, pidMap) {
 }
 
 // ─── Step 12: stock_withdrawals ───────────────────────────────────────────────
-async function migrateStockWithdrawals(client) {
+async function migrateStockWithdrawals(client, pidMap) {
   console.log('[12] Migrating stock_withdrawals...');
   await client.query('SAVEPOINT sp_sw');
   let rows;
   try {
-    const r = await client.query(`SELECT * FROM thehealthshop.stock_withdrawals ORDER BY id`);
+    const r = await client.query(
+      `SELECT id, location_id, inventory_id, item_description, unit, quantity, unit_cost,
+              withdrawal_type, notes, withdrawn_by, withdrawn_at, created_at
+       FROM thehealthshop.stock_withdrawals ORDER BY id`
+    );
     rows = r.rows;
     await client.query('RELEASE SAVEPOINT sp_sw');
   } catch {
@@ -432,40 +438,36 @@ async function migrateStockWithdrawals(client) {
     return;
   }
   if (rows.length === 0) { console.log('    0 rows'); return; }
-  console.log(`    ${rows.length} rows found, columns: ${Object.keys(rows[0]).join(', ')}`);
-  // Dynamic insert based on matching columns with destination
-  const destColRes = await client.query(
-    `SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='stock_withdrawals'`
-  );
-  const destCols = destColRes.rows.map(c => c.column_name);
-  const srcCols = Object.keys(rows[0]);
-  const commonCols = srcCols.filter(c => destCols.includes(c));
-  let count = 0;
-  const chunkSize = 200;
-  const inserts = rows.map(r => commonCols.map(c => r[c]));
-  for (let i = 0; i < inserts.length; i += chunkSize) {
-    const chunk = inserts.slice(i, i + chunkSize);
-    const vals = [];
-    const placeholders = chunk.map((row, j) => {
-      const base = j * commonCols.length;
-      vals.push(...row);
-      return `(${commonCols.map((_, k) => `$${base + k + 1}`).join(',')})`;
-    });
-    await client.query('SAVEPOINT sp_sw_chunk');
+
+  let wCount = 0, iCount = 0;
+  for (const r of rows) {
+    await client.query('SAVEPOINT sp_sw_row');
     try {
-      await client.query(
-        `INSERT INTO stock_withdrawals (${commonCols.join(',')}) VALUES ${placeholders.join(',')} ON CONFLICT (id) DO NOTHING`,
-        vals
+      const wRes = await client.query(
+        `INSERT INTO stock_withdrawals (location_id, withdrawn_by, withdrawal_type, reason, notes, created_at)
+         VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
+        [r.location_id, r.withdrawn_by, r.withdrawal_type || 'other', r.notes || '', r.notes || null, r.created_at || r.withdrawn_at]
       );
-      await client.query('RELEASE SAVEPOINT sp_sw_chunk');
-      count += chunk.length;
+      const wId = wRes.rows[0].id;
+      const key = r.item_description && r.unit
+        ? `${r.item_description.trim().toLowerCase()}|||${r.unit.trim().toLowerCase()}`
+        : null;
+      const pid = key ? pidMap.get(key) : null;
+      const subtotal = (parseFloat(r.quantity) || 0) * (parseFloat(r.unit_cost) || 0);
+      await client.query(
+        `INSERT INTO stock_withdrawal_items (withdrawal_id, product_id, quantity, unit_cost, subtotal)
+         VALUES ($1,$2,$3,$4,$5)`,
+        [wId, pid || null, Math.max(0, parseFloat(r.quantity) || 0), r.unit_cost || 0, subtotal]
+      );
+      await client.query('RELEASE SAVEPOINT sp_sw_row');
+      wCount++; iCount++;
     } catch (e) {
-      await client.query('ROLLBACK TO SAVEPOINT sp_sw_chunk');
-      console.log(`    chunk error: ${e.message}`);
+      await client.query('ROLLBACK TO SAVEPOINT sp_sw_row');
+      console.log(`    row error: ${e.message}`);
     }
   }
   await client.query(`SELECT setval('stock_withdrawals_id_seq', COALESCE((SELECT MAX(id) FROM stock_withdrawals),1), true)`);
-  console.log(`    ${count} stock_withdrawals`);
+  console.log(`    ${wCount} stock_withdrawals, ${iCount} items`);
 }
 
 // ─── Summary ──────────────────────────────────────────────────────────────────
@@ -475,7 +477,7 @@ async function printSummary(client) {
     'locations', 'users', 'products', 'inventory',
     'manager_branches', 'transfers', 'transfer_items',
     'sales', 'sale_items',
-    'unit_conversions', 'stock_withdrawals',
+    'unit_conversions', 'stock_withdrawals', 'stock_withdrawal_items',
   ];
   for (const t of tables) {
     try {
@@ -490,7 +492,7 @@ async function printSummary(client) {
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 async function main() {
-  console.log('Migration start: thehealthshop → public');
+  console.log('Migration start: thehealthshop → improved');
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -506,7 +508,7 @@ async function main() {
     await migrateDeliveries(client);
     await migrateDeliveryItems(client, pidMap);
     await migrateUnitConversions(client, pidMap);
-    await migrateStockWithdrawals(client);
+    await migrateStockWithdrawals(client, pidMap);
 
     await client.query('COMMIT');
     console.log('\n✓ Migration committed!');

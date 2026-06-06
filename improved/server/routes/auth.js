@@ -33,7 +33,7 @@ router.post('/login', async (req, res) => {
     const valid = await bcrypt.compare(password, user.password_hash);
     if (!valid) return res.status(401).json({ error: 'Invalid credentials' });
 
-    await pool.query('UPDATE users SET last_login = NOW() WHERE id = $1', [user.id]);
+    try { await pool.query('UPDATE thehealthshop.users SET updated_at = NOW() WHERE id = $1', [user.id]); } catch (_) { /* view — ignore */ }
 
     const token = jwt.sign(
       { id: user.id, username: user.username, role: user.role },
@@ -94,7 +94,7 @@ router.post('/change-password', auth, async (req, res) => {
     if (!valid) return res.status(400).json({ error: 'Current password is incorrect' });
 
     const hash = await bcrypt.hash(new_password, 10);
-    await pool.query('UPDATE users SET password_hash = $1 WHERE id = $2', [hash, req.user.id]);
+    await pool.query('UPDATE thehealthshop.users SET password = $1 WHERE id = $2', [hash, req.user.id]);
     res.json({ message: 'Password changed successfully' });
   } catch (err) {
     res.status(500).json({ error: err.message });

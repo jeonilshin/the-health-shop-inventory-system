@@ -1,7 +1,7 @@
 const { Pool } = require('pg');
 require('dotenv').config({ path: require('path').join(__dirname, '../../.env') });
 
-const schema = process.env.DB_SCHEMA || 'thehealthshop';
+const schema = process.env.DB_SCHEMA || 'improved';
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
