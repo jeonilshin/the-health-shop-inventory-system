@@ -186,27 +186,49 @@ function Deliveries() {
       // Fetch available batches
       const response = await api.get(`/deliveries/${deliveryId}/available-batches`);
       const batchData = response.data;
-      
-      // Check if any item has multiple batches
+
+      // Block if any item has zero stock in the warehouse
+      const noStockItems = batchData.items.filter(item => item.available_batches.length === 0);
+      if (noStockItems.length > 0) {
+        const names = noStockItems.map(i => `  • ${i.description} (${i.unit})`).join('\n');
+        alert(`Cannot accept delivery — the following items have no stock in the warehouse:\n${names}\n\nPlease contact your admin to update this delivery.`);
+        return;
+      }
+
+      // Block if any item has insufficient total stock
+      const shortItems = batchData.items.filter(item => {
+        const totalAvail = item.available_batches.reduce((s, b) => s + parseFloat(b.quantity), 0);
+        return totalAvail < parseFloat(item.requested_quantity);
+      });
+      if (shortItems.length > 0) {
+        const details = shortItems.map(i => {
+          const avail = i.available_batches.reduce((s, b) => s + parseFloat(b.quantity), 0);
+          return `  • ${i.description} (${i.unit}): ${avail} available, ${i.requested_quantity} requested`;
+        }).join('\n');
+        alert(`Cannot accept delivery — insufficient stock:\n${details}\n\nPlease contact your admin.`);
+        return;
+      }
+
+      // Check if any item has multiple batches (needs manual batch selection)
       const hasMultipleBatches = batchData.items.some(item => item.available_batches.length > 1);
-      
+
       if (!hasMultipleBatches) {
-        // No batch selection needed, accept directly
+        // All items have exactly one batch — accept directly via FIFO
         handleBranchAccept(deliveryId);
         return;
       }
-      
-      // Initialize selected batches with default (all from first batch)
+
+      // At least one item has multiple batches — open batch selection modal
       const initialSelections = {};
       batchData.items.forEach(item => {
-        if (item.available_batches.length > 0) {
-          initialSelections[item.item_id] = [{
-            batch_id: item.available_batches[0].id,
-            quantity: item.requested_quantity
-          }];
-        }
+        // Pre-fill from the first batch, capped at what that batch actually has
+        const firstBatch = item.available_batches[0];
+        initialSelections[item.item_id] = [{
+          batch_id: firstBatch.id,
+          quantity: Math.min(parseFloat(item.requested_quantity), parseFloat(firstBatch.quantity))
+        }];
       });
-      
+
       setSelectedBatches(initialSelections);
       setBatchSelectionModal({ open: true, delivery: deliveryId, batches: batchData });
     } catch (error) {
@@ -1619,9 +1641,17 @@ function Deliveries() {
               <tbody>
                 {getFilteredDeliveries(deliveries).map((delivery) => {
                   const approvedReturns = getApprovedReturns(delivery);
+                  const isTransferOnly = !!delivery.is_transfer_only;
                   return (
-                  <tr key={delivery.id}>
-                    <td>{new Date(delivery.delivery_date || delivery.created_at).toLocaleDateString()}</td>
+                  <tr key={`${isTransferOnly ? 't' : 'd'}-${delivery.id}`} style={isTransferOnly ? { backgroundColor: 'rgba(16,185,129,0.04)' } : {}}>
+                    <td>
+                      {new Date(delivery.delivery_date || delivery.created_at).toLocaleDateString()}
+                      {isTransferOnly && (
+                        <div style={{ fontSize: '10px', color: '#10b981', fontWeight: 600, marginTop: '2px' }}>
+                          via Transfer
+                        </div>
+                      )}
+                    </td>
                     <td>{delivery.from_location_name}</td>
                     <td>{delivery.to_location_name}</td>
                     <td>
@@ -1714,7 +1744,7 @@ function Deliveries() {
                     )}
                     {(user.role === 'branch_manager' || user.role === 'branch_staff' || user.role === 'admin') && (
                       <td>
-                        {canReportIssue(delivery) && (
+                        {!isTransferOnly && canReportIssue(delivery) && (
                           <div style={{ position: 'relative', display: 'inline-block' }}>
                             <button
                               className="btn"
@@ -2209,6 +2239,7 @@ function Deliveries() {
                 style={{ flex: 1, padding: '12px', fontSize: '14px', fontWeight: 600 }}
                 onClick={handleConfirmBatchSelection}
                 disabled={batchSelectionModal.batches.items.some(item => {
+                  if (item.available_batches.length === 0) return false;
                   const itemSelections = selectedBatches[item.item_id] || [];
                   const totalSelected = itemSelections.reduce((sum, sel) => sum + parseFloat(sel.quantity || 0), 0);
                   return Math.abs(totalSelected - parseFloat(item.requested_quantity)) >= 0.01;

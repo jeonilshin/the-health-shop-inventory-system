@@ -32,11 +32,14 @@ function DiscrepancyModal({ type, delivery, onClose, onSuccess }) {
   const [damagedQty, setDamagedQty]           = useState('');   // for damage-from-delivery
 
   // ── return state ──
-  const [returnDesc, setReturnDesc]   = useState('');
-  const [returnUnit, setReturnUnit]   = useState('');
-  const [returnQty, setReturnQty]     = useState('');
-  const [warehouseId, setWarehouseId] = useState('');
-  const [warehouses, setWarehouses]   = useState([]);
+  const [returnDesc, setReturnDesc]         = useState('');
+  const [returnUnit, setReturnUnit]         = useState('');
+  const [returnQty, setReturnQty]           = useState('');
+  const [warehouseId, setWarehouseId]       = useState('');
+  const [warehouses, setWarehouses]         = useState([]);
+  const [returnSuggestions, setReturnSuggestions]         = useState([]);
+  const [returnShowSuggestions, setReturnShowSuggestions] = useState(false);
+  const returnSearchRef = useRef(null);
 
   // ── warehouse damage (standalone) ──
   const [dmgDesc, setDmgDesc]           = useState('');
@@ -62,13 +65,16 @@ function DiscrepancyModal({ type, delivery, onClose, onSuccess }) {
   const isDamageWarehouse    = isDamageStandalone && user.role === 'warehouse';
 
   useEffect(() => {
-    if (type === 'return') fetchWarehouses();
+    if (type === 'return') { fetchWarehouses(); fetchWarehouseInventory(); }
     if (isDamageStandalone) fetchWarehouseInventory();
 
     // Close suggestions on outside click
     const handler = (e) => {
       if (searchRef.current && !searchRef.current.contains(e.target)) {
         setShowSuggestions(false);
+      }
+      if (returnSearchRef.current && !returnSearchRef.current.contains(e.target)) {
+        setReturnShowSuggestions(false);
       }
     };
     document.addEventListener('mousedown', handler);
@@ -105,6 +111,23 @@ function DiscrepancyModal({ type, delivery, onClose, onSuccess }) {
   };
 
   // ── autocomplete handlers ──
+  const handleReturnDescChange = (val) => {
+    setReturnDesc(val);
+    if (!val.trim()) { setReturnSuggestions([]); setReturnShowSuggestions(false); return; }
+    const filtered = invItems.filter(i =>
+      i.description.toLowerCase().includes(val.toLowerCase())
+    ).slice(0, 8);
+    setReturnSuggestions(filtered);
+    setReturnShowSuggestions(filtered.length > 0);
+  };
+
+  const selectReturnSuggestion = (item) => {
+    setReturnDesc(item.description);
+    setReturnUnit(item.unit);
+    setReturnSuggestions([]);
+    setReturnShowSuggestions(false);
+  };
+
   const handleDmgDescChange = (val) => {
     setDmgDesc(val);
     if (!val.trim()) {
@@ -437,25 +460,70 @@ function DiscrepancyModal({ type, delivery, onClose, onSuccess }) {
           {/* ── RETURN: item fields ── */}
           {type === 'return' && (
             <>
-              <div style={{ marginBottom: '14px' }}>
+              <div style={{ marginBottom: '14px', position: 'relative' }} ref={returnSearchRef}>
                 <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, marginBottom: '6px' }}>
                   Item Description *
                 </label>
-                <input
-                  type="text" placeholder="e.g. Paracetamol 500mg"
-                  value={returnDesc}
-                  onChange={e => setReturnDesc(e.target.value)}
-                  style={{ width: '100%', padding: '8px 12px', border: '1px solid var(--border-color, #d1d5db)', borderRadius: '8px', fontSize: '14px', boxSizing: 'border-box', background: 'var(--bg-input, #fff)' }}
-                />
+                <div style={{ position: 'relative' }}>
+                  <FiSearch size={14} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#9ca3af', pointerEvents: 'none' }} />
+                  <input
+                    type="text"
+                    placeholder="Search item from your inventory…"
+                    value={returnDesc}
+                    onChange={e => handleReturnDescChange(e.target.value)}
+                    onFocus={() => returnDesc && setReturnShowSuggestions(returnSuggestions.length > 0)}
+                    style={{
+                      width: '100%', padding: '8px 12px 8px 30px', boxSizing: 'border-box',
+                      border: '1px solid var(--border-color, #d1d5db)',
+                      borderRadius: returnShowSuggestions ? '8px 8px 0 0' : '8px',
+                      fontSize: '14px', background: 'var(--bg-input, #fff)'
+                    }}
+                  />
+                </div>
+                {returnShowSuggestions && (
+                  <div style={{
+                    position: 'absolute', top: '100%', left: 0, right: 0,
+                    background: 'var(--bg-card, #fff)',
+                    border: '1px solid var(--border-color, #d1d5db)',
+                    borderTop: 'none', borderRadius: '0 0 8px 8px',
+                    boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+                    zIndex: 50, maxHeight: '180px', overflowY: 'auto'
+                  }}>
+                    {returnSuggestions.map((item, idx) => (
+                      <div
+                        key={idx}
+                        onMouseDown={() => selectReturnSuggestion(item)}
+                        style={{
+                          padding: '8px 12px', cursor: 'pointer', fontSize: '13px',
+                          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                          borderBottom: idx < returnSuggestions.length - 1 ? '1px solid var(--border-color, #f3f4f6)' : 'none'
+                        }}
+                        onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-secondary, #f9fafb)'}
+                        onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                      >
+                        <span style={{ fontWeight: 500 }}>{item.description}</span>
+                        <span style={{ color: '#9ca3af', fontSize: '12px' }}>{item.unit}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '14px' }}>
                 <div>
-                  <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, marginBottom: '6px' }}>Unit *</label>
+                  <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, marginBottom: '6px' }}>
+                    Unit *
+                    {returnUnit && <span style={{ fontWeight: 400, color: '#6b7280', marginLeft: '6px', fontSize: '12px' }}>(auto-filled)</span>}
+                  </label>
                   <input
                     type="text" placeholder="e.g. pcs / box / bottle"
                     value={returnUnit}
                     onChange={e => setReturnUnit(e.target.value)}
-                    style={{ width: '100%', padding: '8px 12px', border: '1px solid var(--border-color, #d1d5db)', borderRadius: '8px', fontSize: '14px', boxSizing: 'border-box', background: 'var(--bg-input, #fff)' }}
+                    style={{
+                      width: '100%', padding: '8px 12px', boxSizing: 'border-box',
+                      border: '1px solid var(--border-color, #d1d5db)',
+                      borderRadius: '8px', fontSize: '14px',
+                      background: returnUnit ? 'var(--bg-secondary, #f0fdf4)' : 'var(--bg-input, #fff)'
+                    }}
                   />
                 </div>
                 <div>

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import api from '../utils/api';
 import { FiX, FiPackage, FiTruck, FiAlertCircle, FiCheck } from 'react-icons/fi';
 import AutocompleteSearch from './AutocompleteSearch';
+import { formatPrice, formatQuantity } from '../utils/formatNumber';
 
 function ExpressTransferModal({ isOpen, onClose, onTransferComplete, locations }) {
   const [step, setStep] = useState(1);
@@ -489,9 +490,9 @@ function ExpressTransferModal({ isOpen, onClose, onTransferComplete, locations }
                     <strong>Total Items:</strong> {selectedItems.length}
                   </div>
                   <div>
-                    <strong>Total Value:</strong> ₱{selectedItems.reduce((sum, item) => 
+                    <strong>Total Value:</strong> ₱{formatPrice(selectedItems.reduce((sum, item) =>
                       sum + (parseFloat(item.quantity || 0) * parseFloat(item.unit_cost || 0)), 0
-                    ).toFixed(2)}
+                    ))}
                   </div>
                 </div>
               </div>
@@ -512,10 +513,10 @@ function ExpressTransferModal({ isOpen, onClose, onTransferComplete, locations }
                       <tr key={index} style={{ borderBottom: '1px solid var(--border)' }}>
                         <td style={{ padding: '12px 8px', fontWeight: '600' }}>{item.description}</td>
                         <td style={{ padding: '12px 8px' }}>{item.unit}</td>
-                        <td style={{ padding: '12px 8px', textAlign: 'right' }}>{item.quantity}</td>
-                        <td style={{ padding: '12px 8px', textAlign: 'right' }}>₱{parseFloat(item.unit_cost).toFixed(2)}</td>
+                        <td style={{ padding: '12px 8px', textAlign: 'right' }}>{formatQuantity(item.quantity)}</td>
+                        <td style={{ padding: '12px 8px', textAlign: 'right' }}>₱{formatPrice(item.unit_cost)}</td>
                         <td style={{ padding: '12px 8px', textAlign: 'right', fontWeight: '600' }}>
-                          ₱{(parseFloat(item.quantity) * parseFloat(item.unit_cost)).toFixed(2)}
+                          ₱{formatPrice(parseFloat(item.quantity) * parseFloat(item.unit_cost))}
                         </td>
                       </tr>
                     ))}

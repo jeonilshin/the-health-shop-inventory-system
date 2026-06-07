@@ -1,7 +1,12 @@
 -- Consolidate duplicate inventory batches
 -- This script merges batches that have the same location, description, unit, cost, price, and expiry date
+-- For Supabase with thehealthshop schema
 
--- STEP 1: Preview what will be consolidated (run this first to see what will change)
+-- Set the search path to use the correct schema
+SET search_path TO thehealthshop, public;
+
+-- STEP 1: Preview what will be consolidated (COMMENT THIS OUT WHEN RUNNING STEP 2)
+/*
 SELECT 
   i.location_id,
   l.name as location_name,
@@ -17,8 +22,8 @@ SELECT
   STRING_AGG(i.id::text, ', ' ORDER BY i.id) as batch_ids,
   STRING_AGG(i.quantity::text, ' + ' ORDER BY i.id) as quantities,
   SUM(i.quantity) as total_quantity
-FROM inventory i
-LEFT JOIN locations l ON i.location_id = l.id
+FROM thehealthshop.inventory i
+LEFT JOIN thehealthshop.locations l ON i.location_id = l.id
 GROUP BY 
   i.location_id, 
   l.name,
@@ -29,11 +34,13 @@ GROUP BY
   i.expiry_date
 HAVING COUNT(*) > 1  -- Only show groups with duplicates
 ORDER BY i.description, i.unit, i.location_id;
+*/
 
--- STEP 2: Consolidate duplicate batches (uncomment to execute)
+-- STEP 2: Consolidate duplicate batches (UNCOMMENT THIS TO EXECUTE)
 -- WARNING: This will permanently merge duplicate batches!
+-- To execute: Remove the -- /* on line 42 and the -- */ on line 133
 
-/*
+-- /*
 BEGIN;
 
 -- Update the oldest batch with the total quantity
@@ -49,7 +56,7 @@ WITH duplicate_batches AS (
     ARRAY_AGG(id ORDER BY id) as all_ids,
     SUM(quantity) as total_quantity,
     MAX(max_quantity) as max_max_quantity
-  FROM inventory
+  FROM thehealthshop.inventory
   GROUP BY 
     location_id, 
     description, 
@@ -59,7 +66,7 @@ WITH duplicate_batches AS (
     expiry_date
   HAVING COUNT(*) > 1
 )
-UPDATE inventory i
+UPDATE thehealthshop.inventory i
 SET 
   quantity = db.total_quantity,
   max_quantity = GREATEST(i.max_quantity, db.max_max_quantity),
@@ -78,7 +85,7 @@ WITH duplicate_batches AS (
     expiry_date,
     MIN(id) as keep_id,
     ARRAY_AGG(id ORDER BY id) as all_ids
-  FROM inventory
+  FROM thehealthshop.inventory
   GROUP BY 
     location_id, 
     description, 
@@ -92,7 +99,7 @@ batches_to_delete AS (
   SELECT UNNEST(all_ids[2:array_length(all_ids, 1)]) as delete_id
   FROM duplicate_batches
 )
-DELETE FROM inventory
+DELETE FROM thehealthshop.inventory
 WHERE id IN (SELECT delete_id FROM batches_to_delete);
 
 COMMIT;
@@ -110,8 +117,8 @@ SELECT
   END as expiry_date,
   COUNT(*) as batch_count,
   SUM(i.quantity) as total_quantity
-FROM inventory i
-LEFT JOIN locations l ON i.location_id = l.id
+FROM thehealthshop.inventory i
+LEFT JOIN thehealthshop.locations l ON i.location_id = l.id
 GROUP BY 
   l.name,
   i.location_id, 
@@ -121,4 +128,4 @@ GROUP BY
   i.suggested_selling_price,
   i.expiry_date
 ORDER BY i.description, i.unit;
-*/
+-- */

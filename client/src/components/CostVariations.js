@@ -1,7 +1,7 @@
 import { useState, useEffect, useContext } from 'react';
 import api from '../utils/api';
 import { AuthContext } from '../context/AuthContext';
-import { formatPrice } from '../utils/formatNumber';
+import { formatPrice, formatQuantity } from '../utils/formatNumber';
 import { FiDollarSign, FiPlus, FiEdit2, FiTrash2, FiEye, FiEyeOff, FiTrendingUp, FiTrendingDown } from 'react-icons/fi';
 
 function CostVariations() {
@@ -352,7 +352,7 @@ function CostVariations() {
                     <td>{item.unit}</td>
                     <td>
                       <span style={{ fontWeight: 600, color: '#10b981' }}>
-                        {parseFloat(item.total_quantity).toFixed(2)}
+                        {formatQuantity(item.total_quantity)}
                       </span>
                     </td>
                     <td>
@@ -416,7 +416,7 @@ function CostVariations() {
                               <span style={{ color: '#6b7280' }}>|</span>
                               <span>Price: {formatPrice(loc.suggested_selling_price)}</span>
                               <span style={{ color: '#6b7280' }}>|</span>
-                              <span style={{ fontWeight: 600 }}>Qty: {parseFloat(loc.quantity).toFixed(2)}</span>
+                              <span style={{ fontWeight: 600 }}>Qty: {formatQuantity(loc.quantity)}</span>
                             </div>
                           </div>
                         ))}
@@ -687,7 +687,7 @@ function CostVariations() {
                     <td>{formatPrice(loc.suggested_selling_price)}</td>
                     <td>
                       <span style={{ fontWeight: 600, color: '#10b981' }}>
-                        {parseFloat(loc.total_quantity).toFixed(2)}
+                        {formatQuantity(loc.total_quantity)}
                       </span>
                     </td>
                     <td>
@@ -731,7 +731,7 @@ function CostVariations() {
                               }
                             </span>
                             <span style={{ fontWeight: 500, marginLeft: '8px' }}>
-                              {parseFloat(batch.quantity).toFixed(2)}
+                              {formatQuantity(batch.quantity)}
                             </span>
                           </div>
                         ))}

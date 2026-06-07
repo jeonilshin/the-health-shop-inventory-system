@@ -75,10 +75,78 @@ router.get('/', auth, async (req, res) => {
       paramCount++;
     }
     
-    query += ' GROUP BY d.id, fl.name, tl.name, u.full_name, au.full_name, t.id, t.status ORDER BY d.created_at DESC';
-    
-    const result = await pool.query(query, params);
-    res.json(result.rows);
+    query += ' GROUP BY d.id, fl.name, tl.name, u.full_name, au.full_name, t.id, t.status';
+
+    // For admin/audit/warehouse: also surface warehouse→branch transfers that were
+    // never linked to a deliveries record (approved directly or via CDR import).
+    // This makes old movements (e.g. April 24, May 6) traceable from this page.
+    let transferRows = [];
+    if (req.user.role === 'admin' || req.user.role === 'audit' || req.user.role === 'warehouse') {
+      const tConditions = [
+        `fl.type = 'warehouse'`,
+        `tl.type = 'branch'`,
+        `NOT EXISTS (SELECT 1 FROM deliveries dd WHERE dd.transfer_id = t.id)`
+      ];
+      const tParams = [];
+      let tIdx = 1;
+
+      if (req.user.role === 'warehouse') {
+        tConditions.push(`t.from_location_id = $${tIdx++}`);
+        tParams.push(req.user.location_id);
+      }
+      if (status) {
+        const mappedStatus = (status === 'delivered') ? "'delivered','approved'" : `'${status}'`;
+        tConditions.push(`t.status IN (${mappedStatus})`);
+      }
+
+      const tResult = await pool.query(`
+        SELECT
+          t.id,
+          t.from_location_id,
+          t.to_location_id,
+          fl.name  AS from_location_name,
+          tl.name  AS to_location_name,
+          u.full_name AS created_by_name,
+          NULL::text  AS admin_confirmed_by_name,
+          t.id        AS transfer_id,
+          t.status    AS transfer_status,
+          CASE t.status WHEN 'approved' THEN 'delivered' ELSE t.status END AS status,
+          COALESCE(t.transfer_date, t.created_at) AS created_at,
+          COALESCE(t.transfer_date, t.created_at) AS delivery_date,
+          NULL::timestamp AS delivered_date,
+          t.transferred_by AS created_by,
+          true AS is_transfer_only,
+          COALESCE(
+            (SELECT json_agg(json_build_object(
+               'id', ti.id, 'description', ti.description,
+               'unit', ti.unit, 'quantity', ti.quantity, 'unit_cost', ti.unit_cost
+             )) FROM transfer_items ti WHERE ti.transfer_id = t.id),
+            json_build_array(json_build_object(
+              'id', t.id, 'description', t.description,
+              'unit', t.unit, 'quantity', t.quantity, 'unit_cost', t.unit_cost
+            ))
+          ) AS items,
+          COALESCE(
+            (SELECT SUM(ti.quantity * COALESCE(ti.unit_cost, 0))
+             FROM transfer_items ti WHERE ti.transfer_id = t.id),
+            t.quantity * COALESCE(t.unit_cost, 0)
+          ) AS total_value
+        FROM transfers t
+        LEFT JOIN locations fl ON t.from_location_id = fl.id
+        LEFT JOIN locations tl ON t.to_location_id = tl.id
+        LEFT JOIN users u ON t.transferred_by = u.id
+        WHERE ${tConditions.join(' AND ')}
+        ORDER BY COALESCE(t.transfer_date, t.created_at) DESC
+      `, tParams);
+
+      transferRows = tResult.rows;
+    }
+
+    const deliveryRows = (await pool.query(query + ' ORDER BY d.created_at DESC', params)).rows;
+    const combined = [...deliveryRows, ...transferRows].sort(
+      (a, b) => new Date(b.created_at) - new Date(a.created_at)
+    );
+    res.json(combined);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -605,7 +673,40 @@ router.post('/:id/accept', auth, authorize('admin', 'branch_manager', 'branch_st
       });
     }
 
-    // Manager, Admin, or Staff accepting - complete the delivery immediately
+    // Pre-validate all items before making any inventory changes
+    const validationErrors = [];
+    for (const item of delivery.rows) {
+      if (!item.description) continue;
+      const itemSelection = batch_selections?.find(sel => sel.item_id === item.item_id);
+      if (itemSelection && itemSelection.batch_ids?.length > 0) {
+        for (let i = 0; i < itemSelection.batch_ids.length; i++) {
+          const batchCheck = await client.query(
+            'SELECT quantity FROM inventory WHERE id = $1 AND location_id = $2',
+            [itemSelection.batch_ids[i], deliveryData.from_location_id]
+          );
+          if (batchCheck.rows.length === 0) {
+            validationErrors.push(`${item.description} (${item.unit}): selected batch not found in warehouse`);
+          } else if (parseFloat(batchCheck.rows[0].quantity) < parseFloat(itemSelection.quantities[i])) {
+            validationErrors.push(`${item.description} (${item.unit}): batch only has ${batchCheck.rows[0].quantity}, ${itemSelection.quantities[i]} requested`);
+          }
+        }
+      } else {
+        const stockCheck = await client.query(
+          `SELECT COALESCE(SUM(quantity), 0) as total FROM inventory WHERE location_id = $1 AND description = $2 AND unit = $3 AND quantity > 0`,
+          [deliveryData.from_location_id, item.description, item.unit]
+        );
+        const available = parseFloat(stockCheck.rows[0].total);
+        const requested = parseFloat(item.quantity);
+        if (available < requested) {
+          validationErrors.push(`${item.description} (${item.unit}): ${available === 0 ? 'no stock in warehouse' : `only ${available} available, ${requested} requested`}`);
+        }
+      }
+    }
+    if (validationErrors.length > 0) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: `Cannot accept delivery:\n${validationErrors.join('\n')}` });
+    }
+
     // Add items to destination inventory
     for (const item of delivery.rows) {
       if (item.description) {
