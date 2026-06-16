@@ -2127,108 +2127,38 @@ function Deliveries() {
                   ) : (
                     <div>
                       <div style={{ fontSize: '12px', fontWeight: 600, marginBottom: '8px', color: 'var(--text-secondary)' }}>
-                        Available Batches ({item.available_batches.length}):
+                        Drawn from (oldest expiry first):
                       </div>
-                      <div style={{ display: 'grid', gap: '8px' }}>
+                      <div style={{ display: 'grid', gap: '6px' }}>
                         {item.available_batches.map((batch, batchIdx) => {
                           const isExpired = batch.expiry_status === 'EXPIRED';
                           const isExpiringSoon = batch.expiry_status === 'EXPIRING_SOON';
-                          const selectedQty = itemSelections.find(s => s.batch_id === batch.id)?.quantity || 0;
+                          const selectedQty = parseFloat(itemSelections.find(s => s.batch_id === batch.id)?.quantity || 0);
+                          if (selectedQty <= 0) return null;
 
                           return (
                             <div key={batch.id} style={{
-                              display: 'grid',
-                              gridTemplateColumns: '1fr auto auto',
-                              gap: '12px',
+                              display: 'flex',
+                              justifyContent: 'space-between',
                               alignItems: 'center',
-                              padding: '10px',
+                              gap: '12px',
+                              padding: '10px 12px',
                               backgroundColor: 'var(--bg-card)',
                               border: '1px solid var(--border-color)',
-                              borderRadius: '6px'
+                              borderRadius: '6px',
+                              fontSize: '13px'
                             }}>
-                              <div style={{ fontSize: '12px' }}>
-                                <div style={{ fontWeight: 600, marginBottom: '4px' }}>
-                                  {batch.batch_number || `Batch ${batchIdx + 1}`}
+                              <div>
+                                <div style={{ fontWeight: 600, marginBottom: '2px' }}>
+                                  {formatQuantity(selectedQty)} {item.unit} from {batch.batch_number || `Batch ${batchIdx + 1}`}
                                   {isExpired && <span style={{ marginLeft: '8px', color: '#ef4444', fontSize: '11px' }}>⚠️ EXPIRED</span>}
                                   {isExpiringSoon && <span style={{ marginLeft: '8px', color: '#f59e0b', fontSize: '11px' }}>⏰ Expiring Soon</span>}
                                 </div>
-                                <div style={{ color: 'var(--text-secondary)' }}>
+                                <div style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>
                                   Available: {formatQuantity(batch.quantity)} {item.unit}
                                   {batch.expiry_date && ` • Exp: ${new Date(batch.expiry_date).toLocaleDateString()}`}
                                 </div>
                               </div>
-                              <input
-                                type="number"
-                                step="0.01"
-                                min="0"
-                                max={batch.quantity}
-                                value={selectedQty}
-                                onChange={(e) => {
-                                  const qty = parseFloat(e.target.value) || 0;
-                                  setSelectedBatches(prev => {
-                                    const itemSels = prev[item.item_id] || [];
-                                    const existingIdx = itemSels.findIndex(s => s.batch_id === batch.id);
-                                    
-                                    if (qty === 0) {
-                                      // Remove this batch
-                                      return {
-                                        ...prev,
-                                        [item.item_id]: itemSels.filter(s => s.batch_id !== batch.id)
-                                      };
-                                    } else if (existingIdx >= 0) {
-                                      // Update existing
-                                      const updated = [...itemSels];
-                                      updated[existingIdx] = { batch_id: batch.id, quantity: qty };
-                                      return { ...prev, [item.item_id]: updated };
-                                    } else {
-                                      // Add new
-                                      return {
-                                        ...prev,
-                                        [item.item_id]: [...itemSels, { batch_id: batch.id, quantity: qty }]
-                                      };
-                                    }
-                                  });
-                                }}
-                                style={{
-                                  width: '100px',
-                                  padding: '6px 8px',
-                                  fontSize: '13px',
-                                  border: '1px solid var(--border-color)',
-                                  borderRadius: '4px'
-                                }}
-                              />
-                              <button
-                                className="btn"
-                                style={{
-                                  padding: '6px 12px',
-                                  fontSize: '12px',
-                                  backgroundColor: '#3b82f6',
-                                  color: '#fff',
-                                  border: 'none'
-                                }}
-                                onClick={() => {
-                                  const remaining = parseFloat(item.requested_quantity) - totalSelected + parseFloat(selectedQty);
-                                  const maxFromBatch = Math.min(parseFloat(batch.quantity), remaining);
-                                  
-                                  setSelectedBatches(prev => {
-                                    const itemSels = prev[item.item_id] || [];
-                                    const existingIdx = itemSels.findIndex(s => s.batch_id === batch.id);
-                                    
-                                    if (existingIdx >= 0) {
-                                      const updated = [...itemSels];
-                                      updated[existingIdx] = { batch_id: batch.id, quantity: maxFromBatch };
-                                      return { ...prev, [item.item_id]: updated };
-                                    } else {
-                                      return {
-                                        ...prev,
-                                        [item.item_id]: [...itemSels, { batch_id: batch.id, quantity: maxFromBatch }]
-                                      };
-                                    }
-                                  });
-                                }}
-                              >
-                                Fill
-                              </button>
                             </div>
                           );
                         })}
