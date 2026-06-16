@@ -5,6 +5,7 @@ const { auth, authorize } = require('../middleware/auth');
 const { notifyAdmins, notifyLocation } = require('./notifications');
 const { logAudit } = require('../middleware/auditLog');
 const { cleanupZeroInventory } = require('../utils/inventoryCleanup');
+const { restoreTransferToSource } = require('../utils/inventoryRestore');
 
 // Create transfer request (branch manager requests, warehouse/admin creates, STAFF can also create with manager approval)
 router.post('/', auth, authorize('admin', 'warehouse', 'branch_manager', 'branch_staff'), async (req, res) => {
@@ -584,48 +585,8 @@ router.post('/:id/ship', auth, authorize('admin', 'warehouse'), async (req, res)
       return res.status(400).json({ error: 'Transfer must be approved before shipping' });
     }
 
-    // Check inventory availability - check total across all cost batches
-    const inventory = await client.query(
-      'SELECT * FROM inventory WHERE location_id = $1 AND description = $2 AND unit = $3 ORDER BY created_at ASC',
-      [transferData.from_location_id, transferData.description, transferData.unit]
-    );
-
-    if (inventory.rows.length === 0) {
-      await client.query('ROLLBACK');
-      return res.status(400).json({ error: 'Item not found in source location inventory' });
-    }
-
-    // Calculate total available quantity across all cost batches
-    const totalAvailable = inventory.rows.reduce((sum, batch) => sum + parseFloat(batch.quantity || 0), 0);
-    const requiredQty = parseFloat(transferData.quantity);
-
-    if (totalAvailable < requiredQty) {
-      await client.query('ROLLBACK');
-      return res.status(400).json({ 
-        error: `Insufficient inventory. Available: ${totalAvailable}, Required: ${requiredQty}` 
-      });
-    }
-
-    // DEDUCT from source inventory using FIFO (First In First Out)
-    let remainingToDeduct = requiredQty;
-    for (const batch of inventory.rows) {
-      if (remainingToDeduct <= 0) break;
-      
-      const batchQty = parseFloat(batch.quantity);
-      if (batchQty <= 0) continue; // Skip empty batches
-      
-      const deductFromThisBatch = Math.min(batchQty, remainingToDeduct);
-      
-      await client.query(
-        'UPDATE inventory SET quantity = quantity - $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
-        [deductFromThisBatch, batch.id]
-      );
-      
-      // Auto-cleanup if quantity reached zero
-      await cleanupZeroInventory(client, batch.id);
-      
-      remainingToDeduct -= deductFromThisBatch;
-    }
+    // Stock was already deducted at approval time — do NOT deduct again here.
+    // Ship only flips the transfer to in_transit and produces a delivery record.
 
     // Create delivery record
     const delivery = await client.query(
@@ -687,7 +648,7 @@ router.post('/:id/ship', auth, authorize('admin', 'warehouse'), async (req, res)
       newValues: result.rows[0],
       ipAddress: req.ip,
       userAgent: req.get('user-agent'),
-      description: `Shipped transfer: ${transferData.description} (${transferData.quantity} ${transferData.unit}) - Inventory deducted, delivery created`
+      description: `Shipped transfer: ${transferData.description} (${transferData.quantity} ${transferData.unit}) - Delivery created (stock already deducted at approval)`
     });
     
     // Get location names for notification
@@ -705,9 +666,9 @@ router.post('/:id/ship', auth, authorize('admin', 'warehouse'), async (req, res)
       '/transfers'
     );
     
-    res.json({ 
-      ...result.rows[0], 
-      message: 'Transfer shipped! Inventory deducted. Branch has been notified.' 
+    res.json({
+      ...result.rows[0],
+      message: 'Transfer shipped! Branch has been notified.'
     });
   } catch (error) {
     await client.query('ROLLBACK');
@@ -899,16 +860,38 @@ router.post('/:id/cancel', auth, async (req, res) => {
       return res.status(400).json({ error: 'Transfer is already cancelled or rejected' });
     }
 
+    // Block cancel after the destination already received the goods
+    if (transferData.status === 'delivered') {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Cannot cancel a delivered transfer. Use unreceive instead.' });
+    }
+
+    // If stock was already deducted at approval/ship, put it back at the source
+    const stockWasDeducted = transferData.status === 'approved' || transferData.status === 'in_transit';
+    if (stockWasDeducted) {
+      await restoreTransferToSource(client, transferData);
+    }
+
+    // If a linked delivery exists, cancel it so it doesn't sit in 'in_transit' forever
+    if (transferData.status === 'in_transit') {
+      await client.query(
+        `UPDATE deliveries
+            SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP
+          WHERE transfer_id = $1 AND status NOT IN ('delivered', 'rejected', 'cancelled')`,
+        [id]
+      );
+    }
+
     const result = await client.query(
-      `UPDATE transfers 
+      `UPDATE transfers
        SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP
-       WHERE id = $1 
+       WHERE id = $1
        RETURNING *`,
       [id]
     );
 
     await client.query('COMMIT');
-    
+
     // Log audit
     await logAudit({
       userId: req.user.id,
@@ -919,7 +902,7 @@ router.post('/:id/cancel', auth, async (req, res) => {
       newValues: result.rows[0],
       ipAddress: req.ip,
       userAgent: req.get('user-agent'),
-      description: `Cancelled transfer: ${transferData.description} (${transferData.quantity} ${transferData.unit})`
+      description: `Cancelled transfer: ${transferData.description} (${transferData.quantity} ${transferData.unit})${stockWasDeducted ? ' - Inventory restored to source' : ''}`
     });
     
     res.json(result.rows[0]);
@@ -1018,17 +1001,70 @@ router.post('/:id/undo-cancel', auth, authorize('admin'), async (req, res) => {
       return res.status(400).json({ error: 'Can only undo cancelled transfers' });
     }
 
-    // Restore to in_transit status (the status before cancel)
-    const result = await client.query(
-      `UPDATE transfers 
-       SET status = 'in_transit', updated_at = CURRENT_TIMESTAMP
-       WHERE id = $1 
-       RETURNING *`,
+    // Figure out the pre-cancel status:
+    //   - approved_by NULL  → cancelled from 'pending' (no stock was deducted, no re-deduct needed)
+    //   - linked delivery exists → cancelled from 'in_transit' (stock had been deducted)
+    //   - otherwise          → cancelled from 'approved' (stock had been deducted)
+    const linkedDelivery = await client.query(
+      'SELECT * FROM deliveries WHERE transfer_id = $1 ORDER BY id DESC LIMIT 1',
       [id]
+    );
+    const hadDelivery = linkedDelivery.rows.length > 0;
+    const wasApproved = !!transferData.approved_by;
+    const restoredStatus = hadDelivery ? 'in_transit' : (wasApproved ? 'approved' : 'pending');
+    const needsRededuct = wasApproved; // cancel restored stock for approved/in_transit
+
+    // Re-deduct from source if cancel had restored stock at the source
+    if (needsRededuct) {
+      const inventory = await client.query(
+        'SELECT * FROM inventory WHERE location_id = $1 AND description = $2 AND unit = $3 ORDER BY created_at ASC',
+        [transferData.from_location_id, transferData.description, transferData.unit]
+      );
+      const totalAvailable = inventory.rows.reduce((sum, b) => sum + parseFloat(b.quantity || 0), 0);
+      const requiredQty = parseFloat(transferData.quantity);
+
+      if (totalAvailable < requiredQty) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({
+          error: `Cannot undo cancel: source no longer has enough stock. Available: ${totalAvailable}, Required: ${requiredQty}`
+        });
+      }
+
+      let remaining = requiredQty;
+      for (const batch of inventory.rows) {
+        if (remaining <= 0) break;
+        const batchQty = parseFloat(batch.quantity);
+        if (batchQty <= 0) continue;
+        const take = Math.min(batchQty, remaining);
+        await client.query(
+          'UPDATE inventory SET quantity = quantity - $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+          [take, batch.id]
+        );
+        await cleanupZeroInventory(client, batch.id);
+        remaining -= take;
+      }
+    }
+
+    // Re-activate the delivery if we restored to in_transit
+    if (restoredStatus === 'in_transit' && hadDelivery) {
+      await client.query(
+        `UPDATE deliveries
+            SET status = 'in_transit', updated_at = CURRENT_TIMESTAMP
+          WHERE id = $1`,
+        [linkedDelivery.rows[0].id]
+      );
+    }
+
+    const result = await client.query(
+      `UPDATE transfers
+       SET status = $1, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $2
+       RETURNING *`,
+      [restoredStatus, id]
     );
 
     await client.query('COMMIT');
-    
+
     // Log audit
     await logAudit({
       userId: req.user.id,
@@ -1037,15 +1073,15 @@ router.post('/:id/undo-cancel', auth, authorize('admin'), async (req, res) => {
       tableName: 'transfers',
       recordId: id,
       oldValues: { status: 'cancelled' },
-      newValues: { status: 'in_transit' },
+      newValues: { status: restoredStatus },
       ipAddress: req.ip,
       userAgent: req.get('user-agent'),
-      description: `Restored cancelled transfer to in_transit: ${transferData.description} (${transferData.quantity} ${transferData.unit})`
+      description: `Restored cancelled transfer to ${restoredStatus}: ${transferData.description} (${transferData.quantity} ${transferData.unit})${needsRededuct ? ' - Inventory re-deducted from source' : ''}`
     });
-    
-    res.json({ 
-      ...result.rows[0], 
-      message: 'Transfer restored to In Transit status' 
+
+    res.json({
+      ...result.rows[0],
+      message: `Transfer restored to ${restoredStatus}${needsRededuct ? ' and inventory re-deducted' : ''}`
     });
   } catch (error) {
     await client.query('ROLLBACK');

@@ -36,7 +36,8 @@
       "Bash(lsof -i:5001 -i:3001)",
       "Bash(sed -n '350,360p' /Users/jeonilshin/Desktop/the-health-shop-inventory-system/client/src/components/CostVariations.js)",
       "Bash(sed -n '415,425p' /Users/jeonilshin/Desktop/the-health-shop-inventory-system/client/src/components/CostVariations.js)",
-      "Bash(sed -n '685,740p' /Users/jeonilshin/Desktop/the-health-shop-inventory-system/client/src/components/CostVariations.js)"
+      "Bash(sed -n '685,740p' /Users/jeonilshin/Desktop/the-health-shop-inventory-system/client/src/components/CostVariations.js)",
+      "Bash(CI=true npx --no-install react-scripts build)"
     ]
   }
 }

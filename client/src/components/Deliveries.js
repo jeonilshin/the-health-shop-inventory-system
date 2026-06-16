@@ -221,12 +221,18 @@ function Deliveries() {
       // At least one item has multiple batches — open batch selection modal
       const initialSelections = {};
       batchData.items.forEach(item => {
-        // Pre-fill from the first batch, capped at what that batch actually has
-        const firstBatch = item.available_batches[0];
-        initialSelections[item.item_id] = [{
-          batch_id: firstBatch.id,
-          quantity: Math.min(parseFloat(item.requested_quantity), parseFloat(firstBatch.quantity))
-        }];
+        // Pre-fill across batches in FIFO order until requested quantity is met
+        let remaining = parseFloat(item.requested_quantity);
+        const selections = [];
+        for (const batch of item.available_batches) {
+          if (remaining <= 0) break;
+          const take = Math.min(remaining, parseFloat(batch.quantity));
+          if (take > 0) {
+            selections.push({ batch_id: batch.id, quantity: take });
+            remaining -= take;
+          }
+        }
+        initialSelections[item.item_id] = selections;
       });
 
       setSelectedBatches(initialSelections);

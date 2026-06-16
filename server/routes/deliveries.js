@@ -4,6 +4,7 @@ const pool = require('../config/database');
 const { auth, authorize } = require('../middleware/auth');
 const { notifyLocation } = require('./notifications');
 const { logAudit } = require('../middleware/auditLog');
+const { restoreTransferToSource } = require('../utils/inventoryRestore');
 
 // Get all deliveries with items
 router.get('/', auth, async (req, res) => {
@@ -668,37 +669,45 @@ router.post('/:id/accept', auth, authorize('admin', 'branch_manager', 'branch_st
     // Check delivery status - must be admin_confirmed or in_transit
     if (deliveryData.status !== 'admin_confirmed' && deliveryData.status !== 'in_transit') {
       await client.query('ROLLBACK');
-      return res.status(400).json({ 
-        error: `Cannot accept delivery with status "${deliveryData.status}". Delivery must be confirmed by admin first.` 
+      return res.status(400).json({
+        error: `Cannot accept delivery with status "${deliveryData.status}". Delivery must be confirmed by admin first.`
       });
     }
 
+    // If this delivery is linked to a transfer, the warehouse stock was already
+    // deducted at the transfer's approval step. In that case accept only adds
+    // to the destination — it must NOT deduct from the source again.
+    const sourceAlreadyDeducted = !!deliveryData.transfer_id;
+
     // Pre-validate all items before making any inventory changes
+    // (only when we still need to pull stock from the source)
     const validationErrors = [];
-    for (const item of delivery.rows) {
-      if (!item.description) continue;
-      const itemSelection = batch_selections?.find(sel => sel.item_id === item.item_id);
-      if (itemSelection && itemSelection.batch_ids?.length > 0) {
-        for (let i = 0; i < itemSelection.batch_ids.length; i++) {
-          const batchCheck = await client.query(
-            'SELECT quantity FROM inventory WHERE id = $1 AND location_id = $2',
-            [itemSelection.batch_ids[i], deliveryData.from_location_id]
-          );
-          if (batchCheck.rows.length === 0) {
-            validationErrors.push(`${item.description} (${item.unit}): selected batch not found in warehouse`);
-          } else if (parseFloat(batchCheck.rows[0].quantity) < parseFloat(itemSelection.quantities[i])) {
-            validationErrors.push(`${item.description} (${item.unit}): batch only has ${batchCheck.rows[0].quantity}, ${itemSelection.quantities[i]} requested`);
+    if (!sourceAlreadyDeducted) {
+      for (const item of delivery.rows) {
+        if (!item.description) continue;
+        const itemSelection = batch_selections?.find(sel => sel.item_id === item.item_id);
+        if (itemSelection && itemSelection.batch_ids?.length > 0) {
+          for (let i = 0; i < itemSelection.batch_ids.length; i++) {
+            const batchCheck = await client.query(
+              'SELECT quantity FROM inventory WHERE id = $1 AND location_id = $2',
+              [itemSelection.batch_ids[i], deliveryData.from_location_id]
+            );
+            if (batchCheck.rows.length === 0) {
+              validationErrors.push(`${item.description} (${item.unit}): selected batch not found in warehouse`);
+            } else if (parseFloat(batchCheck.rows[0].quantity) < parseFloat(itemSelection.quantities[i])) {
+              validationErrors.push(`${item.description} (${item.unit}): batch only has ${batchCheck.rows[0].quantity}, ${itemSelection.quantities[i]} requested`);
+            }
           }
-        }
-      } else {
-        const stockCheck = await client.query(
-          `SELECT COALESCE(SUM(quantity), 0) as total FROM inventory WHERE location_id = $1 AND description = $2 AND unit = $3 AND quantity > 0`,
-          [deliveryData.from_location_id, item.description, item.unit]
-        );
-        const available = parseFloat(stockCheck.rows[0].total);
-        const requested = parseFloat(item.quantity);
-        if (available < requested) {
-          validationErrors.push(`${item.description} (${item.unit}): ${available === 0 ? 'no stock in warehouse' : `only ${available} available, ${requested} requested`}`);
+        } else {
+          const stockCheck = await client.query(
+            `SELECT COALESCE(SUM(quantity), 0) as total FROM inventory WHERE location_id = $1 AND description = $2 AND unit = $3 AND quantity > 0`,
+            [deliveryData.from_location_id, item.description, item.unit]
+          );
+          const available = parseFloat(stockCheck.rows[0].total);
+          const requested = parseFloat(item.quantity);
+          if (available < requested) {
+            validationErrors.push(`${item.description} (${item.unit}): ${available === 0 ? 'no stock in warehouse' : `only ${available} available, ${requested} requested`}`);
+          }
         }
       }
     }
@@ -709,133 +718,172 @@ router.post('/:id/accept', auth, authorize('admin', 'branch_manager', 'branch_st
 
     // Add items to destination inventory
     for (const item of delivery.rows) {
-      if (item.description) {
-        // Check if batch selections were provided for this item
-        const itemSelection = batch_selections?.find(sel => sel.item_id === item.item_id);
-        
-        if (itemSelection && itemSelection.batch_ids && itemSelection.batch_ids.length > 0) {
-          // User selected specific batches - use those
-          console.log(`[DELIVERY ACCEPT] Using batch selection for ${item.description}`);
-          
-          for (let i = 0; i < itemSelection.batch_ids.length; i++) {
-            const batchId = itemSelection.batch_ids[i];
-            const quantity = parseFloat(itemSelection.quantities[i]);
-            
-            if (quantity <= 0) continue;
-            
-            // Get batch details from source
-            const batchInfo = await client.query(
-              `SELECT cost_batch_id, unit_cost, suggested_selling_price, batch_number, expiry_date
-               FROM inventory
-               WHERE id = $1 AND location_id = $2`,
-              [batchId, deliveryData.from_location_id]
-            );
-            
-            if (batchInfo.rows.length === 0) {
-              await client.query('ROLLBACK');
-              return res.status(404).json({ error: `Batch not found for ${item.description}` });
-            }
-            
-            const batch = batchInfo.rows[0];
-            
-            // Deduct from source batch
-            await client.query(
-              `UPDATE inventory 
-               SET quantity = quantity - $1, updated_at = CURRENT_TIMESTAMP 
-               WHERE id = $2`,
-              [quantity, batchId]
-            );
-            
-            // Add to destination with same batch info
-            await client.query(
-              `INSERT INTO inventory (
-                location_id, description, unit, quantity, unit_cost, 
-                suggested_selling_price, cost_batch_id, batch_number, expiry_date
-              ) 
-              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) 
-              ON CONFLICT (location_id, description, unit, cost_batch_id) 
-              DO UPDATE SET 
-                quantity = inventory.quantity + $4, 
-                updated_at = CURRENT_TIMESTAMP`,
-              [
-                deliveryData.to_location_id, 
-                item.description, 
-                item.unit, 
-                quantity, 
-                batch.unit_cost,
-                batch.suggested_selling_price,
-                batch.cost_batch_id,
-                batch.batch_number,
-                batch.expiry_date
-              ]
-            );
-          }
-        } else {
-          // No batch selection - use FIFO (existing behavior)
-          console.log(`[DELIVERY ACCEPT] Using FIFO for ${item.description}`);
-          
-          // Get all batches from source, ordered by FIFO
-          const sourceBatches = await client.query(
-            `SELECT id, cost_batch_id, quantity, unit_cost, suggested_selling_price, 
-                    batch_number, expiry_date
+      if (!item.description) continue;
+
+      // === Path A: linked transfer — stock already left the source at approval ===
+      // Just add to destination, using the source's lot info as a best-effort hint.
+      if (sourceAlreadyDeducted) {
+        const hint = await client.query(
+          `SELECT batch_number, expiry_date, suggested_selling_price, cost_batch_id
              FROM inventory
-             WHERE location_id = $1 AND description = $2 AND unit = $3 AND quantity > 0
-             ORDER BY 
-               CASE WHEN expiry_date IS NULL THEN 1 ELSE 0 END,
-               expiry_date ASC NULLS LAST,
-               created_at ASC`,
-            [deliveryData.from_location_id, item.description, item.unit]
+            WHERE location_id = $1 AND description = $2 AND unit = $3
+            ORDER BY updated_at DESC
+            LIMIT 1`,
+          [deliveryData.from_location_id, item.description, item.unit]
+        );
+        const hintRow = hint.rows[0] || {};
+        const costBatchId = hintRow.cost_batch_id || `BATCH-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+        await client.query(
+          `INSERT INTO inventory (
+            location_id, description, unit, quantity, unit_cost,
+            suggested_selling_price, cost_batch_id, batch_number, expiry_date
+          )
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+          ON CONFLICT (location_id, description, unit, cost_batch_id)
+          DO UPDATE SET
+            quantity = inventory.quantity + $4,
+            updated_at = CURRENT_TIMESTAMP`,
+          [
+            deliveryData.to_location_id,
+            item.description,
+            item.unit,
+            parseFloat(item.quantity),
+            item.unit_cost,
+            hintRow.suggested_selling_price || item.unit_cost,
+            costBatchId,
+            hintRow.batch_number || null,
+            hintRow.expiry_date || null,
+          ]
+        );
+        continue;
+      }
+
+      // === Path B: standalone delivery — move stock from source to destination ===
+      const itemSelection = batch_selections?.find(sel => sel.item_id === item.item_id);
+
+      if (itemSelection && itemSelection.batch_ids && itemSelection.batch_ids.length > 0) {
+        // User selected specific batches - use those
+        console.log(`[DELIVERY ACCEPT] Using batch selection for ${item.description}`);
+
+        for (let i = 0; i < itemSelection.batch_ids.length; i++) {
+          const batchId = itemSelection.batch_ids[i];
+          const quantity = parseFloat(itemSelection.quantities[i]);
+
+          if (quantity <= 0) continue;
+
+          // Get batch details from source
+          const batchInfo = await client.query(
+            `SELECT cost_batch_id, unit_cost, suggested_selling_price, batch_number, expiry_date
+             FROM inventory
+             WHERE id = $1 AND location_id = $2`,
+            [batchId, deliveryData.from_location_id]
           );
-          
-          let remainingToTransfer = parseFloat(item.quantity);
-          
-          for (const batch of sourceBatches.rows) {
-            if (remainingToTransfer <= 0) break;
-            
-            const batchQty = parseFloat(batch.quantity);
-            const transferQty = Math.min(batchQty, remainingToTransfer);
-            
-            // Deduct from source
-            await client.query(
-              `UPDATE inventory 
-               SET quantity = quantity - $1, updated_at = CURRENT_TIMESTAMP 
-               WHERE id = $2`,
-              [transferQty, batch.id]
-            );
-            
-            // Add to destination
-            await client.query(
-              `INSERT INTO inventory (
-                location_id, description, unit, quantity, unit_cost, 
-                suggested_selling_price, cost_batch_id, batch_number, expiry_date
-              ) 
-              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) 
-              ON CONFLICT (location_id, description, unit, cost_batch_id) 
-              DO UPDATE SET 
-                quantity = inventory.quantity + $4, 
-                updated_at = CURRENT_TIMESTAMP`,
-              [
-                deliveryData.to_location_id, 
-                item.description, 
-                item.unit, 
-                transferQty, 
-                batch.unit_cost,
-                batch.suggested_selling_price,
-                batch.cost_batch_id,
-                batch.batch_number,
-                batch.expiry_date
-              ]
-            );
-            
-            remainingToTransfer -= transferQty;
-          }
-          
-          if (remainingToTransfer > 0) {
+
+          if (batchInfo.rows.length === 0) {
             await client.query('ROLLBACK');
-            return res.status(400).json({ 
-              error: `Insufficient inventory for ${item.description}. Missing: ${remainingToTransfer}` 
-            });
+            return res.status(404).json({ error: `Batch not found for ${item.description}` });
           }
+
+          const batch = batchInfo.rows[0];
+
+          // Deduct from source batch
+          await client.query(
+            `UPDATE inventory
+             SET quantity = quantity - $1, updated_at = CURRENT_TIMESTAMP
+             WHERE id = $2`,
+            [quantity, batchId]
+          );
+
+          // Add to destination with same batch info
+          await client.query(
+            `INSERT INTO inventory (
+              location_id, description, unit, quantity, unit_cost,
+              suggested_selling_price, cost_batch_id, batch_number, expiry_date
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            ON CONFLICT (location_id, description, unit, cost_batch_id)
+            DO UPDATE SET
+              quantity = inventory.quantity + $4,
+              updated_at = CURRENT_TIMESTAMP`,
+            [
+              deliveryData.to_location_id,
+              item.description,
+              item.unit,
+              quantity,
+              batch.unit_cost,
+              batch.suggested_selling_price,
+              batch.cost_batch_id,
+              batch.batch_number,
+              batch.expiry_date
+            ]
+          );
+        }
+      } else {
+        // No batch selection - use FIFO (existing behavior)
+        console.log(`[DELIVERY ACCEPT] Using FIFO for ${item.description}`);
+
+        // Get all batches from source, ordered by FIFO
+        const sourceBatches = await client.query(
+          `SELECT id, cost_batch_id, quantity, unit_cost, suggested_selling_price,
+                  batch_number, expiry_date
+           FROM inventory
+           WHERE location_id = $1 AND description = $2 AND unit = $3 AND quantity > 0
+           ORDER BY
+             CASE WHEN expiry_date IS NULL THEN 1 ELSE 0 END,
+             expiry_date ASC NULLS LAST,
+             created_at ASC`,
+          [deliveryData.from_location_id, item.description, item.unit]
+        );
+
+        let remainingToTransfer = parseFloat(item.quantity);
+
+        for (const batch of sourceBatches.rows) {
+          if (remainingToTransfer <= 0) break;
+
+          const batchQty = parseFloat(batch.quantity);
+          const transferQty = Math.min(batchQty, remainingToTransfer);
+
+          // Deduct from source
+          await client.query(
+            `UPDATE inventory
+             SET quantity = quantity - $1, updated_at = CURRENT_TIMESTAMP
+             WHERE id = $2`,
+            [transferQty, batch.id]
+          );
+
+          // Add to destination
+          await client.query(
+            `INSERT INTO inventory (
+              location_id, description, unit, quantity, unit_cost,
+              suggested_selling_price, cost_batch_id, batch_number, expiry_date
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            ON CONFLICT (location_id, description, unit, cost_batch_id)
+            DO UPDATE SET
+              quantity = inventory.quantity + $4,
+              updated_at = CURRENT_TIMESTAMP`,
+            [
+              deliveryData.to_location_id,
+              item.description,
+              item.unit,
+              transferQty,
+              batch.unit_cost,
+              batch.suggested_selling_price,
+              batch.cost_batch_id,
+              batch.batch_number,
+              batch.expiry_date
+            ]
+          );
+
+          remainingToTransfer -= transferQty;
+        }
+
+        if (remainingToTransfer > 0) {
+          await client.query('ROLLBACK');
+          return res.status(400).json({
+            error: `Insufficient inventory for ${item.description}. Missing: ${remainingToTransfer}`
+          });
         }
       }
     }
@@ -1056,7 +1104,7 @@ router.post('/:id/reject', auth, authorize('admin', 'branch_manager'), async (re
     
     // Update delivery status to rejected
     await client.query(
-      `UPDATE deliveries 
+      `UPDATE deliveries
        SET status = 'rejected',
            rejection_reason = $1,
            rejected_by = $2,
@@ -1065,11 +1113,24 @@ router.post('/:id/reject', auth, authorize('admin', 'branch_manager'), async (re
        WHERE id = $3`,
       [rejection_reason || null, req.user.id, id]
     );
-    
-    // If there's a linked transfer, update it to rejected as well
+
+    // If there's a linked transfer whose stock was already deducted at approval/ship,
+    // put the stock back at the source before flipping the transfer to rejected.
+    let stockRestored = false;
     if (delivery.transfer_id) {
+      const linkedTransferRes = await client.query(
+        'SELECT * FROM transfers WHERE id = $1',
+        [delivery.transfer_id]
+      );
+      const linkedTransfer = linkedTransferRes.rows[0];
+
+      if (linkedTransfer && (linkedTransfer.status === 'approved' || linkedTransfer.status === 'in_transit')) {
+        await restoreTransferToSource(client, linkedTransfer);
+        stockRestored = true;
+      }
+
       await client.query(
-        `UPDATE transfers 
+        `UPDATE transfers
          SET status = 'rejected',
              rejection_reason = $1,
              updated_at = CURRENT_TIMESTAMP
@@ -1077,7 +1138,7 @@ router.post('/:id/reject', auth, authorize('admin', 'branch_manager'), async (re
         [rejection_reason || 'Delivery rejected', delivery.transfer_id]
       );
     }
-    
+
     await client.query('COMMIT');
     
     // Log audit
@@ -1089,19 +1150,23 @@ router.post('/:id/reject', auth, authorize('admin', 'branch_manager'), async (re
       recordId: id,
       ipAddress: req.ip,
       userAgent: req.get('user-agent'),
-      description: `Rejected delivery from ${delivery.from_location_name} to ${delivery.to_location_name}. Reason: ${rejection_reason || 'No reason provided'}`
+      description: `Rejected delivery from ${delivery.from_location_name} to ${delivery.to_location_name}. Reason: ${rejection_reason || 'No reason provided'}${stockRestored ? ' - Inventory restored to source' : ''}`
     });
-    
+
     // Notify relevant parties
     await notifyLocation(
       delivery.from_location_id,
       'delivery_rejected',
       'Delivery Rejected',
-      `Delivery to ${delivery.to_location_name} was rejected. Reason: ${rejection_reason || 'No reason provided'}`,
+      `Delivery to ${delivery.to_location_name} was rejected${stockRestored ? ' and stock returned to source' : ''}. Reason: ${rejection_reason || 'No reason provided'}`,
       '/deliveries'
     );
-    
-    res.json({ message: 'Delivery rejected successfully' });
+
+    res.json({
+      message: stockRestored
+        ? 'Delivery rejected. Inventory was restored to the source location.'
+        : 'Delivery rejected successfully'
+    });
   } catch (error) {
     await client.query('ROLLBACK');
     console.error('Error rejecting delivery:', error);

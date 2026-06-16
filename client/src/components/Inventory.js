@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useContext } from 'react';
+import React, { useState, useEffect, useContext, useMemo } from 'react';
 import api from '../utils/api';
 import { AuthContext } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
@@ -33,6 +33,8 @@ function Inventory() {
   const [viewHistory, setViewHistory] = useState(null);
   const [productHistory, setProductHistory] = useState([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
+  const [historyFilterFrom, setHistoryFilterFrom] = useState('');
+  const [historyFilterTo, setHistoryFilterTo] = useState('');
   const [showLocationHistoryModal, setShowLocationHistoryModal] = useState(false);
   const [locationHistory, setLocationHistory] = useState([]);
   const [loadingLocationHistory, setLoadingLocationHistory] = useState(false);
@@ -638,6 +640,8 @@ function Inventory() {
 
   const handleViewHistory = async (item) => {
     setViewHistory(item);
+    setHistoryFilterFrom('');
+    setHistoryFilterTo('');
     setLoadingHistory(true);
     try {
       // Fetch history for this product (by description and unit)
@@ -893,6 +897,65 @@ function Inventory() {
       }}
     />
   );
+
+  // Product history view: running balance over the full history, plus filtered
+  // rows + totals for the selected date range. Running balance is true
+  // stock-on-hand at this location, so it must be computed from every entry
+  // (oldest -> newest) before applying the date filter.
+  const historyView = useMemo(() => {
+    if (!productHistory || productHistory.length === 0) {
+      return { rows: [], totalAdded: 0, totalDeducted: 0, net: 0 };
+    }
+
+    const signedDelta = (entry) => {
+      const qty = parseFloat(entry.quantity) || 0;
+      switch (entry.type) {
+        case 'received':
+        case 'added':
+          return qty;
+        case 'transferred':
+        case 'sale':
+          return -qty;
+        case 'edited': {
+          const oldQty = parseFloat(entry.old_quantity) || 0;
+          return qty - oldQty;
+        }
+        case 'converted':
+          return entry.conversion_direction === 'out' ? -qty : qty;
+        default:
+          return 0;
+      }
+    };
+
+    const oldestFirst = [...productHistory].sort(
+      (a, b) => new Date(a.date) - new Date(b.date)
+    );
+    let balance = 0;
+    const withBalance = oldestFirst.map((entry) => {
+      const delta = signedDelta(entry);
+      balance += delta;
+      return { ...entry, _delta: delta, _balance: balance };
+    });
+
+    const fromTs = historyFilterFrom ? new Date(historyFilterFrom + 'T00:00:00').getTime() : null;
+    const toTs = historyFilterTo ? new Date(historyFilterTo + 'T23:59:59.999').getTime() : null;
+    const filtered = withBalance.filter((e) => {
+      const ts = new Date(e.date).getTime();
+      if (fromTs !== null && ts < fromTs) return false;
+      if (toTs !== null && ts > toTs) return false;
+      return true;
+    });
+
+    let totalAdded = 0;
+    let totalDeducted = 0;
+    filtered.forEach((e) => {
+      if (e._delta > 0) totalAdded += e._delta;
+      else if (e._delta < 0) totalDeducted += -e._delta;
+    });
+
+    const rows = [...filtered].sort((a, b) => new Date(b.date) - new Date(a.date));
+    return { rows, totalAdded, totalDeducted, net: totalAdded - totalDeducted };
+  }, [productHistory, historyFilterFrom, historyFilterTo]);
 
   return (
     <div className="container">
@@ -2608,6 +2671,71 @@ function Inventory() {
             </div>
 
             <div style={{ padding: '20px', overflowY: 'auto', maxHeight: 'calc(90vh - 120px)' }}>
+              {!loadingHistory && productHistory.length > 0 && (
+                <div style={{ marginBottom: '16px' }}>
+                  <div style={{
+                    display: 'flex',
+                    flexWrap: 'wrap',
+                    gap: '12px',
+                    alignItems: 'flex-end',
+                    marginBottom: '12px'
+                  }}>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '4px' }}>
+                        From
+                      </label>
+                      <input
+                        type="date"
+                        value={historyFilterFrom}
+                        onChange={(e) => setHistoryFilterFrom(e.target.value)}
+                        style={{ padding: '6px 8px', border: '1px solid var(--border)', borderRadius: 'var(--radius)', fontSize: '14px' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '4px' }}>
+                        To
+                      </label>
+                      <input
+                        type="date"
+                        value={historyFilterTo}
+                        onChange={(e) => setHistoryFilterTo(e.target.value)}
+                        style={{ padding: '6px 8px', border: '1px solid var(--border)', borderRadius: 'var(--radius)', fontSize: '14px' }}
+                      />
+                    </div>
+                    {(historyFilterFrom || historyFilterTo) && (
+                      <button
+                        className="btn"
+                        onClick={() => { setHistoryFilterFrom(''); setHistoryFilterTo(''); }}
+                        style={{ padding: '6px 12px', fontSize: '13px' }}
+                      >
+                        Clear
+                      </button>
+                    )}
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '10px' }}>
+                    <div style={{ padding: '10px 12px', background: '#16a34a18', border: '1px solid #16a34a33', borderRadius: 'var(--radius)' }}>
+                      <div style={{ fontSize: '11px', fontWeight: 700, color: '#16a34a', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Added</div>
+                      <div style={{ fontSize: '18px', fontWeight: 700, color: '#16a34a' }}>
+                        +{formatQuantity(historyView.totalAdded)}
+                      </div>
+                    </div>
+                    <div style={{ padding: '10px 12px', background: '#dc262618', border: '1px solid #dc262633', borderRadius: 'var(--radius)' }}>
+                      <div style={{ fontSize: '11px', fontWeight: 700, color: '#dc2626', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Deducted</div>
+                      <div style={{ fontSize: '18px', fontWeight: 700, color: '#dc2626' }}>
+                        −{formatQuantity(historyView.totalDeducted)}
+                      </div>
+                    </div>
+                    <div style={{ padding: '10px 12px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 'var(--radius)' }}>
+                      <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Net Change</div>
+                      <div style={{ fontSize: '18px', fontWeight: 700, color: historyView.net >= 0 ? '#16a34a' : '#dc2626' }}>
+                        {historyView.net >= 0 ? '+' : '−'}{formatQuantity(Math.abs(historyView.net))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {loadingHistory ? (
                 <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
                   Loading history...
@@ -2615,6 +2743,10 @@ function Inventory() {
               ) : productHistory.length === 0 ? (
                 <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
                   No history found for this product
+                </div>
+              ) : historyView.rows.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
+                  No history in the selected date range
                 </div>
               ) : (
                 <div style={{ overflowX: 'auto' }}>
@@ -2624,12 +2756,13 @@ function Inventory() {
                         <th style={{ padding: '10px 8px', textAlign: 'left' }}>Date</th>
                         <th style={{ padding: '10px 8px', textAlign: 'left' }}>Type</th>
                         <th style={{ padding: '10px 8px', textAlign: 'left' }}>Qty</th>
+                        <th style={{ padding: '10px 8px', textAlign: 'left' }}>Balance</th>
                         <th style={{ padding: '10px 8px', textAlign: 'left' }}>Source / Destination</th>
                         <th style={{ padding: '10px 8px', textAlign: 'left' }}>By</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {productHistory.map((entry, idx) => {
+                      {historyView.rows.map((entry, idx) => {
                         const isReceived = entry.type === 'received';
                         const isTransferred = entry.type === 'transferred';
                         const isSale = entry.type === 'sale';
@@ -2687,8 +2820,14 @@ function Inventory() {
                                   )}
                                 </div>
                               ) : (
-                                entry.quantity != null ? formatQuantity(entry.quantity) : '—'
+                                <span style={{ color: entry._delta > 0 ? '#16a34a' : entry._delta < 0 ? '#dc2626' : 'inherit' }}>
+                                  {entry._delta > 0 ? '+' : entry._delta < 0 ? '−' : ''}
+                                  {entry.quantity != null ? formatQuantity(Math.abs(parseFloat(entry.quantity) || 0)) : '—'}
+                                </span>
                               )}
+                            </td>
+                            <td style={{ padding: '10px 8px', fontWeight: 700, color: 'var(--text-primary)' }}>
+                              [{formatQuantity(entry._balance)}]
                             </td>
                             <td style={{ padding: '10px 8px', color: 'var(--text-secondary)', fontSize: '13px' }}>
                               {sourceDest}
