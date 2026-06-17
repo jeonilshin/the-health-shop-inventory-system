@@ -907,6 +907,58 @@ router.get('/history/:id', auth, async (req, res) => {
       [locationId, item.description, item.unit]
     );
 
+    // Standalone deliveries (no linked transfer) — source-side deduction at accept time.
+    // Without this, admin-created deliveries don't appear in either location's history
+    // even though stock moved. transfer_id IS NULL skips transfer-linked deliveries,
+    // which are already covered by sentResult/receivedResult above.
+    const sentDeliveriesResult = await pool.query(
+      `SELECT
+        'transferred' as type,
+        d.id,
+        COALESCE(d.delivered_date, d.updated_at, d.created_at) as date,
+        di.description,
+        di.unit,
+        di.quantity,
+        di.unit_cost,
+        COALESCE(u.full_name, 'Unknown') as by_who,
+        tl.name as to_location_name,
+        tl.type as to_location_type
+      FROM deliveries d
+      JOIN delivery_items di ON d.id = di.delivery_id
+      JOIN locations tl ON d.to_location_id = tl.id
+      LEFT JOIN users u ON d.created_by = u.id
+      WHERE d.from_location_id = $1 AND d.status = 'delivered'
+        AND d.transfer_id IS NULL
+        AND di.description = $2 AND di.unit = $3
+      ORDER BY COALESCE(d.delivered_date, d.updated_at, d.created_at) DESC
+      LIMIT 500`,
+      [locationId, item.description, item.unit]
+    );
+
+    const receivedDeliveriesResult = await pool.query(
+      `SELECT
+        'received' as type,
+        d.id,
+        COALESCE(d.delivered_date, d.updated_at, d.created_at) as date,
+        di.description,
+        di.unit,
+        di.quantity,
+        di.unit_cost,
+        COALESCE(u.full_name, 'Unknown') as by_who,
+        fl.name as from_location_name,
+        fl.type as from_location_type
+      FROM deliveries d
+      JOIN delivery_items di ON d.id = di.delivery_id
+      JOIN locations fl ON d.from_location_id = fl.id
+      LEFT JOIN users u ON d.created_by = u.id
+      WHERE d.to_location_id = $1 AND d.status = 'delivered'
+        AND d.transfer_id IS NULL
+        AND di.description = $2 AND di.unit = $3
+      ORDER BY COALESCE(d.delivered_date, d.updated_at, d.created_at) DESC
+      LIMIT 500`,
+      [locationId, item.description, item.unit]
+    );
+
     // Items ADDED manually (from audit log)
     const addedResult = await pool.query(
       `SELECT
@@ -1050,6 +1102,8 @@ router.get('/history/:id', auth, async (req, res) => {
     const allHistory = [
       ...receivedResult.rows,
       ...sentResult.rows,
+      ...sentDeliveriesResult.rows,
+      ...receivedDeliveriesResult.rows,
       ...addedResult.rows,
       ...createdResult.rows,
       ...editedResult.rows,
@@ -1118,6 +1172,54 @@ router.get('/location-history/:locationId', auth, async (req, res) => {
       [locationId]
     );
 
+    // Standalone deliveries (no linked transfer) — cover admin-created deliveries
+    // that aren't reflected in the transfers table.
+    const sentDeliveriesResult = await pool.query(
+      `SELECT
+        'transferred' as type,
+        d.id,
+        COALESCE(d.delivered_date, d.updated_at, d.created_at) as date,
+        di.description,
+        di.unit,
+        di.quantity,
+        di.unit_cost,
+        COALESCE(u.full_name, 'Unknown') as by_who,
+        tl.name as to_location_name,
+        tl.type as to_location_type
+      FROM deliveries d
+      JOIN delivery_items di ON d.id = di.delivery_id
+      JOIN locations tl ON d.to_location_id = tl.id
+      LEFT JOIN users u ON d.created_by = u.id
+      WHERE d.from_location_id = $1 AND d.status = 'delivered'
+        AND d.transfer_id IS NULL
+      ORDER BY COALESCE(d.delivered_date, d.updated_at, d.created_at) DESC
+      LIMIT 500`,
+      [locationId]
+    );
+
+    const receivedDeliveriesResult = await pool.query(
+      `SELECT
+        'received' as type,
+        d.id,
+        COALESCE(d.delivered_date, d.updated_at, d.created_at) as date,
+        di.description,
+        di.unit,
+        di.quantity,
+        di.unit_cost,
+        COALESCE(u.full_name, 'Unknown') as by_who,
+        fl.name as from_location_name,
+        fl.type as from_location_type
+      FROM deliveries d
+      JOIN delivery_items di ON d.id = di.delivery_id
+      JOIN locations fl ON d.from_location_id = fl.id
+      LEFT JOIN users u ON d.created_by = u.id
+      WHERE d.to_location_id = $1 AND d.status = 'delivered'
+        AND d.transfer_id IS NULL
+      ORDER BY COALESCE(d.delivered_date, d.updated_at, d.created_at) DESC
+      LIMIT 500`,
+      [locationId]
+    );
+
     // Items ADDED manually by admin/staff
     const addedResult = await pool.query(
       `SELECT
@@ -1142,6 +1244,8 @@ router.get('/location-history/:locationId', auth, async (req, res) => {
     const allHistory = [
       ...receivedResult.rows,
       ...sentResult.rows,
+      ...sentDeliveriesResult.rows,
+      ...receivedDeliveriesResult.rows,
       ...addedResult.rows
     ].sort((a, b) => new Date(b.date) - new Date(a.date));
 

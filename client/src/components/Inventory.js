@@ -2539,7 +2539,7 @@ function Inventory() {
                                           <button
                                             className="btn btn-primary"
                                             style={{ padding: '4px 8px', fontSize: '10px' }}
-                                            onClick={() => handleEditBatch(batch)}
+                                            onClick={() => handleEditBatch({ ...batch, description: item.description, unit: item.unit })}
                                             title="Edit Batch Quantity & Expiry"
                                           >
                                             <FiEdit2 size={10} />
