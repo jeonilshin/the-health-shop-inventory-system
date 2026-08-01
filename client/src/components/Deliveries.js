@@ -7,7 +7,8 @@ import DiscrepancyModal from './DiscrepancyModal';
 import AutocompleteSearch from './AutocompleteSearch';
 import {
   FiTruck, FiPackage, FiCheck, FiClock, FiAlertCircle,
-  FiCheckCircle, FiAlertTriangle, FiRefreshCw, FiX, FiInfo, FiXCircle, FiChevronDown, FiDownload, FiFilter
+  FiCheckCircle, FiAlertTriangle, FiRefreshCw, FiX, FiInfo, FiXCircle, FiChevronDown, FiDownload, FiFilter,
+  FiEdit2, FiTrash2
 } from 'react-icons/fi';
 
 // Each delivery/request form holds an array of item rows so multiple products
@@ -15,7 +16,6 @@ import {
 // React a stable key when rows are added or removed.
 let _uidCounter = 0;
 const newUid = () => `row-${++_uidCounter}`;
-const blankRequestItem = () => ({ uid: newUid(), description: '', unit: '', quantity: '' });
 const blankDeliveryItem = () => ({
   uid: newUid(), description: '', unit: '', unit_cost: '', quantity: '',
   available_quantity: null, cost_batch_id: '', costBatches: []
@@ -47,7 +47,8 @@ function Deliveries() {
 
   // ── warehouse delivery creation ──
   const [showCreateDelivery, setShowCreateDelivery] = useState(false);
-  const [showRequestForm, setShowRequestForm] = useState(false);
+  // When set, the New Delivery form is editing an existing (not-yet-received) delivery.
+  const [editingDeliveryId, setEditingDeliveryId] = useState(null);
   const [locations, setLocations] = useState([]);
 
   // ── filters ──
@@ -62,8 +63,6 @@ function Deliveries() {
   const [showFilters, setShowFilters] = useState(false);
 
   // Multi-item forms: each form holds an array of item rows plus shared fields.
-  const [requestItems, setRequestItems] = useState(() => [blankRequestItem()]);
-  const [requestNotes, setRequestNotes] = useState('');
 
   const [deliveryItems, setDeliveryItems] = useState(() => [blankDeliveryItem()]);
   const [deliveryNotes, setDeliveryNotes] = useState('');
@@ -413,12 +412,6 @@ function Deliveries() {
     });
 
   // ── multi-item form helpers ──────────────────────────────────────────────
-  const updateRequestItem = (i, patch) =>
-    setRequestItems(rows => rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
-  const addRequestItem = () => setRequestItems(rows => [...rows, blankRequestItem()]);
-  const removeRequestItem = (i) =>
-    setRequestItems(rows => (rows.length > 1 ? rows.filter((_, idx) => idx !== i) : rows));
-  const resetRequestForm = () => { setRequestItems([blankRequestItem()]); setRequestNotes(''); };
 
   const updateDeliveryItem = (i, patch) =>
     setDeliveryItems(rows => rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
@@ -429,7 +422,39 @@ function Deliveries() {
     setDeliveryItems([blankDeliveryItem()]);
     setDeliveryNotes('');
     setDeliveryTo('');
+    setEditingDeliveryId(null);
     if (user.role !== 'warehouse') setDeliveryFrom('');
+  };
+
+  // Open the New Delivery form pre-filled to edit an existing delivery. Allowed only
+  // before the branch receives it — editing returns the old reserved stock to the
+  // warehouse and re-reserves the new amounts (handled server-side).
+  const startEditDelivery = (delivery) => {
+    setEditingDeliveryId(delivery.id);
+    setDeliveryFrom(String(delivery.from_location_id || ''));
+    setDeliveryTo(String(delivery.to_location_id || ''));
+    setDeliveryNotes(delivery.notes || '');
+    setDeliveryItems(
+      (delivery.items || []).filter(it => it && it.description).map(it => ({
+        ...blankDeliveryItem(),
+        description: it.description,
+        unit: it.unit,
+        quantity: String(it.quantity),
+        unit_cost: it.unit_cost != null ? String(it.unit_cost) : '',
+      }))
+    );
+    setShowCreateDelivery(true);
+  };
+
+  const handleDeleteDelivery = async (delivery) => {
+    if (!window.confirm('Delete this delivery? Any reserved stock will be returned to the warehouse.')) return;
+    try {
+      const res = await api.delete(`/deliveries/${delivery.id}`);
+      alert(res.data?.message || 'Delivery deleted.');
+      fetchAll();
+    } catch (error) {
+      alert(error.response?.data?.error || 'Error deleting delivery');
+    }
   };
 
   // ── filter deliveries ──────────────────────────────────────────────────
@@ -572,28 +597,19 @@ function Deliveries() {
         </div>
 
         <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-          {/* Branch: Request from Warehouse */}
+          {/* Branch: Request Return */}
           {(user.role === 'branch_manager' || user.role === 'branch_staff') && (
-            <>
-              <button
-                className="btn btn-success"
-                onClick={() => setShowRequestForm(!showRequestForm)}
-              >
-                <FiPackage size={16} />
-                {showRequestForm ? 'Cancel' : 'Request from Warehouse'}
-              </button>
-              <button
-                className="btn"
-                style={{
-                  display: 'flex', alignItems: 'center', gap: '6px',
-                  backgroundColor: '#8b5cf6', color: '#fff', border: 'none'
-                }}
-                onClick={() => setDiscModal({ open: true, type: 'return', delivery: null })}
-              >
-                <FiRefreshCw size={14} />
-                Request Return
-              </button>
-            </>
+            <button
+              className="btn"
+              style={{
+                display: 'flex', alignItems: 'center', gap: '6px',
+                backgroundColor: '#8b5cf6', color: '#fff', border: 'none'
+              }}
+              onClick={() => setDiscModal({ open: true, type: 'return', delivery: null })}
+            >
+              <FiRefreshCw size={14} />
+              Request Return
+            </button>
           )}
 
           {/* Warehouse/Admin: Create Delivery */}
@@ -714,151 +730,18 @@ function Deliveries() {
         )}
       </div>
 
-      {/* ── Request from Warehouse Form (Branch) ──────────────────────────── */}
-      {showRequestForm && (user.role === 'branch_manager' || user.role === 'branch_staff') && (
-        <div className="card" style={{ marginBottom: '24px', borderLeft: '4px solid #10b981' }}>
-          <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#10b981', marginBottom: '16px' }}>
-            <FiPackage size={20} />
-            Request from Warehouse
-          </h3>
-          <div className="alert alert-info" style={{ marginBottom: '16px' }}>
-            <FiInfo size={16} />
-            Submit a request to the warehouse. They will review and create a delivery if approved.
-          </div>
-          <form onSubmit={async (e) => {
-            e.preventDefault();
-
-            if (requestItems.some(it => !it.description || !it.unit || !it.quantity)) {
-              alert('Please fill in all required fields for every item');
-              return;
-            }
-
-            try {
-              const warehouse = locations.find(loc => loc.type === 'warehouse');
-              if (!warehouse) {
-                alert('No warehouse found. Please contact admin.');
-                return;
-              }
-
-              await api.post('/deliveries', {
-                from_location_id: warehouse.id,
-                to_location_id: user.location_id,
-                notes: requestNotes || null,
-                // Cost is re-derived from warehouse inventory server-side;
-                // branch users never see or enter it.
-                items: requestItems.map(it => ({
-                  description: it.description,
-                  unit: it.unit,
-                  quantity: parseFloat(it.quantity),
-                  unit_cost: 0
-                }))
-              });
-              alert('Request submitted to warehouse!');
-              setShowRequestForm(false);
-              resetRequestForm();
-              fetchAll();
-            } catch (error) {
-              alert(error.response?.data?.error || 'Error submitting request');
-            }
-          }}>
-            {requestItems.map((item, index) => (
-              <div key={item.uid} style={{
-                border: '1px solid var(--border-color, #e5e7eb)',
-                borderRadius: '8px', padding: '12px', marginBottom: '12px'
-              }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                  <strong style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Item {index + 1}</strong>
-                  {requestItems.length > 1 && (
-                    <button
-                      type="button"
-                      className="btn"
-                      style={{ padding: '2px 8px', fontSize: '12px', background: '#fee2e2', color: '#b91c1c', border: '1px solid #fca5a5' }}
-                      onClick={() => removeRequestItem(index)}
-                    >
-                      <FiX size={12} /> Remove
-                    </button>
-                  )}
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px' }}>
-                  <div className="form-group">
-                    <label>Item Description *</label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="Enter item description"
-                      value={item.description}
-                      onChange={(e) => updateRequestItem(index, { description: e.target.value })}
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label>Unit *</label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="e.g., PC, BOX, BOT"
-                      value={item.unit}
-                      onChange={(e) => updateRequestItem(index, { unit: e.target.value })}
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label>Quantity *</label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      min="0.01"
-                      required
-                      placeholder="0.00"
-                      value={item.quantity}
-                      onChange={(e) => updateRequestItem(index, { quantity: e.target.value })}
-                    />
-                  </div>
-                </div>
-              </div>
-            ))}
-            <button
-              type="button"
-              className="btn"
-              style={{ marginBottom: '16px', background: '#ecfdf5', color: '#047857', border: '1px solid #6ee7b7' }}
-              onClick={addRequestItem}
-            >
-              <FiPackage size={14} /> Add Item
-            </button>
-            <div className="form-group" style={{ marginBottom: '16px' }}>
-              <label>Notes (Optional)</label>
-              <textarea
-                rows="3"
-                placeholder="Add any notes about this request..."
-                value={requestNotes}
-                onChange={(e) => setRequestNotes(e.target.value)}
-              ></textarea>
-            </div>
-            <div style={{ display: 'flex', gap: '10px' }}>
-              <button type="submit" className="btn btn-success">
-                <FiCheck size={16} />
-                Submit Request
-              </button>
-              <button type="button" className="btn btn-secondary" onClick={() => {
-                setShowRequestForm(false);
-                resetRequestForm();
-              }}>
-                <FiX size={16} />
-                Cancel
-              </button>
-            </div>
-          </form>
-        </div>
-      )}
-
       {/* ── New Delivery Form (Warehouse/Admin) ──────────────────────────── */}
       {showCreateDelivery && (user.role === 'admin' || user.role === 'warehouse') && (
         <div className="card" style={{ marginBottom: '24px', borderLeft: '4px solid #2563eb' }}>
           <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#2563eb', marginBottom: '16px' }}>
             <FiTruck size={20} />
-            Create New Delivery
+            {editingDeliveryId ? `Edit Delivery #${editingDeliveryId}` : 'Create New Delivery'}
           </h3>
           <div className="alert alert-info" style={{ marginBottom: '16px' }}>
             <FiInfo size={16} />
-            Create a delivery from warehouse to branch. This will notify the branch when ready.
+            {editingDeliveryId
+              ? 'Editing returns the previously reserved stock to the warehouse and re-reserves these items. Only possible while the branch has not received the delivery yet.'
+              : 'Create a delivery from warehouse to branch. The stock is reserved (removed from warehouse) immediately and added to the branch when they receive it.'}
           </div>
           <form onSubmit={async (e) => {
             e.preventDefault();
@@ -879,25 +762,36 @@ function Deliveries() {
               return;
             }
 
+            const itemsPayload = deliveryItems.map(it => ({
+              description: it.description,
+              unit: it.unit,
+              quantity: parseFloat(it.quantity),
+              // Server re-derives unit_cost from inventory; this is a hint only.
+              unit_cost: parseFloat(it.unit_cost) || 0
+            }));
+
             try {
-              await api.post('/deliveries', {
-                from_location_id: parseInt(fromId),
-                to_location_id: parseInt(deliveryTo),
-                notes: deliveryNotes || null,
-                items: deliveryItems.map(it => ({
-                  description: it.description,
-                  unit: it.unit,
-                  quantity: parseFloat(it.quantity),
-                  // Server re-derives unit_cost from inventory; this is a hint only.
-                  unit_cost: parseFloat(it.unit_cost) || 0
-                }))
-              });
-              alert('Delivery created successfully!');
+              if (editingDeliveryId) {
+                // Edit: server returns the old reserved stock and re-reserves these items.
+                await api.put(`/deliveries/${editingDeliveryId}`, {
+                  notes: deliveryNotes || null,
+                  items: itemsPayload
+                });
+                alert('Delivery updated. Stock was returned and re-reserved.');
+              } else {
+                await api.post('/deliveries', {
+                  from_location_id: parseInt(fromId),
+                  to_location_id: parseInt(deliveryTo),
+                  notes: deliveryNotes || null,
+                  items: itemsPayload
+                });
+                alert('Delivery created successfully!');
+              }
               setShowCreateDelivery(false);
               resetDeliveryForm();
               fetchAll();
             } catch (error) {
-              alert(error.response?.data?.error || 'Error creating delivery');
+              alert(error.response?.data?.error || (editingDeliveryId ? 'Error updating delivery' : 'Error creating delivery'));
             }
           }}>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px', marginBottom: '16px' }}>
@@ -906,7 +800,7 @@ function Deliveries() {
                 <select
                   required
                   value={deliveryFrom}
-                  disabled={user.role === 'warehouse'}
+                  disabled={user.role === 'warehouse' || !!editingDeliveryId}
                   onChange={(e) => {
                     setDeliveryFrom(e.target.value);
                     // Items were searched against the old warehouse — reset them.
@@ -924,6 +818,7 @@ function Deliveries() {
                 <select
                   required
                   value={deliveryTo}
+                  disabled={!!editingDeliveryId}
                   onChange={(e) => setDeliveryTo(e.target.value)}
                 >
                   <option value="">Select branch</option>
@@ -1641,7 +1536,7 @@ function Deliveries() {
                   <th>Status</th>
                   <th>Created By</th>
                   {user.role === 'admin' && <th>Confirmed By</th>}
-                  {(user.role === 'branch_manager' || user.role === 'branch_staff' || user.role === 'admin') && <th>Actions</th>}
+                  {(user.role === 'branch_manager' || user.role === 'branch_staff' || user.role === 'admin' || user.role === 'warehouse') && <th>Actions</th>}
                 </tr>
               </thead>
               <tbody>
@@ -1748,8 +1643,38 @@ function Deliveries() {
                         {delivery.admin_confirmed_by_name || '-'}
                       </td>
                     )}
-                    {(user.role === 'branch_manager' || user.role === 'branch_staff' || user.role === 'admin') && (
+                    {(user.role === 'branch_manager' || user.role === 'branch_staff' || user.role === 'admin' || user.role === 'warehouse') && (
                       <td>
+                        {/* Warehouse/Admin: edit or delete a delivery the branch hasn't received yet */}
+                        {!isTransferOnly && (user.role === 'admin' || user.role === 'warehouse') &&
+                          !['delivered', 'rejected', 'cancelled'].includes(delivery.status) && (
+                          <div style={{ display: 'inline-flex', gap: '6px', marginRight: '6px' }}>
+                            <button
+                              className="btn"
+                              style={{
+                                padding: '4px 10px', fontSize: '12px',
+                                background: '#eff6ff', color: '#1d4ed8',
+                                border: '1px solid #93c5fd',
+                                display: 'inline-flex', alignItems: 'center', gap: '4px', whiteSpace: 'nowrap'
+                              }}
+                              onClick={() => { startEditDelivery(delivery); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+                            >
+                              <FiEdit2 size={11} /> Edit
+                            </button>
+                            <button
+                              className="btn"
+                              style={{
+                                padding: '4px 10px', fontSize: '12px',
+                                background: '#fef2f2', color: '#b91c1c',
+                                border: '1px solid #fca5a5',
+                                display: 'inline-flex', alignItems: 'center', gap: '4px', whiteSpace: 'nowrap'
+                              }}
+                              onClick={() => handleDeleteDelivery(delivery)}
+                            >
+                              <FiTrash2 size={11} /> Delete
+                            </button>
+                          </div>
+                        )}
                         {!isTransferOnly && canReportIssue(delivery) && (
                           <div style={{ position: 'relative', display: 'inline-block' }}>
                             <button

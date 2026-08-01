@@ -1254,3 +1254,204 @@ router.get('/location-history/:locationId', auth, async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+
+// ── Location Inventory Summary ─────────────────────────────────────────────
+// Per-product BEG / RR / DR / OPEN BOTTLE / RETAIL / DISCREPANCY / SALES / END
+// for a location over a date window. Powers the Inventory Summary report.
+//
+//   BEG          stock on hand just before `from`
+//   RR           received from warehouse (deliveries / transfers IN), in window
+//   DR           delivered out to other locations (deliveries / transfers OUT)
+//   OPEN BOTTLE  units converted out of this unit (e.g. bottles opened)
+//   RETAIL       units gained from conversion into this unit (e.g. pieces)
+//   SALES        quantity sold
+//   END          stock on hand at `to` (anchored to live inventory, rolled back
+//                by tracked deltas dated after `to`)
+//   DISCREPANCY  END − (BEG + RR − DR − OPEN + RETAIL − SALES); the over/short not
+//                explained by tracked movements (manual adds / edits)
+router.get('/summary/:locationId', auth, authorize('admin', 'audit', 'branch_manager', 'branch_staff', 'warehouse'), async (req, res) => {
+  try {
+    const locationId = parseInt(req.params.locationId);
+    const { from, to, search } = req.query;
+
+    if (!locationId) return res.status(400).json({ error: 'A location is required' });
+
+    const { hasLocationAccess } = require('../middleware/auth');
+    const allowed = await hasLocationAccess(req.user.id, req.user.role, locationId);
+    if (!allowed) return res.status(403).json({ error: 'Access denied to this location' });
+
+    const fromTs = from ? new Date(from + 'T00:00:00').getTime() : null;
+    const toTs = to ? new Date(to + 'T23:59:59.999').getTime() : null;
+
+    // Only events dated on/after `from` are needed: BEG is derived by rolling the
+    // live END back through in-window deltas, so anything before `from` is implicit.
+    const fromClause = from ? "AND $2::date <= ($EVDATE)::date" : '';
+    const params = from ? [locationId, from] : [locationId];
+    const q = (sql) => pool.query(sql, params);
+
+    // Product metadata + current on-hand (depleted batches persist as 0-qty rows,
+    // so grouping the live inventory captures every product ever stocked here).
+    const meta = await pool.query(
+      `SELECT i.description, i.unit,
+              COALESCE(SUM(i.quantity), 0)              AS current_qty,
+              MAX(i.suggested_selling_price)            AS selling_price,
+              MAX(i.main_category)                      AS brand,
+              MAX(uc.conversion_factor)                 AS content
+         FROM inventory i
+         LEFT JOIN unit_conversions uc
+                ON uc.product_description = i.description AND uc.converted_unit = i.unit
+        WHERE i.location_id = $1
+        GROUP BY i.description, i.unit`,
+      [locationId]
+    );
+
+    // Each query yields { description, unit, date, qty, category }.
+    const received = await q(`
+      SELECT t.description, t.unit, COALESCE(t.transfer_date, t.created_at) AS date,
+             t.quantity AS qty, 'RR' AS category
+        FROM transfers t
+       WHERE t.to_location_id = $1 AND t.status = 'delivered'
+       ${fromClause.replace('$EVDATE', 'COALESCE(t.transfer_date, t.created_at)')}
+      UNION ALL
+      SELECT di.description, di.unit, COALESCE(d.delivered_date, d.updated_at, d.created_at) AS date,
+             di.quantity AS qty, 'RR' AS category
+        FROM deliveries d JOIN delivery_items di ON di.delivery_id = d.id
+       WHERE d.to_location_id = $1 AND d.status = 'delivered' AND d.transfer_id IS NULL
+       ${fromClause.replace('$EVDATE', 'COALESCE(d.delivered_date, d.updated_at, d.created_at)')}
+    `);
+
+    const sent = await q(`
+      SELECT t.description, t.unit, COALESCE(t.transfer_date, t.created_at) AS date,
+             t.quantity AS qty, 'DR' AS category
+        FROM transfers t
+       WHERE t.from_location_id = $1 AND t.status = 'delivered'
+       ${fromClause.replace('$EVDATE', 'COALESCE(t.transfer_date, t.created_at)')}
+      UNION ALL
+      SELECT di.description, di.unit, COALESCE(d.delivered_date, d.updated_at, d.created_at) AS date,
+             di.quantity AS qty, 'DR' AS category
+        FROM deliveries d JOIN delivery_items di ON di.delivery_id = d.id
+       WHERE d.from_location_id = $1 AND d.status = 'delivered' AND d.transfer_id IS NULL
+       ${fromClause.replace('$EVDATE', 'COALESCE(d.delivered_date, d.updated_at, d.created_at)')}
+    `);
+
+    const sales = await q(`
+      SELECT st.item_description AS description, st.item_unit AS unit,
+             COALESCE(st.transaction_date, st.created_at) AS date,
+             st.quantity_sold AS qty, 'SALES' AS category
+        FROM sales_transactions st
+       WHERE st.location_id = $1
+       ${fromClause.replace('$EVDATE', 'COALESCE(st.transaction_date, st.created_at)')}
+    `);
+
+    const convOut = await q(`
+      SELECT inv.description, inv.unit, al.created_at AS date,
+             (al.new_values->>'boxesToConvert') AS qty, 'OPEN' AS category
+        FROM audit_log al
+        JOIN inventory inv ON inv.id = al.record_id AND inv.location_id = $1
+       WHERE al.table_name = 'inventory' AND al.action = 'UNIT_CONVERSION'
+       ${fromClause.replace('$EVDATE', 'al.created_at')}
+    `);
+
+    const convIn = await q(`
+      SELECT inv.description, inv.unit, al.created_at AS date,
+             (al.new_values->>'piecesToAdd') AS qty, 'RETAIL' AS category
+        FROM audit_log al
+        JOIN inventory inv
+          ON inv.location_id = $1
+         AND (CASE WHEN al.new_values->>'toItemId' ~ '^[0-9]+$'
+                   THEN (al.new_values->>'toItemId')::int END) = inv.id
+       WHERE al.table_name = 'inventory' AND al.action = 'UNIT_CONVERSION'
+       ${fromClause.replace('$EVDATE', 'al.created_at')}
+    `);
+
+    // Manual adjustments (adds + edits) — signed; surface as DISCREPANCY / over-short.
+    const adds = await q(`
+      SELECT inv.description, inv.unit, al.created_at AS date,
+             (al.new_values->>'quantity') AS qty, 'ADJ' AS category
+        FROM audit_log al
+        JOIN inventory inv ON inv.id = al.record_id AND inv.location_id = $1
+       WHERE al.table_name = 'inventory' AND al.action = 'INVENTORY_ADD'
+       ${fromClause.replace('$EVDATE', 'al.created_at')}
+    `);
+
+    const edits = await q(`
+      SELECT inv.description, inv.unit, al.created_at AS date,
+             (COALESCE((al.new_values->>'quantity')::numeric, 0)
+              - COALESCE((al.old_values->>'quantity')::numeric, 0)) AS qty, 'ADJ' AS category
+        FROM audit_log al
+        JOIN inventory inv ON inv.id = al.record_id AND inv.location_id = $1
+       WHERE al.table_name = 'inventory' AND al.action = 'INVENTORY_UPDATE'
+       ${fromClause.replace('$EVDATE', 'al.created_at')}
+    `);
+
+    const SIGN = { RR: 1, RETAIL: 1, DR: -1, SALES: -1, OPEN: -1, ADJ: 1 };
+    const events = [
+      ...received.rows, ...sent.rows, ...sales.rows,
+      ...convOut.rows, ...convIn.rows, ...adds.rows, ...edits.rows,
+    ];
+
+    // Bucket events per product.
+    const byProduct = new Map();
+    const keyOf = (d, u) => `${d}||${u}`;
+    for (const e of events) {
+      const k = keyOf(e.description, e.unit);
+      if (!byProduct.has(k)) byProduct.set(k, []);
+      byProduct.get(k).push(e);
+    }
+
+    const searchLower = (search || '').trim().toLowerCase();
+
+    const rows = meta.rows
+      .filter(m => !searchLower || m.description.toLowerCase().includes(searchLower))
+      .map(m => {
+        const evs = byProduct.get(keyOf(m.description, m.unit)) || [];
+        const currentQty = parseFloat(m.current_qty) || 0;
+
+        let rr = 0, dr = 0, openBottle = 0, retail = 0, salesQty = 0, adj = 0;
+        let deltaAfter = 0; // signed sum of everything dated after `to`
+
+        for (const e of evs) {
+          const ts = new Date(e.date).getTime();
+          const qty = parseFloat(e.qty) || 0;
+          const signed = qty * (SIGN[e.category] || 0);
+
+          if (toTs !== null && ts > toTs) { deltaAfter += signed; continue; }
+          if (fromTs !== null && ts < fromTs) continue; // guarded by SQL, belt-and-braces
+
+          switch (e.category) {
+            case 'RR': rr += qty; break;
+            case 'DR': dr += qty; break;
+            case 'SALES': salesQty += qty; break;
+            case 'OPEN': openBottle += qty; break;
+            case 'RETAIL': retail += qty; break;
+            case 'ADJ': adj += qty; break; // already signed
+            default: break;
+          }
+        }
+
+        const end = currentQty - deltaAfter;
+        const windowSigned = rr - dr - openBottle + retail - salesQty + adj;
+        const beg = end - windowSigned;
+        const discrepancy = adj; // == end - (beg + rr - dr - openBottle + retail - salesQty)
+
+        return {
+          description: m.description,
+          unit: m.unit,
+          brand: m.brand || '',
+          content: m.content != null ? parseFloat(m.content) : null,
+          selling_price: m.selling_price != null ? parseFloat(m.selling_price) : null,
+          beg, rr, dr, open_bottle: openBottle, retail, discrepancy, sales: salesQty, end,
+        };
+      })
+      .sort((a, b) => a.description.localeCompare(b.description));
+
+    res.json({
+      location_id: locationId,
+      from: from || null,
+      to: to || null,
+      items: rows,
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});

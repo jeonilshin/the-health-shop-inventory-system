@@ -1,382 +1,250 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useContext, useMemo } from 'react';
+import * as XLSX from 'xlsx';
 import api from '../utils/api';
-import { 
-  FiShield, 
-  FiFilter, 
-  FiDownload, 
-  FiUser,
-  FiClock,
-  FiActivity,
-  FiDatabase
-} from 'react-icons/fi';
+import { AuthContext } from '../context/AuthContext';
+import { formatQuantity, formatPrice } from '../utils/formatNumber';
+import { FiClipboard, FiDownload, FiSearch } from 'react-icons/fi';
+
+// Short date label (e.g. "28-May-26") for the BEG/END headers.
+const fmtShort = (d) => {
+  if (!d) return '';
+  const dt = new Date(typeof d === 'string' && d.length <= 10 ? d + 'T00:00:00' : d);
+  if (isNaN(dt)) return '';
+  return dt.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' }).replace(/ /g, '-');
+};
 
 function AuditLog() {
-  const [logs, setLogs] = useState([]);
-  const [stats, setStats] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [filters, setFilters] = useState({
-    user_id: '',
-    action: '',
-    table_name: '',
-    start_date: '',
-    end_date: ''
-  });
-  const [pagination, setPagination] = useState({
-    limit: 50,
-    offset: 0,
-    total: 0
-  });
+  const { user } = useContext(AuthContext);
 
+  const [locations, setLocations] = useState([]);
+  const [locationId, setLocationId] = useState('');
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
+  const [search, setSearch] = useState('');
+
+  const [summary, setSummary] = useState(null); // { location_id, from, to, items: [] }
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  // Load the locations this user may report on.
   useEffect(() => {
-    fetchLogs();
-    fetchStats();
+    (async () => {
+      try {
+        const res = await api.get('/locations');
+        const locs = res.data || [];
+        setLocations(locs);
+        // Branch users default to their own location.
+        if ((user?.role === 'branch_manager' || user?.role === 'branch_staff' || user?.role === 'warehouse') && user?.location_id) {
+          setLocationId(String(user.location_id));
+        } else if (locs.length === 1) {
+          setLocationId(String(locs[0].id));
+        }
+      } catch (e) {
+        setError('Could not load locations');
+      }
+    })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters, pagination.offset]);
+  }, []);
 
-  const fetchLogs = async () => {
+  const generate = async () => {
+    if (!locationId) {
+      setError('Please select a location');
+      return;
+    }
+    setError('');
+    setLoading(true);
     try {
-      setLoading(true);
-      const params = new URLSearchParams({
-        ...filters,
-        limit: pagination.limit,
-        offset: pagination.offset
-      });
-      
-      // Remove empty filters
-      Object.keys(filters).forEach(key => {
-        if (!filters[key]) params.delete(key);
-      });
-
-      const response = await api.get(`/audit?${params}`);
-      setLogs(response.data.logs);
-      setPagination(prev => ({ ...prev, total: response.data.total }));
-    } catch (error) {
-      // Error fetching audit logs
+      const params = new URLSearchParams();
+      if (fromDate) params.set('from', fromDate);
+      if (toDate) params.set('to', toDate);
+      if (search.trim()) params.set('search', search.trim());
+      const res = await api.get(`/inventory/summary/${locationId}?${params.toString()}`);
+      setSummary(res.data);
+    } catch (e) {
+      setError(e.response?.data?.error || 'Failed to generate the inventory summary');
+      setSummary(null);
     } finally {
       setLoading(false);
     }
   };
 
-  const fetchStats = async () => {
-    try {
-      const response = await api.get('/audit/stats');
-      setStats(response.data);
-    } catch (error) {
-      // Error fetching audit stats
-    }
+  const locationName = useMemo(
+    () => locations.find(l => String(l.id) === String(locationId))?.name || '',
+    [locations, locationId]
+  );
+
+  const exportXLSX = () => {
+    if (!summary || !summary.items.length) return;
+    const begLabel = fmtShort(summary.from) || 'BEG';
+    const endLabel = fmtShort(summary.to) || 'END';
+    const rows = summary.items.map(it => ({
+      BRAND: it.brand,
+      PRODUCT: it.description,
+      UoM: it.unit,
+      CONTENT: it.content != null ? it.content : '',
+      'SELLING PRICE': it.selling_price != null ? it.selling_price : '',
+      [`BEG (${begLabel})`]: it.beg,
+      RR: it.rr,
+      DR: it.dr,
+      'OPEN BOTTLE': it.open_bottle,
+      RETAIL: it.retail,
+      'DISCREPANCY (OVER/SHORT)': it.discrepancy,
+      SALES: it.sales,
+      [`END (${endLabel})`]: it.end,
+    }));
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Inventory Summary');
+    XLSX.writeFile(wb, `inventory_summary_${locationName || 'location'}_${new Date().toISOString().split('T')[0]}.xlsx`);
   };
 
-  const handleExport = () => {
-    const csvContent = [
-      ['Date/Time', 'User', 'Action', 'Description', 'Table', 'Record ID', 'IP Address'],
-      ...logs.map(log => [
-        new Date(log.created_at).toLocaleString(),
-        log.full_name || log.username,
-        log.action,
-        log.description || '-',
-        log.table_name,
-        log.record_id || '-',
-        log.ip_address || '-'
-      ])
-    ].map(row => row.join(',')).join('\n');
+  const canPickLocation = user?.role === 'admin' || user?.role === 'audit';
 
-    const blob = new Blob([csvContent], { type: 'text/csv' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `audit_log_${new Date().toISOString().split('T')[0]}.csv`;
-    a.click();
-    window.URL.revokeObjectURL(url);
-  };
-
-  const handleFilterChange = (key, value) => {
-    setFilters(prev => ({ ...prev, [key]: value }));
-    setPagination(prev => ({ ...prev, offset: 0 }));
-  };
-
-  const clearFilters = () => {
-    setFilters({
-      user_id: '',
-      action: '',
-      table_name: '',
-      start_date: '',
-      end_date: ''
-    });
-  };
-
-  const nextPage = () => {
-    if (pagination.offset + pagination.limit < pagination.total) {
-      setPagination(prev => ({ ...prev, offset: prev.offset + prev.limit }));
-    }
-  };
-
-  const prevPage = () => {
-    if (pagination.offset > 0) {
-      setPagination(prev => ({ ...prev, offset: Math.max(0, prev.offset - prev.limit) }));
-    }
-  };
-
-  const getActionColor = (action) => {
-    if (action.includes('CREATE') || action.includes('ADD')) return '#10b981';
-    if (action.includes('UPDATE') || action.includes('CHANGE')) return '#3b82f6';
-    if (action.includes('DELETE')) return '#ef4444';
-    if (action.includes('LOGIN')) return '#8b5cf6';
-    if (action.includes('APPROVE') || action.includes('ACCEPT') || action.includes('CONFIRM')) return '#10b981';
-    if (action.includes('REJECT') || action.includes('CANCEL')) return '#f59e0b';
-    if (action.includes('SHIP') || action.includes('DELIVER')) return '#06b6d4';
-    return 'var(--text-primary)';
-  };
+  // ── styles ──
+  const th = { padding: '8px 10px', fontSize: '12px', fontWeight: 700, borderBottom: '2px solid #e5e7eb', whiteSpace: 'nowrap' };
+  const td = { padding: '6px 10px', fontSize: '13px', borderBottom: '1px solid #f1f5f9', whiteSpace: 'nowrap' };
+  const numTd = { ...td, textAlign: 'center', fontWeight: 600 };
+  const begLabel = fmtShort(summary?.from);
+  const endLabel = fmtShort(summary?.to);
 
   return (
     <div className="container">
-      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '24px' }}>
-        <FiShield size={32} color="#8b5cf6" />
-        <h2 style={{ margin: 0 }}>Audit Log</h2>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px' }}>
+        <FiClipboard size={30} color="#2563eb" />
+        <h2 style={{ margin: 0 }}>Inventory Summary</h2>
       </div>
-
-      {/* Statistics Cards */}
-      {stats && (
-        <div className="stats-grid" style={{ marginBottom: '24px' }}>
-          <div className="stat-card">
-            <div className="stat-card-header">
-              <div>
-                <div className="stat-card-value">{stats.stats.total_logs}</div>
-                <div className="stat-card-label">Total Logs</div>
-              </div>
-              <div className="stat-card-icon" style={{ backgroundColor: 'rgba(139, 92, 246, 0.1)', color: '#8b5cf6' }}>
-                <FiActivity />
-              </div>
-            </div>
-          </div>
-
-          <div className="stat-card">
-            <div className="stat-card-header">
-              <div>
-                <div className="stat-card-value">{stats.stats.last_24h}</div>
-                <div className="stat-card-label">Last 24 Hours</div>
-              </div>
-              <div className="stat-card-icon" style={{ backgroundColor: 'rgba(59, 130, 246, 0.1)', color: '#3b82f6' }}>
-                <FiClock />
-              </div>
-            </div>
-          </div>
-
-          <div className="stat-card">
-            <div className="stat-card-header">
-              <div>
-                <div className="stat-card-value">{stats.stats.unique_users}</div>
-                <div className="stat-card-label">Active Users</div>
-              </div>
-              <div className="stat-card-icon" style={{ backgroundColor: 'rgba(16, 185, 129, 0.1)', color: '#10b981' }}>
-                <FiUser />
-              </div>
-            </div>
-          </div>
-
-          <div className="stat-card">
-            <div className="stat-card-header">
-              <div>
-                <div className="stat-card-value">{stats.stats.creates}</div>
-                <div className="stat-card-label">Creates</div>
-              </div>
-              <div className="stat-card-icon" style={{ backgroundColor: 'rgba(16, 185, 129, 0.1)', color: '#10b981' }}>
-                <FiDatabase />
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Filters */}
       <div className="card" style={{ marginBottom: '20px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-          <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
-            <FiFilter size={20} />
-            Filters
-          </h3>
-          <button className="btn" onClick={clearFilters}>
-            Clear Filters
-          </button>
-        </div>
-
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '12px' }}>
-          <div className="form-group" style={{ marginBottom: 0 }}>
-            <label>Action</label>
-            <select
-              value={filters.action}
-              onChange={(e) => handleFilterChange('action', e.target.value)}
-            >
-              <option value="">All Actions</option>
-              <option value="LOGIN">Login</option>
-              <option value="PASSWORD_CHANGE">Password Change</option>
-              <option value="USER_CREATE">User Create</option>
-              <option value="USER_UPDATE">User Update</option>
-              <option value="USER_DELETE">User Delete</option>
-              <option value="INVENTORY_ADD">Inventory Add</option>
-              <option value="INVENTORY_UPDATE">Inventory Update</option>
-              <option value="INVENTORY_DELETE">Inventory Delete</option>
-              <option value="SALE_CREATE">Sale</option>
-              <option value="TRANSFER_CREATE">Transfer Create</option>
-              <option value="TRANSFER_APPROVE">Transfer Approve</option>
-              <option value="TRANSFER_REJECT">Transfer Reject</option>
-              <option value="TRANSFER_SHIP">Transfer Ship</option>
-              <option value="TRANSFER_DELIVER">Transfer Deliver</option>
-              <option value="TRANSFER_CANCEL">Transfer Cancel</option>
-              <option value="DELIVERY_CREATE">Delivery Create</option>
-              <option value="DELIVERY_UPDATE">Delivery Update</option>
-              <option value="DELIVERY_COMPLETE">Delivery Complete</option>
-              <option value="DELIVERY_ADMIN_CONFIRM">Delivery Admin Confirm</option>
-              <option value="DELIVERY_ACCEPT">Delivery Accept</option>
-              <option value="DELIVERY_DELETE">Delivery Delete</option>
-            </select>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px', alignItems: 'end' }}>
+          {canPickLocation ? (
+            <div className="form-group" style={{ margin: 0 }}>
+              <label>Location *</label>
+              <select value={locationId} onChange={e => setLocationId(e.target.value)}>
+                <option value="">Select location</option>
+                {locations.map(l => (
+                  <option key={l.id} value={l.id}>{l.name}</option>
+                ))}
+              </select>
+            </div>
+          ) : (
+            <div className="form-group" style={{ margin: 0 }}>
+              <label>Location</label>
+              <input type="text" value={locationName} disabled />
+            </div>
+          )}
+          <div className="form-group" style={{ margin: 0 }}>
+            <label>From (BEG)</label>
+            <input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)} />
           </div>
-
-          <div className="form-group" style={{ marginBottom: 0 }}>
-            <label>Table</label>
-            <select
-              value={filters.table_name}
-              onChange={(e) => handleFilterChange('table_name', e.target.value)}
-            >
-              <option value="">All Tables</option>
-              <option value="users">Users</option>
-              <option value="inventory">Inventory</option>
-              <option value="sales">Sales</option>
-              <option value="transfers">Transfers</option>
-              <option value="deliveries">Deliveries</option>
-              <option value="locations">Locations</option>
-              <option value="messages">Messages</option>
-              <option value="notifications">Notifications</option>
-            </select>
+          <div className="form-group" style={{ margin: 0 }}>
+            <label>To (END)</label>
+            <input type="date" value={toDate} onChange={e => setToDate(e.target.value)} />
           </div>
-
-          <div className="form-group" style={{ marginBottom: 0 }}>
-            <label>Start Date</label>
-            <input
-              type="date"
-              value={filters.start_date}
-              onChange={(e) => handleFilterChange('start_date', e.target.value)}
-            />
+          <div className="form-group" style={{ margin: 0 }}>
+            <label>Search Product</label>
+            <input type="text" placeholder="Filter by product name…" value={search}
+              onChange={e => setSearch(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') generate(); }} />
           </div>
-
-          <div className="form-group" style={{ marginBottom: 0 }}>
-            <label>End Date</label>
-            <input
-              type="date"
-              value={filters.end_date}
-              onChange={(e) => handleFilterChange('end_date', e.target.value)}
-            />
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button className="btn btn-primary" onClick={generate} disabled={loading}>
+              <FiSearch size={15} /> {loading ? 'Loading…' : 'Generate'}
+            </button>
+            {summary && summary.items.length > 0 && (
+              <button className="btn btn-secondary" onClick={exportXLSX}>
+                <FiDownload size={15} /> Export
+              </button>
+            )}
           </div>
         </div>
+        <div style={{ marginTop: '8px', fontSize: '12px', color: 'var(--text-muted)' }}>
+          Leave dates blank to summarise all-time up to today. BEG = stock at the From date, END = stock at the To date.
+        </div>
+        {error && <div className="alert alert-error" style={{ marginTop: '12px' }}>{error}</div>}
       </div>
 
-      {/* Audit Logs Table */}
-      <div className="card">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-          <h3 style={{ margin: 0 }}>Activity Log</h3>
-          <button className="btn" onClick={handleExport} disabled={logs.length === 0}>
-            <FiDownload size={16} />
-            Export CSV
-          </button>
+      {/* Report */}
+      {!summary ? (
+        <div className="card" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '40px' }}>
+          Choose a location and date range, then click <strong>Generate</strong>.
         </div>
-
-        {loading ? (
-          <div style={{ textAlign: 'center', padding: '40px' }}>
-            <div className="spinner"></div>
-          </div>
-        ) : logs.length === 0 ? (
-          <div className="empty-state">
-            <div className="empty-state-icon">
-              <FiActivity />
+      ) : summary.items.length === 0 ? (
+        <div className="card" style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '40px' }}>
+          No products found for this location / filter.
+        </div>
+      ) : (
+        <div className="card" style={{ padding: 0 }}>
+          {/* Report meta bar */}
+          <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', gap: '10px', padding: '14px 16px', borderBottom: '1px solid var(--border)' }}>
+            <div>
+              <div style={{ fontSize: '13px', color: 'var(--text-muted)' }}>Date generated</div>
+              <div style={{ fontWeight: 700 }}>{new Date().toLocaleDateString('en-US', { month: 'long', day: '2-digit', year: 'numeric' })}</div>
             </div>
-            <h3>No Audit Logs</h3>
-            <p>No activity logs found for the selected filters</p>
+            <div>
+              <div style={{ fontSize: '13px', color: 'var(--text-muted)' }}>Date covered</div>
+              <div style={{ fontWeight: 700 }}>{begLabel || 'Start'} → {endLabel || 'Today'}</div>
+            </div>
+            <div>
+              <div style={{ fontSize: '13px', color: 'var(--text-muted)' }}>Location</div>
+              <div style={{ fontWeight: 700, color: '#b91c1c' }}>{locationName}</div>
+            </div>
+            <div>
+              <div style={{ fontSize: '13px', color: 'var(--text-muted)' }}>Products</div>
+              <div style={{ fontWeight: 700 }}>{summary.items.length}</div>
+            </div>
           </div>
-        ) : (
-          <>
-            <div style={{ overflowX: 'auto' }}>
-              <table>
-                <thead>
-                  <tr>
-                    <th>Date/Time</th>
-                    <th>User</th>
-                    <th>Action</th>
-                    <th>Description</th>
-                    <th>Table</th>
-                    <th>Record ID</th>
-                    <th>IP Address</th>
+
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ borderCollapse: 'collapse', width: '100%', minWidth: '1000px' }}>
+              <thead>
+                <tr style={{ background: 'var(--bg-secondary)' }}>
+                  <th style={{ ...th, textAlign: 'left' }}>Brand</th>
+                  <th style={{ ...th, textAlign: 'left' }}>Product</th>
+                  <th style={th}>UoM</th>
+                  <th style={th}>Content</th>
+                  <th style={{ ...th, textAlign: 'right' }}>Selling Price</th>
+                  <th style={{ ...th, background: '#1e3a8a', color: '#fff' }}>
+                    <div>{begLabel || 'BEG'}</div>
+                    <div style={{ fontSize: '10px', opacity: 0.85 }}>BEG</div>
+                  </th>
+                  <th style={{ ...th, color: '#16a34a' }}>RR</th>
+                  <th style={{ ...th, color: '#16a34a' }}>DR</th>
+                  <th style={{ ...th, color: '#2563eb' }}>OPEN<br/>BOTTLE</th>
+                  <th style={{ ...th, color: '#2563eb' }}>RETAIL</th>
+                  <th style={{ ...th, color: '#dc2626' }}>DISCREPANCY<br/><span style={{ fontSize: '10px' }}>OVER/SHORT</span></th>
+                  <th style={{ ...th, color: '#b45309' }}>SALES</th>
+                  <th style={{ ...th, background: '#1e3a8a', color: '#fff' }}>
+                    <div>{endLabel || 'END'}</div>
+                    <div style={{ fontSize: '10px', opacity: 0.85 }}>END</div>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {summary.items.map((it, idx) => (
+                  <tr key={idx}>
+                    <td style={{ ...td, fontWeight: 600 }}>{it.brand || '—'}</td>
+                    <td style={{ ...td, whiteSpace: 'normal' }}>{it.description}</td>
+                    <td style={{ ...td, textAlign: 'center' }}>{it.unit}</td>
+                    <td style={{ ...td, textAlign: 'center' }}>{it.content != null ? formatQuantity(it.content) : ''}</td>
+                    <td style={{ ...td, textAlign: 'right' }}>{it.selling_price != null ? `₱${formatPrice(it.selling_price)}` : ''}</td>
+                    <td style={{ ...numTd, background: '#fef9c3' }}>{formatQuantity(it.beg)}</td>
+                    <td style={{ ...numTd, color: it.rr ? '#16a34a' : '#94a3b8' }}>{formatQuantity(it.rr)}</td>
+                    <td style={{ ...numTd, color: it.dr ? '#16a34a' : '#94a3b8' }}>{formatQuantity(it.dr)}</td>
+                    <td style={{ ...numTd, color: it.open_bottle ? '#2563eb' : '#94a3b8' }}>{formatQuantity(it.open_bottle)}</td>
+                    <td style={{ ...numTd, color: it.retail ? '#2563eb' : '#94a3b8' }}>{formatQuantity(it.retail)}</td>
+                    <td style={{ ...numTd, color: it.discrepancy ? '#dc2626' : '#94a3b8' }}>{formatQuantity(it.discrepancy)}</td>
+                    <td style={{ ...numTd, color: it.sales ? '#b45309' : '#94a3b8' }}>{formatQuantity(it.sales)}</td>
+                    <td style={{ ...numTd, background: '#fef9c3', color: it.end < 0 ? '#dc2626' : '#111827' }}>
+                      {it.end < 0 ? `(${formatQuantity(Math.abs(it.end))})` : formatQuantity(it.end)}
+                    </td>
                   </tr>
-                </thead>
-                <tbody>
-                  {logs.map((log) => (
-                    <tr key={log.id}>
-                      <td style={{ fontSize: '12px' }}>
-                        {new Date(log.created_at).toLocaleString()}
-                      </td>
-                      <td style={{ fontWeight: 600 }}>
-                        {log.full_name || log.username}
-                      </td>
-                      <td>
-                        <span style={{ 
-                          color: getActionColor(log.action),
-                          fontWeight: 600,
-                          fontSize: '12px'
-                        }}>
-                          {log.action}
-                        </span>
-                      </td>
-                      <td style={{ fontSize: '13px', maxWidth: '300px' }}>
-                        {log.description || '-'}
-                      </td>
-                      <td>
-                        <span className="badge badge-info">
-                          {log.table_name}
-                        </span>
-                      </td>
-                      <td style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                        {log.record_id || '-'}
-                      </td>
-                      <td style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                        {log.ip_address || '-'}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            {/* Pagination */}
-            <div style={{ 
-              display: 'flex', 
-              justifyContent: 'space-between', 
-              alignItems: 'center',
-              marginTop: '20px',
-              padding: '12px',
-              backgroundColor: 'var(--bg-secondary)',
-              borderRadius: 'var(--radius)'
-            }}>
-              <div style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>
-                Showing {pagination.offset + 1} to {Math.min(pagination.offset + pagination.limit, pagination.total)} of {pagination.total} logs
-              </div>
-              <div style={{ display: 'flex', gap: '8px' }}>
-                <button 
-                  className="btn" 
-                  onClick={prevPage}
-                  disabled={pagination.offset === 0}
-                >
-                  Previous
-                </button>
-                <button 
-                  className="btn" 
-                  onClick={nextPage}
-                  disabled={pagination.offset + pagination.limit >= pagination.total}
-                >
-                  Next
-                </button>
-              </div>
-            </div>
-          </>
-        )}
-      </div>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

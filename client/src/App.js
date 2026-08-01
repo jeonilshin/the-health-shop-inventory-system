@@ -13,7 +13,6 @@ import AuditLog from './components/AuditLog';
 import Messages from './components/Messages';
 import Sales from './components/Sales';
 import StockWithdrawals from './components/StockWithdrawals';
-import CostVariations from './components/CostVariations';
 import Navbar from './components/Navbar';
 import { AuthContext } from './context/AuthContext';
 import { NotificationProvider } from './context/NotificationContext';
@@ -134,8 +133,6 @@ function App() {
             <Route path="/sales" element={user ? <Sales /> : <Navigate to="/login" />} />
             <Route path="/stock-withdrawals" element={user ? <StockWithdrawals /> : <Navigate to="/login" />} />
             <Route path="/messages" element={user ? <Messages /> : <Navigate to="/login" />} />
-            <Route path="/cost-points" element={user?.role === 'admin' ? <CostVariations /> : <Navigate to="/" />} />
-            <Route path="/costs" element={user?.role === 'admin' ? <CostVariations /> : <Navigate to="/" />} />
             <Route path="/admin" element={(user?.role === 'admin' || user?.role === 'audit') ? <Admin /> : <Navigate to="/" />} />
             <Route path="/audit" element={(user?.role === 'admin' || user?.role === 'audit') ? <AuditLog /> : <Navigate to="/" />} />
           </Routes>

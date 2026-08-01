@@ -60,10 +60,9 @@ const NAV_ITEMS = [
   { to: '/analytics',       icon: FiBarChart2,   label: 'Analytics',       roles: ['admin'] },
   { to: '/deliveries',      icon: FiTruck,       label: 'Deliveries',      roles: ['admin','audit','warehouse','branch_manager','branch_staff'] },
   { to: '/discrepancy',     icon: FiAlertTriangle, label: 'Discrepancy',   roles: ['admin','audit','warehouse','branch_manager','branch_staff'] },
-  { to: '/costs',           icon: FiDollarSign,  label: 'Costs',           roles: ['admin'] },
   { to: '/messages',        icon: FiMessageSquare, label: 'Messages',      roles: ['admin','audit','warehouse','branch_manager','branch_staff'] },
   { to: '/admin',           icon: FiSettings,    label: 'Admin',           roles: ['admin','audit'] },
-  { to: '/audit',           icon: FiShield,      label: 'Audit Log',       roles: ['admin','audit'] },
+  { to: '/audit',           icon: FiShield,      label: 'Inventory Summary', roles: ['admin','audit'] },
 ];
 
 function Navbar() {

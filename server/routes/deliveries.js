@@ -6,6 +6,101 @@ const { notifyLocation } = require('./notifications');
 const { logAudit } = require('../middleware/auditLog');
 const { restoreTransferToSource } = require('../utils/inventoryRestore');
 
+// ── Reservation helpers (standalone deliveries) ────────────────────────────
+// Standalone deliveries reserve warehouse stock the moment they are created/sent.
+// reserveFromSource FIFO-consumes source batches and returns the exact breakdown
+// so accept can recreate the destination lots and edit/delete/reject can restore.
+
+// Consume `quantity` of an item from a source location using FIFO (soonest expiry
+// first, then oldest created). Decrements each source batch row and returns the
+// list of { cost_batch_id, quantity, unit_cost, suggested_selling_price,
+// batch_number, expiry_date } consumed. Throws if there is not enough stock.
+async function reserveFromSource(client, fromLocationId, item) {
+  const description = item.description;
+  const unit = item.unit;
+  let remaining = parseFloat(item.quantity);
+
+  if (!(remaining > 0)) return [];
+
+  const sourceBatches = await client.query(
+    `SELECT id, cost_batch_id, quantity, unit_cost, suggested_selling_price,
+            batch_number, expiry_date
+       FROM inventory
+      WHERE location_id = $1 AND description = $2 AND unit = $3 AND quantity > 0
+      ORDER BY
+        CASE WHEN expiry_date IS NULL THEN 1 ELSE 0 END,
+        expiry_date ASC NULLS LAST,
+        created_at ASC`,
+    [fromLocationId, description, unit]
+  );
+
+  const reserved = [];
+  for (const batch of sourceBatches.rows) {
+    if (remaining <= 0) break;
+    const batchQty = parseFloat(batch.quantity);
+    const takeQty = Math.min(batchQty, remaining);
+    if (takeQty <= 0) continue;
+
+    await client.query(
+      `UPDATE inventory
+          SET quantity = quantity - $1, updated_at = CURRENT_TIMESTAMP
+        WHERE id = $2`,
+      [takeQty, batch.id]
+    );
+
+    reserved.push({
+      cost_batch_id: batch.cost_batch_id,
+      quantity: takeQty,
+      unit_cost: batch.unit_cost,
+      suggested_selling_price: batch.suggested_selling_price,
+      batch_number: batch.batch_number,
+      expiry_date: batch.expiry_date,
+    });
+
+    remaining -= takeQty;
+  }
+
+  if (remaining > 0) {
+    throw new Error(
+      `Insufficient stock for "${description}" (${unit}). Missing ${remaining} to reserve.`
+    );
+  }
+
+  return reserved;
+}
+
+// Put a previously reserved breakdown back into the source location (edit/delete/reject).
+// `description`/`unit` come from the delivery_items row that owns this breakdown.
+async function restoreReservedToSource(client, fromLocationId, description, unit, reservedBatches) {
+  if (!Array.isArray(reservedBatches)) return;
+  for (const b of reservedBatches) {
+    const qty = parseFloat(b.quantity);
+    if (!(qty > 0)) continue;
+    await client.query(
+      `INSERT INTO inventory (
+         location_id, description, unit, quantity, unit_cost,
+         suggested_selling_price, cost_batch_id, batch_number, expiry_date
+       )
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       ON CONFLICT (location_id, description, unit, cost_batch_id)
+       DO UPDATE SET
+         quantity = inventory.quantity + $4,
+         updated_at = CURRENT_TIMESTAMP`,
+      [
+        fromLocationId,
+        description,
+        unit,
+        qty,
+        b.unit_cost,
+        b.suggested_selling_price != null ? b.suggested_selling_price : b.unit_cost,
+        b.cost_batch_id || `RESTORE-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        b.batch_number || null,
+        b.expiry_date || null,
+      ]
+    );
+  }
+}
+
 // Get all deliveries with items
 router.get('/', auth, async (req, res) => {
   try {
@@ -257,14 +352,24 @@ router.post('/', auth, authorize('admin', 'warehouse'), async (req, res) => {
     
     const delivery = deliveryResult.rows[0];
     
-    // Add delivery items
+    // Add delivery items and reserve the stock from the source immediately.
+    // The stock leaves the warehouse now ("reserved") and only lands in the branch
+    // when the branch accepts. reserved_batches records exactly what was consumed so
+    // accept can recreate the destination lots and edit/delete/reject can restore.
     for (const item of items) {
+      const reservedBatches = await reserveFromSource(client, from_location_id, item);
       await client.query(`
-        INSERT INTO delivery_items (delivery_id, description, unit, quantity, unit_cost, notes)
-        VALUES ($1, $2, $3, $4, $5, $6)
-      `, [delivery.id, item.description, item.unit, item.quantity, item.unit_cost, item.notes || null]);
+        INSERT INTO delivery_items (delivery_id, description, unit, quantity, unit_cost, notes, reserved_batches)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+      `, [delivery.id, item.description, item.unit, item.quantity, item.unit_cost, item.notes || null,
+          JSON.stringify(reservedBatches)]);
     }
-    
+
+    await client.query(
+      `UPDATE deliveries SET stock_reserved = true WHERE id = $1`,
+      [delivery.id]
+    );
+
     await client.query('COMMIT');
     
     // Log audit
@@ -313,26 +418,32 @@ router.post('/', auth, authorize('admin', 'warehouse'), async (req, res) => {
   }
 });
 
-// Update delivery status (auto-update inventory when delivered)
+// Update a delivery. Two modes:
+//   * EDIT ITEMS  (body.items present): re-write the item list for a delivery the
+//     branch has not received yet. Old reserved stock is returned to the warehouse
+//     and the new item list is reserved fresh — same logic as sending, so a mis-sent
+//     delivery can be corrected in place instead of delete-and-resend.
+//   * STATUS ONLY (body.status only): update the status field.
 router.put('/:id', auth, authorize('admin', 'warehouse'), async (req, res) => {
   const client = await pool.connect();
-  
+
   try {
     const { id } = req.params;
-    const { status } = req.body;
+    const { status, items, delivery_date, notes } = req.body;
 
     await client.query('BEGIN');
 
-    // Get delivery details with items
+    // Get delivery details with its items (including the reserved breakdown per item)
     const delivery = await client.query(
-      `SELECT d.*, 
-              json_agg(json_build_object(
+      `SELECT d.*,
+              COALESCE(json_agg(json_build_object(
                 'id', di.id,
                 'description', di.description,
                 'unit', di.unit,
                 'quantity', di.quantity,
-                'unit_cost', di.unit_cost
-              )) as items
+                'unit_cost', di.unit_cost,
+                'reserved_batches', di.reserved_batches
+              )) FILTER (WHERE di.id IS NOT NULL), '[]') as items
        FROM deliveries d
        LEFT JOIN delivery_items di ON d.id = di.delivery_id
        WHERE d.id = $1
@@ -347,72 +458,121 @@ router.put('/:id', auth, authorize('admin', 'warehouse'), async (req, res) => {
 
     const deliveryData = delivery.rows[0];
 
-    // If changing status to 'delivered', update inventory
-    if (status === 'delivered' && deliveryData.status !== 'delivered') {
-      // Deduct from source location and add to destination location
-      for (const item of deliveryData.items) {
-        if (item.id) { // Check if item exists
-          // Check source inventory
-          const sourceCheck = await client.query(
-            'SELECT quantity FROM inventory WHERE location_id = $1 AND description = $2 AND unit = $3',
-            [deliveryData.from_location_id, item.description, item.unit]
-          );
+    // ── EDIT ITEMS mode ──────────────────────────────────────────────────────
+    if (Array.isArray(items)) {
+      if (items.length === 0) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'A delivery must have at least one item' });
+      }
 
-          if (sourceCheck.rows.length === 0) {
-            await client.query('ROLLBACK');
-            return res.status(404).json({ 
-              error: `Item "${item.description}" not found in source location` 
-            });
-          }
+      // Only editable before the branch receives it.
+      if (['delivered', 'rejected', 'cancelled'].includes(deliveryData.status)) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({
+          error: `Cannot edit a ${deliveryData.status} delivery. The branch has already received or it was closed.`
+        });
+      }
 
-          if (sourceCheck.rows[0].quantity < item.quantity) {
-            await client.query('ROLLBACK');
-            return res.status(400).json({ 
-              error: `Insufficient quantity for "${item.description}" in source location. Available: ${sourceCheck.rows[0].quantity}, Required: ${item.quantity}` 
-            });
-          }
+      // Transfer-linked deliveries are driven by the transfer record, not here.
+      if (deliveryData.transfer_id) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'This delivery is linked to a transfer and cannot be edited here.' });
+      }
 
-          // Deduct from source location
-          await client.query(
-            'UPDATE inventory SET quantity = quantity - $1, updated_at = CURRENT_TIMESTAMP WHERE location_id = $2 AND description = $3 AND unit = $4',
-            [item.quantity, deliveryData.from_location_id, item.description, item.unit]
-          );
-
-          // Add to destination location (or update if exists)
-          await client.query(
-            `INSERT INTO inventory (location_id, description, unit, quantity, unit_cost, suggested_selling_price, cost_batch_id) 
-             VALUES ($1, $2, $3, $4, $5, $5, $6) 
-             ON CONFLICT (location_id, description, unit, cost_batch_id) 
-             DO UPDATE SET quantity = inventory.quantity + $4, updated_at = CURRENT_TIMESTAMP`,
-            [deliveryData.to_location_id, item.description, item.unit, item.quantity, item.unit_cost, 
-             `DELIVERY-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`]
+      // 1) Return everything currently reserved back to the warehouse.
+      if (deliveryData.stock_reserved) {
+        for (const old of deliveryData.items) {
+          await restoreReservedToSource(
+            client, deliveryData.from_location_id, old.description, old.unit, old.reserved_batches
           );
         }
       }
+
+      // 2) Validate the new list has enough stock (post-restore) and resolve unit cost.
+      for (const item of items) {
+        const invCheck = await client.query(
+          'SELECT quantity, unit_cost FROM inventory WHERE location_id = $1 AND description = $2 AND unit = $3',
+          [deliveryData.from_location_id, item.description, item.unit]
+        );
+        if (invCheck.rows.length === 0) {
+          await client.query('ROLLBACK');
+          return res.status(404).json({ error: `Item "${item.description}" not found in warehouse inventory` });
+        }
+        const available = invCheck.rows.reduce((sum, r) => sum + parseFloat(r.quantity || 0), 0);
+        if (available < parseFloat(item.quantity)) {
+          await client.query('ROLLBACK');
+          return res.status(400).json({
+            error: `Insufficient quantity for "${item.description}". Available: ${available.toFixed(2)}, Requested: ${item.quantity}`
+          });
+        }
+        const costRow = invCheck.rows.find(r => parseFloat(r.quantity || 0) > 0) || invCheck.rows[0];
+        item.unit_cost = costRow.unit_cost;
+      }
+
+      // 3) Replace the item rows and reserve the new quantities.
+      await client.query('DELETE FROM delivery_items WHERE delivery_id = $1', [id]);
+      for (const item of items) {
+        const reservedBatches = await reserveFromSource(client, deliveryData.from_location_id, item);
+        await client.query(
+          `INSERT INTO delivery_items (delivery_id, description, unit, quantity, unit_cost, notes, reserved_batches)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+          [id, item.description, item.unit, item.quantity, item.unit_cost, item.notes || null,
+           JSON.stringify(reservedBatches)]
+        );
+      }
+
+      const updated = await client.query(
+        `UPDATE deliveries
+            SET stock_reserved = true,
+                delivery_date = COALESCE($2, delivery_date),
+                notes = COALESCE($3, notes),
+                updated_at = CURRENT_TIMESTAMP
+          WHERE id = $1
+          RETURNING *`,
+        [id, delivery_date || null, notes != null ? notes : null]
+      );
+
+      await client.query('COMMIT');
+
+      await logAudit({
+        userId: req.user.id,
+        username: req.user.username,
+        action: 'DELIVERY_EDIT',
+        tableName: 'deliveries',
+        recordId: id,
+        oldValues: { items: deliveryData.items },
+        newValues: { items },
+        ipAddress: req.ip,
+        userAgent: req.get('user-agent'),
+        description: `Edited delivery items (${items.length} item(s)) - stock returned and re-reserved`
+      });
+
+      return res.json(updated.rows[0]);
     }
 
-    // Update delivery status
+    // ── STATUS ONLY mode ─────────────────────────────────────────────────────
+    // Receiving now happens exclusively through POST /:id/accept (which adds the
+    // reserved stock to the branch), so a plain status change never moves inventory.
     const result = await client.query(
       'UPDATE deliveries SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 RETURNING *',
       [status, id]
     );
 
     await client.query('COMMIT');
-    
-    // Log audit
+
     await logAudit({
       userId: req.user.id,
       username: req.user.username,
-      action: status === 'delivered' ? 'DELIVERY_COMPLETE' : 'DELIVERY_UPDATE',
+      action: 'DELIVERY_UPDATE',
       tableName: 'deliveries',
       recordId: id,
       oldValues: { status: deliveryData.status },
       newValues: result.rows[0],
       ipAddress: req.ip,
       userAgent: req.get('user-agent'),
-      description: `Updated delivery status to ${status}${status === 'delivered' ? ' - Inventory transferred' : ''}`
+      description: `Updated delivery status to ${status}`
     });
-    
+
     res.json(result.rows[0]);
   } catch (error) {
     await client.query('ROLLBACK');
@@ -422,24 +582,58 @@ router.put('/:id', auth, authorize('admin', 'warehouse'), async (req, res) => {
   }
 });
 
-// Delete delivery (admin only, only if not delivered)
-router.delete('/:id', auth, authorize('admin'), async (req, res) => {
+// Delete delivery (admin or warehouse, only before the branch has received it).
+// Any reserved stock is returned to the warehouse first.
+router.delete('/:id', auth, authorize('admin', 'warehouse'), async (req, res) => {
+  const client = await pool.connect();
   try {
     const { id } = req.params;
-    
-    // Check if delivery is already delivered
-    const delivery = await pool.query('SELECT status FROM deliveries WHERE id = $1', [id]);
-    
+
+    await client.query('BEGIN');
+
+    // Load the delivery and its items (with the reserved breakdown) up front.
+    const delivery = await client.query(
+      `SELECT d.*,
+              COALESCE(json_agg(json_build_object(
+                'description', di.description,
+                'unit', di.unit,
+                'reserved_batches', di.reserved_batches
+              )) FILTER (WHERE di.id IS NOT NULL), '[]') as items
+       FROM deliveries d
+       LEFT JOIN delivery_items di ON d.id = di.delivery_id
+       WHERE d.id = $1
+       GROUP BY d.id`,
+      [id]
+    );
+
     if (delivery.rows.length === 0) {
+      await client.query('ROLLBACK');
       return res.status(404).json({ error: 'Delivery not found' });
     }
-    
-    if (delivery.rows[0].status === 'delivered') {
+
+    const deliveryData = delivery.rows[0];
+
+    if (deliveryData.status === 'delivered') {
+      await client.query('ROLLBACK');
       return res.status(400).json({ error: 'Cannot delete a delivered delivery. Inventory has already been updated.' });
     }
-    
-    await pool.query('DELETE FROM deliveries WHERE id = $1', [id]);
-    
+
+    // Return reserved stock to the warehouse before removing the delivery.
+    // Transfer-linked deliveries are restored via the transfer flow, not here.
+    let stockRestored = false;
+    if (deliveryData.stock_reserved && !deliveryData.transfer_id) {
+      for (const item of deliveryData.items) {
+        await restoreReservedToSource(
+          client, deliveryData.from_location_id, item.description, item.unit, item.reserved_batches
+        );
+      }
+      stockRestored = true;
+    }
+
+    await client.query('DELETE FROM deliveries WHERE id = $1', [id]);
+
+    await client.query('COMMIT');
+
     // Log audit
     await logAudit({
       userId: req.user.id,
@@ -447,15 +641,22 @@ router.delete('/:id', auth, authorize('admin'), async (req, res) => {
       action: 'DELIVERY_DELETE',
       tableName: 'deliveries',
       recordId: id,
-      oldValues: delivery.rows[0],
+      oldValues: { status: deliveryData.status },
       ipAddress: req.ip,
       userAgent: req.get('user-agent'),
-      description: `Deleted delivery (status: ${delivery.rows[0].status})`
+      description: `Deleted delivery (status: ${deliveryData.status})${stockRestored ? ' - reserved stock returned to warehouse' : ''}`
     });
-    
-    res.json({ message: 'Delivery deleted successfully' });
+
+    res.json({
+      message: stockRestored
+        ? 'Delivery deleted. Reserved stock was returned to the warehouse.'
+        : 'Delivery deleted successfully'
+    });
   } catch (error) {
+    await client.query('ROLLBACK');
     res.status(500).json({ error: error.message });
+  } finally {
+    client.release();
   }
 });
 
@@ -636,7 +837,7 @@ router.post('/:id/accept', auth, authorize('admin', 'branch_manager', 'branch_st
     await client.query('BEGIN');
 
     const delivery = await client.query(
-      `SELECT d.*, di.id as item_id, di.description, di.unit, di.quantity, di.unit_cost
+      `SELECT d.*, di.id as item_id, di.description, di.unit, di.quantity, di.unit_cost, di.reserved_batches
        FROM deliveries d
        LEFT JOIN delivery_items di ON d.id = di.delivery_id
        WHERE d.id = $1`,
@@ -674,10 +875,13 @@ router.post('/:id/accept', auth, authorize('admin', 'branch_manager', 'branch_st
       });
     }
 
-    // If this delivery is linked to a transfer, the warehouse stock was already
-    // deducted at the transfer's approval step. In that case accept only adds
-    // to the destination — it must NOT deduct from the source again.
-    const sourceAlreadyDeducted = !!deliveryData.transfer_id;
+    // The warehouse stock is already gone from the source when EITHER:
+    //   * the delivery is linked to a transfer (deducted at transfer approval), or
+    //   * the delivery reserved its stock at send time (stock_reserved = true).
+    // In both cases accept only ADDS to the destination — never deducts again.
+    // (Legacy deliveries created before the reservation model still fall through to
+    //  Path B below, which pulls stock from the source at accept time.)
+    const sourceAlreadyDeducted = !!deliveryData.transfer_id || !!deliveryData.stock_reserved;
 
     // Pre-validate all items before making any inventory changes
     // (only when we still need to pull stock from the source)
@@ -720,9 +924,48 @@ router.post('/:id/accept', auth, authorize('admin', 'branch_manager', 'branch_st
     for (const item of delivery.rows) {
       if (!item.description) continue;
 
-      // === Path A: linked transfer — stock already left the source at approval ===
-      // Just add to destination, using the source's lot info as a best-effort hint.
+      // === Path A: stock already left the source (reserved or transfer-linked) ===
       if (sourceAlreadyDeducted) {
+        // Standalone reserved deliveries carry the exact source-batch breakdown that
+        // was consumed at send. Recreate those lots at the destination so cost /
+        // selling price / batch / expiry all carry over faithfully.
+        let reserved = item.reserved_batches;
+        if (typeof reserved === 'string') {
+          try { reserved = JSON.parse(reserved); } catch { reserved = null; }
+        }
+
+        if (Array.isArray(reserved) && reserved.length > 0) {
+          for (const b of reserved) {
+            const qty = parseFloat(b.quantity);
+            if (!(qty > 0)) continue;
+            await client.query(
+              `INSERT INTO inventory (
+                location_id, description, unit, quantity, unit_cost,
+                suggested_selling_price, cost_batch_id, batch_number, expiry_date
+              )
+              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+              ON CONFLICT (location_id, description, unit, cost_batch_id)
+              DO UPDATE SET
+                quantity = inventory.quantity + $4,
+                updated_at = CURRENT_TIMESTAMP`,
+              [
+                deliveryData.to_location_id,
+                item.description,
+                item.unit,
+                qty,
+                b.unit_cost,
+                b.suggested_selling_price != null ? b.suggested_selling_price : b.unit_cost,
+                b.cost_batch_id || `BATCH-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                b.batch_number || null,
+                b.expiry_date || null,
+              ]
+            );
+          }
+          continue;
+        }
+
+        // Transfer-linked (or a reserved row with no recorded breakdown):
+        // add to destination using the source's most recent lot info as a hint.
         const hint = await client.query(
           `SELECT batch_number, expiry_date, suggested_selling_price, cost_batch_id
              FROM inventory
@@ -1114,10 +1357,10 @@ router.post('/:id/reject', auth, authorize('admin', 'branch_manager'), async (re
       [rejection_reason || null, req.user.id, id]
     );
 
-    // If there's a linked transfer whose stock was already deducted at approval/ship,
-    // put the stock back at the source before flipping the transfer to rejected.
+    // Put stock back at the warehouse before finalizing the rejection.
     let stockRestored = false;
     if (delivery.transfer_id) {
+      // Transfer-linked: restore via the transfer record.
       const linkedTransferRes = await client.query(
         'SELECT * FROM transfers WHERE id = $1',
         [delivery.transfer_id]
@@ -1137,6 +1380,20 @@ router.post('/:id/reject', auth, authorize('admin', 'branch_manager'), async (re
          WHERE id = $2`,
         [rejection_reason || 'Delivery rejected', delivery.transfer_id]
       );
+    } else if (delivery.stock_reserved) {
+      // Standalone reserved delivery: return each item's reserved breakdown.
+      const itemsRes = await client.query(
+        'SELECT description, unit, reserved_batches FROM delivery_items WHERE delivery_id = $1',
+        [id]
+      );
+      for (const item of itemsRes.rows) {
+        await restoreReservedToSource(
+          client, delivery.from_location_id, item.description, item.unit, item.reserved_batches
+        );
+      }
+      // Clear the flag so the stock is never returned twice (e.g. if later deleted).
+      await client.query('UPDATE deliveries SET stock_reserved = false WHERE id = $1', [id]);
+      stockRestored = true;
     }
 
     await client.query('COMMIT');

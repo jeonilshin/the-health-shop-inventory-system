@@ -903,8 +903,12 @@ function Inventory() {
   // stock-on-hand at this location, so it must be computed from every entry
   // (oldest -> newest) before applying the date filter.
   const historyView = useMemo(() => {
+    const empty = {
+      rows: [], beg: 0, end: 0, rr: 0, dr: 0, openBottle: 0, retail: 0, sales: 0,
+      begDate: historyFilterFrom || '', endDate: historyFilterTo || ''
+    };
     if (!productHistory || productHistory.length === 0) {
-      return { rows: [], totalAdded: 0, totalDeducted: 0, net: 0 };
+      return empty;
     }
 
     const signedDelta = (entry) => {
@@ -946,16 +950,54 @@ function Inventory() {
       return true;
     });
 
-    let totalAdded = 0;
-    let totalDeducted = 0;
+    // BEG = true stock-on-hand just before the window starts.
+    // END = true stock-on-hand at the window's end (running balance is the source of
+    // truth, so manual adds/edits still reconcile even though they aren't columns).
+    let beg = 0;
+    if (fromTs !== null) {
+      const before = withBalance.filter((e) => new Date(e.date).getTime() < fromTs);
+      beg = before.length ? before[before.length - 1]._balance : 0;
+    }
+    let end;
+    if (toTs !== null) {
+      const upto = withBalance.filter((e) => new Date(e.date).getTime() <= toTs);
+      end = upto.length ? upto[upto.length - 1]._balance : beg;
+    } else {
+      end = withBalance[withBalance.length - 1]._balance;
+    }
+
+    // Movement breakdown for the window.
+    let rr = 0, dr = 0, openBottle = 0, retail = 0, sales = 0;
     filtered.forEach((e) => {
-      if (e._delta > 0) totalAdded += e._delta;
-      else if (e._delta < 0) totalDeducted += -e._delta;
+      const qty = parseFloat(e.quantity) || 0;
+      switch (e.type) {
+        case 'received': rr += qty; break;             // RR: received from warehouse
+        case 'transferred': dr += qty; break;          // DR: sent to other branches
+        case 'sale': sales += qty; break;              // SALES: sold
+        case 'converted':
+          if (e.conversion_direction === 'out') openBottle += qty; // OPEN BOTTLE
+          else retail += qty;                                      // RETAIL (pieces gained)
+          break;
+        default: break;                                // added/edited fold into BEG/END
+      }
     });
 
+    const begDate = historyFilterFrom
+      || (oldestFirst.length ? oldestFirst[0].date : '');
+    const endDate = historyFilterTo
+      || (oldestFirst.length ? oldestFirst[oldestFirst.length - 1].date : '');
+
     const rows = [...filtered].sort((a, b) => new Date(b.date) - new Date(a.date));
-    return { rows, totalAdded, totalDeducted, net: totalAdded - totalDeducted };
+    return { rows, beg, end, rr, dr, openBottle, retail, sales, begDate, endDate };
   }, [productHistory, historyFilterFrom, historyFilterTo]);
+
+  // Short date label (e.g. "28-May-26") for the BEG/END summary boxes.
+  const fmtSummaryDate = (d) => {
+    if (!d) return '';
+    const dt = new Date(typeof d === 'string' && d.length <= 10 ? d + 'T00:00:00' : d);
+    if (isNaN(dt)) return '';
+    return dt.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' }).replace(/ /g, '-');
+  };
 
   return (
     <div className="container">
@@ -2713,26 +2755,46 @@ function Inventory() {
                     )}
                   </div>
 
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '10px' }}>
-                    <div style={{ padding: '10px 12px', background: '#16a34a18', border: '1px solid #16a34a33', borderRadius: 'var(--radius)' }}>
-                      <div style={{ fontSize: '11px', fontWeight: 700, color: '#16a34a', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Added</div>
-                      <div style={{ fontSize: '18px', fontWeight: 700, color: '#16a34a' }}>
-                        +{formatQuantity(historyView.totalAdded)}
+                  {/* BEG | RR | DR | OPEN BOTTLE | RETAIL | SALES | END summary strip.
+                      BEG/END show stock-on-hand at the filtered dates; the middle
+                      columns break down the movements within the window. */}
+                  {(() => {
+                    const col = (label, sub, value, color) => (
+                      <div style={{ flex: '1 1 0', minWidth: '70px', textAlign: 'center' }}>
+                        <div style={{ fontSize: '11px', fontWeight: 700, color, textTransform: 'uppercase', letterSpacing: '0.5px' }}>{label}</div>
+                        {sub && <div style={{ fontSize: '9px', fontWeight: 700, color, textTransform: 'uppercase', opacity: 0.75 }}>{sub}</div>}
+                        <div style={{ fontSize: '18px', fontWeight: 700, color: '#111827', marginTop: '4px' }}>
+                          {formatQuantity(value)}
+                        </div>
                       </div>
-                    </div>
-                    <div style={{ padding: '10px 12px', background: '#dc262618', border: '1px solid #dc262633', borderRadius: 'var(--radius)' }}>
-                      <div style={{ fontSize: '11px', fontWeight: 700, color: '#dc2626', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Deducted</div>
-                      <div style={{ fontSize: '18px', fontWeight: 700, color: '#dc2626' }}>
-                        −{formatQuantity(historyView.totalDeducted)}
+                    );
+                    const yellowBox = (topLabel, value) => (
+                      <div style={{ flex: '0 0 auto', textAlign: 'center' }}>
+                        <div style={{ background: '#1e3a8a', color: '#fff', fontSize: '11px', fontWeight: 700, padding: '4px 10px', borderRadius: '4px 4px 0 0' }}>
+                          {fmtSummaryDate(topLabel) || '—'}
+                        </div>
+                        <div style={{ background: '#fde047', color: '#111827', fontSize: '18px', fontWeight: 800, padding: '8px 14px', borderRadius: '0 0 4px 4px', minWidth: '72px' }}>
+                          {formatQuantity(value)}
+                        </div>
                       </div>
-                    </div>
-                    <div style={{ padding: '10px 12px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 'var(--radius)' }}>
-                      <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Net Change</div>
-                      <div style={{ fontSize: '18px', fontWeight: 700, color: historyView.net >= 0 ? '#16a34a' : '#dc2626' }}>
-                        {historyView.net >= 0 ? '+' : '−'}{formatQuantity(Math.abs(historyView.net))}
+                    );
+                    return (
+                      <div style={{
+                        display: 'flex', alignItems: 'flex-end', gap: '8px', flexWrap: 'wrap',
+                        padding: '12px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 'var(--radius)'
+                      }}>
+                        {yellowBox(historyView.begDate, historyView.beg)}
+                        <div style={{ alignSelf: 'flex-end', fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', paddingBottom: '6px' }}>BEG</div>
+                        {col('RR', '', historyView.rr, '#16a34a')}
+                        {col('DR', '', historyView.dr, '#16a34a')}
+                        {col('Open', 'Bottle', historyView.openBottle, '#2563eb')}
+                        {col('Retail', '', historyView.retail, '#2563eb')}
+                        {col('Sales', '', historyView.sales, '#b45309')}
+                        <div style={{ alignSelf: 'flex-end', fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', paddingBottom: '6px' }}>END</div>
+                        {yellowBox(historyView.endDate, historyView.end)}
                       </div>
-                    </div>
-                  </div>
+                    );
+                  })()}
                 </div>
               )}
 

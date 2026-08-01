@@ -65,7 +65,19 @@ async function runMigration() {
     `);
     
     console.log('✓ Manager approval columns added');
-    
+
+    // Reservation model columns (reserve warehouse stock at send, add to branch at receive)
+    console.log('Adding reservation columns...');
+
+    await client.query(`
+      ALTER TABLE delivery_items ADD COLUMN IF NOT EXISTS reserved_batches JSONB
+    `);
+    await client.query(`
+      ALTER TABLE deliveries ADD COLUMN IF NOT EXISTS stock_reserved BOOLEAN DEFAULT FALSE
+    `);
+
+    console.log('✓ Reservation columns added (delivery_items.reserved_batches, deliveries.stock_reserved)');
+
     // Fix the trigger function
     console.log('Fixing manager action trigger...');
     
