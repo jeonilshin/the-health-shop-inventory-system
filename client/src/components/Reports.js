@@ -1381,16 +1381,20 @@ function Reports() {
             </tr>
           </thead>
           <tbody>
-            {reports.length === 0 ? (
-              <tr>
-                <td colSpan={filters.location ? "6" : "7"} style={{ textAlign: 'center', padding: '20px' }}>No reports found</td>
-              </tr>
-            ) : (
-              (() => {
-                if (!filters.location && user.role === 'admin') {
-                  // Group by location for admin when viewing all
+            {(() => {
+              const filteredReports = getFilteredReports();
+              if (filteredReports.length === 0) {
+                return (
+                  <tr>
+                    <td colSpan={filters.location ? "6" : "7"} style={{ textAlign: 'center', padding: '20px' }}>No reports found</td>
+                  </tr>
+                );
+              }
+              // Group by location only when viewing ALL branches (no branch drilled
+              // into and no location filter). Once a branch is selected, show just it.
+              if (!selectedLocation && !filters.location && user.role === 'admin') {
                   let currentLocation = null;
-                  return reports.map((report, index) => {
+                  return filteredReports.map((report, index) => {
                     const showLocationHeader = currentLocation !== report.location_id;
                     currentLocation = report.location_id;
                     
@@ -1449,7 +1453,7 @@ function Reports() {
                   });
                 } else {
                   // Single location or filtered view
-                  return reports.map(report => (
+                  return filteredReports.map(report => (
                     <tr key={report.id}>
                       <td>{new Date(report.report_date).toLocaleDateString()}</td>
                       <td><span className="badge badge-info">{report.report_type}</span></td>
@@ -1491,8 +1495,7 @@ function Reports() {
                     </tr>
                   ));
                 }
-              })()
-            )}
+            })()}
           </tbody>
         </table>
       </div>
