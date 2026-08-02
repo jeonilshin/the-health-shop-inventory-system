@@ -53,6 +53,20 @@ function App() {
     initAuth();
   }, []);
 
+  // Prevent the mouse wheel from accidentally changing number inputs.
+  // Scrolling over a focused <input type="number"> normally increments/decrements
+  // its value; blurring on wheel stops that while letting the page scroll normally.
+  useEffect(() => {
+    const handleWheel = (e) => {
+      const el = document.activeElement;
+      if (el && el.tagName === 'INPUT' && el.type === 'number' && el === e.target) {
+        el.blur();
+      }
+    };
+    document.addEventListener('wheel', handleWheel, { passive: true });
+    return () => document.removeEventListener('wheel', handleWheel);
+  }, []);
+
   // Handle visibility change - refresh data when tab becomes visible
   useEffect(() => {
     const handleVisibilityChange = () => {
