@@ -1637,6 +1637,75 @@ tbody tr:last-child td {
 }
 
 /* ============================================================
+   UI POLISH & RESPONSIVE ENHANCEMENTS
+   (applies across every page — they all share these classes)
+   ============================================================ */
+
+/* Cards: a touch more depth + a clean top accent so pages feel less flat */
+.card {
+  border-color: var(--border-light);
+}
+.card:hover {
+  box-shadow: var(--shadow-md);
+}
+
+/* Tables read better with a hairline between the header and body and a
+   gentle striping that does NOT override rows that set their own colour. */
+tbody tr:nth-child(even):not([style*="background"]) {
+  background-color: color-mix(in srgb, var(--bg-secondary) 45%, transparent);
+}
+
+/* A reusable horizontal-scroll wrapper components can opt into */
+.table-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Section title spacing feels tighter/cleaner */
+.container h2 {
+  letter-spacing: -0.01em;
+}
+
+@media (max-width: 768px) {
+  /* iOS Safari zooms the whole page when a sub-16px input is focused.
+     Bumping form controls to 16px on small screens stops that jump. */
+  .form-group input,
+  .form-group select,
+  .form-group textarea {
+    font-size: 16px;
+    min-height: 44px;
+  }
+
+  /* Wide data tables scroll sideways instead of squashing or overflowing
+     the viewport — the standard mobile pattern for dense tables. */
+  .container table {
+    display: block;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    white-space: nowrap;
+    width: 100%;
+  }
+  .container thead {
+    position: static; /* sticky doesn't apply once the table is a scroll box */
+  }
+
+  /* Page titles scale down so they don't wrap awkwardly */
+  .container h2 { font-size: 1.35rem; }
+  .card h3 { font-size: 1rem; }
+
+  /* Filter/action rows that pack a title + buttons wrap instead of overflowing */
+  .page-header,
+  .card > div:first-child {
+    flex-wrap: wrap;
+  }
+}
+
+@media (max-width: 480px) {
+  /* Give full-width action buttons room to breathe on tiny screens */
+  .card > div:first-child { gap: 10px; }
+}
+
+/* ============================================================
    PRINT
    ============================================================ */
 @media print {
