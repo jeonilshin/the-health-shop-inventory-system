@@ -911,7 +911,16 @@ function Inventory() {
       return empty;
     }
 
-    const signedDelta = (entry) => {
+    // The backend emits a synthetic "Item created in inventory" row for stock that
+    // has no explicit ADD record, using the row's CURRENT quantity. That double-counts
+    // against real events (edits, receipts, …) that already explain the same stock —
+    // e.g. an item created empty then edited 0→1 would show +1 (created) AND +1 (edit)
+    // = 2, when only 1 is on hand. We treat the created row's reported quantity as the
+    // current-stock anchor and rescale it so the running balance ends at true stock.
+    const isCreatedMarker = (e) =>
+      e.type === 'added' && e.audit_description === 'Item created in inventory';
+
+    const rawDelta = (entry) => {
       const qty = parseFloat(entry.quantity) || 0;
       switch (entry.type) {
         case 'received':
@@ -930,6 +939,22 @@ function Inventory() {
           return 0;
       }
     };
+
+    let createdReportedTotal = 0;
+    let nonCreatedDelta = 0;
+    productHistory.forEach((e) => {
+      if (isCreatedMarker(e)) createdReportedTotal += parseFloat(e.quantity) || 0;
+      else nonCreatedDelta += rawDelta(e);
+    });
+    // Rescale created rows so:  Σ(created) + Σ(others) = current stock on hand.
+    const createdFactor = createdReportedTotal > 0
+      ? (createdReportedTotal - nonCreatedDelta) / createdReportedTotal
+      : 0;
+
+    const signedDelta = (entry) =>
+      isCreatedMarker(entry)
+        ? (parseFloat(entry.quantity) || 0) * createdFactor
+        : rawDelta(entry);
 
     const oldestFirst = [...productHistory].sort(
       (a, b) => new Date(a.date) - new Date(b.date)
@@ -2884,7 +2909,7 @@ function Inventory() {
                               ) : (
                                 <span style={{ color: entry._delta > 0 ? '#16a34a' : entry._delta < 0 ? '#dc2626' : 'inherit' }}>
                                   {entry._delta > 0 ? '+' : entry._delta < 0 ? '−' : ''}
-                                  {entry.quantity != null ? formatQuantity(Math.abs(parseFloat(entry.quantity) || 0)) : '—'}
+                                  {entry.quantity != null ? formatQuantity(Math.abs(entry._delta)) : '—'}
                                 </span>
                               )}
                             </td>
