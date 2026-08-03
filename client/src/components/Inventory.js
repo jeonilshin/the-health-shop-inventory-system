@@ -828,7 +828,7 @@ function Inventory() {
         ? (entry.from_location_type === 'warehouse' ? 'Received (Warehouse)' : 'Received (Outlet)')
         : isTransferred
         ? (entry.to_location_type === 'warehouse' ? 'Transferred (Warehouse)' : 'Transferred (Outlet)')
-        : 'Added by Admin';
+        : 'Added';
       const sourceDest = isReceived
         ? `From: ${entry.from_location_name}`
         : isTransferred
@@ -997,13 +997,16 @@ function Inventory() {
       const qty = parseFloat(e.quantity) || 0;
       switch (e.type) {
         case 'received': rr += qty; break;             // RR: received from warehouse
+        case 'added':                                  // manual "Add Inventory" = stock-in
+          if (!isCreatedMarker(e)) rr += qty;          // (created-fallback folds into BEG/END)
+          break;
         case 'transferred': dr += qty; break;          // DR: sent to other branches
         case 'sale': sales += qty; break;              // SALES: sold
         case 'converted':
           if (e.conversion_direction === 'out') openBottle += qty; // OPEN BOTTLE
           else retail += qty;                                      // RETAIL (pieces gained)
           break;
-        default: break;                                // added/edited fold into BEG/END
+        default: break;                                // edited folds into BEG/END
       }
     });
 
@@ -3346,7 +3349,7 @@ function Inventory() {
                             ? (entry.from_location_type === 'warehouse' ? 'Received (Warehouse)' : 'Received (Outlet)')
                             : isTransferred
                             ? (entry.to_location_type === 'warehouse' ? 'Transferred (Warehouse)' : 'Transferred (Outlet)')
-                            : 'Added by Admin';
+                            : 'Added';
                           const sourceDest = isReceived
                             ? `From: ${entry.from_location_name}`
                             : isTransferred

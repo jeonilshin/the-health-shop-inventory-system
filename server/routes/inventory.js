@@ -1330,7 +1330,10 @@ router.get('/summary/:locationId', auth, authorize('admin', 'audit', 'branch_man
       SELECT di.description, di.unit, COALESCE(d.delivered_date, d.updated_at, d.created_at) AS date,
              di.quantity AS qty, 'DR' AS category
         FROM deliveries d JOIN delivery_items di ON di.delivery_id = d.id
-       WHERE d.from_location_id = $1 AND d.status = 'delivered' AND d.transfer_id IS NULL
+       WHERE d.from_location_id = $1 AND d.transfer_id IS NULL
+         -- Stock leaves the warehouse as soon as it is reserved (sent), so count both
+         -- in-flight reserved deliveries and completed ones; rejected clears the flag.
+         AND (d.status = 'delivered' OR d.stock_reserved = true)
        ${fromClause.replace('$EVDATE', 'COALESCE(d.delivered_date, d.updated_at, d.created_at)')}
     `);
 
@@ -1364,15 +1367,18 @@ router.get('/summary/:locationId', auth, authorize('admin', 'audit', 'branch_man
        ${fromClause.replace('$EVDATE', 'al.created_at')}
     `);
 
-    // Manual adjustments (adds + edits) — signed; surface as DISCREPANCY / over-short.
+    // Manual stock-in ("Add Inventory") counts as RECEIVED (RR), not a discrepancy —
+    // it is real incoming stock (e.g. warehouse receiving from a supplier).
     const adds = await q(`
       SELECT inv.description, inv.unit, al.created_at AS date,
-             (al.new_values->>'quantity') AS qty, 'ADJ' AS category
+             (al.new_values->>'quantity') AS qty, 'RR' AS category
         FROM audit_log al
         JOIN inventory inv ON inv.id = al.record_id AND inv.location_id = $1
        WHERE al.table_name = 'inventory' AND al.action = 'INVENTORY_ADD'
        ${fromClause.replace('$EVDATE', 'al.created_at')}
     `);
+
+    // Quantity edits (manual corrections) remain the over/short DISCREPANCY.
 
     const edits = await q(`
       SELECT inv.description, inv.unit, al.created_at AS date,
