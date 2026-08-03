@@ -88,19 +88,31 @@ async function runMigration() {
     await client.query(`
       CREATE OR REPLACE FUNCTION log_manager_action()
       RETURNS TRIGGER AS $$
+      DECLARE
+        o jsonb := to_jsonb(OLD);
+        n jsonb := to_jsonb(NEW);
       BEGIN
+        -- One shared function serves both tables. Reading fields through jsonb means
+        -- a column that only exists on the OTHER table returns NULL instead of raising
+        -- "record old has no field ..." (transfers has manager_approved_by, deliveries
+        -- has manager_confirmed_by — neither has the other's column).
+
         -- Log transfer approvals
-        IF TG_TABLE_NAME = 'transfers' AND OLD.manager_approved_by IS NULL AND NEW.manager_approved_by IS NOT NULL THEN
+        IF TG_TABLE_NAME = 'transfers'
+           AND (o->>'manager_approved_by') IS NULL
+           AND (n->>'manager_approved_by') IS NOT NULL THEN
           INSERT INTO manager_actions (manager_id, action_type, target_type, target_id, location_id, notes)
-          VALUES (NEW.manager_approved_by, 'approve_transfer', 'transfer', NEW.id, NEW.to_location_id, 'Transfer approved by manager');
+          VALUES ((n->>'manager_approved_by')::int, 'approve_transfer', 'transfer', (n->>'id')::int, (n->>'to_location_id')::int, 'Transfer approved by manager');
         END IF;
-        
-        -- Log delivery confirmations (use manager_confirmed_by, not manager_approved_by)
-        IF TG_TABLE_NAME = 'deliveries' AND OLD.manager_confirmed_by IS NULL AND NEW.manager_confirmed_by IS NOT NULL THEN
+
+        -- Log delivery confirmations
+        IF TG_TABLE_NAME = 'deliveries'
+           AND (o->>'manager_confirmed_by') IS NULL
+           AND (n->>'manager_confirmed_by') IS NOT NULL THEN
           INSERT INTO manager_actions (manager_id, action_type, target_type, target_id, location_id, notes)
-          VALUES (NEW.manager_confirmed_by, 'confirm_delivery', 'delivery', NEW.id, NEW.to_location_id, 'Delivery confirmed by manager');
+          VALUES ((n->>'manager_confirmed_by')::int, 'confirm_delivery', 'delivery', (n->>'id')::int, (n->>'to_location_id')::int, 'Delivery confirmed by manager');
         END IF;
-        
+
         RETURN NEW;
       END;
       $$ LANGUAGE plpgsql;
