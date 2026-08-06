@@ -745,7 +745,8 @@ router.get('/:id/available-batches', auth, authorize('admin', 'branch_manager', 
     
     // Get delivery with items
     const delivery = await pool.query(
-      `SELECT d.*, di.id as item_id, di.description, di.unit, di.quantity as requested_quantity
+      `SELECT d.*, di.id as item_id, di.description, di.unit, di.quantity as requested_quantity,
+              di.reserved_batches
        FROM deliveries d
        LEFT JOIN delivery_items di ON d.id = di.delivery_id
        WHERE d.id = $1`,
@@ -771,11 +772,45 @@ router.get('/:id/available-batches', auth, authorize('admin', 'branch_manager', 
       }
     }
     
+    // Reserved (or transfer-linked) deliveries already pulled their stock out of the
+    // source at send time, so the live source inventory reads 0 for those items. The
+    // stock is not gone — it is held for THIS delivery in delivery_items.reserved_batches,
+    // and accept recreates those exact lots at the destination (see accept Path A).
+    // Surface the reserved lots as the "available batches" so the branch-side accept
+    // check reflects reality instead of falsely reporting "no stock in the warehouse".
+    const sourceAlreadyDeducted = !!deliveryData.transfer_id || !!deliveryData.stock_reserved;
+
     // For each item, get available batches from source location
     const itemsWithBatches = [];
-    
+
     for (const item of delivery.rows) {
       if (item.description) {
+        if (sourceAlreadyDeducted) {
+          let reserved = item.reserved_batches;
+          if (typeof reserved === 'string') {
+            try { reserved = JSON.parse(reserved); } catch { reserved = null; }
+          }
+          const reservedRows = (Array.isArray(reserved) ? reserved : [])
+            .filter(b => parseFloat(b.quantity) > 0)
+            .map(b => ({
+              id: null, // reserved lots have no live inventory row; accept ignores batch_ids here
+              cost_batch_id: b.cost_batch_id,
+              quantity: b.quantity,
+              unit_cost: b.unit_cost,
+              suggested_selling_price: b.suggested_selling_price,
+              batch_number: b.batch_number,
+              expiry_date: b.expiry_date,
+            }));
+          itemsWithBatches.push({
+            item_id: item.item_id,
+            description: item.description,
+            unit: item.unit,
+            requested_quantity: item.requested_quantity,
+            available_batches: reservedRows,
+          });
+          continue;
+        }
+
         const batches = await pool.query(
           `SELECT 
             id,
@@ -818,6 +853,9 @@ router.get('/:id/available-batches', auth, authorize('admin', 'branch_manager', 
       delivery_id: deliveryData.id,
       from_location_id: deliveryData.from_location_id,
       to_location_id: deliveryData.to_location_id,
+      // When true, stock is already reserved for this delivery and accept recreates
+      // the reserved lots directly — no live-stock check or batch selection needed.
+      stock_reserved: sourceAlreadyDeducted,
       items: itemsWithBatches
     });
   } catch (error) {

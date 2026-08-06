@@ -186,6 +186,15 @@ function Deliveries() {
       const response = await api.get(`/deliveries/${deliveryId}/available-batches`);
       const batchData = response.data;
 
+      // Reserved / transfer-linked deliveries already pulled their stock from the
+      // warehouse at send time. Accept recreates the exact reserved lots server-side
+      // (it ignores any batch selection for these), so skip the live-stock guard and
+      // the batch-selection modal entirely and accept directly.
+      if (batchData.stock_reserved) {
+        handleBranchAccept(deliveryId);
+        return;
+      }
+
       // Block if any item has zero stock in the warehouse
       const noStockItems = batchData.items.filter(item => item.available_batches.length === 0);
       if (noStockItems.length > 0) {
