@@ -162,7 +162,8 @@ function StockWithdrawalModal({ item, locationId, onClose, onSuccess }) {
                 {item.costBatches.map((batch, idx) => (
                   <option key={batch.id} value={batch.id}>
                     Batch {idx + 1}
-                    {batch.expiry_date ? ` - Exp: ${new Date(batch.expiry_date).toLocaleDateString()}` : ' - No Expiry'}
+                    {batch.expiry_date ? ` - ${new Date(batch.expiry_date).toLocaleDateString()}` : ' - No Expiry'}
+                    {` (Qty: ${formatQuantity(batch.quantity)})`}
                   </option>
                 ))}
               </select>
