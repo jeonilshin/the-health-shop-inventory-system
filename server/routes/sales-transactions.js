@@ -137,7 +137,7 @@ router.post('/', auth, authorize('admin', 'warehouse', 'branch_manager', 'branch
     const {
       transaction_date, location_id, item_description, item_unit,
       unit_price, payment_method, customer_name, notes,
-      discount_type, custom_discount_percent, discount_reason,
+      discount_type, custom_discount_percent, custom_discount_amount, discount_reason,
       batch_selections
     } = req.body;
     let { quantity_sold } = req.body;
@@ -194,6 +194,15 @@ router.post('/', auth, authorize('admin', 'warehouse', 'branch_manager', 'branch
       final_discount_reason = discount_reason || 'Custom Discount';
 
       discount_amount = round2(grossAmount * (discount_percent / 100));
+      total_amount = round2(grossAmount - discount_amount);
+
+    } else if (discount_type === 'custom_amount' && custom_discount_amount) {
+      // Fixed peso discount, capped at the gross amount
+      final_discount_reason = discount_reason || 'Custom Discount';
+
+      discount_amount = Math.min(round2(parseFloat(custom_discount_amount) || 0), grossAmount);
+      // Store the equivalent percentage for reporting/display
+      discount_percent = grossAmount > 0 ? round2((discount_amount / grossAmount) * 100) : 0;
       total_amount = round2(grossAmount - discount_amount);
 
     } else {

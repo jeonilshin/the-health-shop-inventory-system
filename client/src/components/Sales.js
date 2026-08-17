@@ -56,6 +56,7 @@ function Sales() {
     notes: '',
     discount_type: 'none',
     custom_discount_percent: '',
+    custom_discount_amount: '',
     discount_reason: ''
   });
 
@@ -323,6 +324,7 @@ function Sales() {
       notes: '',
       discount_type: 'none',
       custom_discount_percent: '',
+      custom_discount_amount: '',
       discount_reason: ''
     });
     setItemBatches([]);
@@ -1016,38 +1018,58 @@ function Sales() {
                     <select 
                       value={formData.discount_type} 
                       onChange={(e) => {
+                        const val = e.target.value;
+                        const isCustom = val === 'custom' || val === 'custom_amount';
                         setFormData({
-                          ...formData, 
-                          discount_type: e.target.value,
-                          custom_discount_percent: e.target.value === 'custom' ? formData.custom_discount_percent : '',
-                          discount_reason: e.target.value === 'custom' ? formData.discount_reason : 
-                                         e.target.value === 'pwd' ? 'PWD Discount' :
-                                         e.target.value === 'senior' ? 'Senior Citizen Discount' : ''
+                          ...formData,
+                          discount_type: val,
+                          custom_discount_percent: val === 'custom' ? formData.custom_discount_percent : '',
+                          custom_discount_amount: val === 'custom_amount' ? formData.custom_discount_amount : '',
+                          discount_reason: isCustom ? formData.discount_reason :
+                                         val === 'pwd' ? 'PWD Discount' :
+                                         val === 'senior' ? 'Senior Citizen Discount' : ''
                         });
                       }}
                     >
                       <option value="none">No Discount</option>
                       <option value="pwd">PWD (20%)</option>
                       <option value="senior">Senior Citizen (20%)</option>
-                      <option value="custom">Custom Discount</option>
+                      <option value="custom">Custom Percentage (%)</option>
+                      <option value="custom_amount">Custom Amount (₱)</option>
                     </select>
                   </div>
 
-                  {formData.discount_type === 'custom' && (
+                  {(formData.discount_type === 'custom' || formData.discount_type === 'custom_amount') && (
                     <>
-                      <div className="form-group">
-                        <label>Discount Percentage *</label>
-                        <input 
-                          type="number" 
-                          step="0.01"
-                          min="0"
-                          max="100"
-                          value={formData.custom_discount_percent} 
-                          onChange={(e) => setFormData({...formData, custom_discount_percent: e.target.value})} 
-                          placeholder="e.g., 10"
-                          required={formData.discount_type === 'custom'}
-                        />
-                      </div>
+                      {formData.discount_type === 'custom' && (
+                        <div className="form-group">
+                          <label>Discount Percentage *</label>
+                          <input
+                            type="number"
+                            step="any"
+                            min="0"
+                            max="100"
+                            value={formData.custom_discount_percent}
+                            onChange={(e) => setFormData({...formData, custom_discount_percent: e.target.value})}
+                            placeholder="e.g., 10"
+                            required={formData.discount_type === 'custom'}
+                          />
+                        </div>
+                      )}
+                      {formData.discount_type === 'custom_amount' && (
+                        <div className="form-group">
+                          <label>Discount Amount (₱) *</label>
+                          <input
+                            type="number"
+                            step="any"
+                            min="0"
+                            value={formData.custom_discount_amount}
+                            onChange={(e) => setFormData({...formData, custom_discount_amount: e.target.value})}
+                            placeholder="e.g., 150"
+                            required={formData.discount_type === 'custom_amount'}
+                          />
+                        </div>
+                      )}
                       <div className="form-group">
                         <label>Discount Reason *</label>
                         <input 
@@ -1055,7 +1077,7 @@ function Sales() {
                           value={formData.discount_reason} 
                           onChange={(e) => setFormData({...formData, discount_reason: e.target.value})} 
                           placeholder="e.g., Holiday Promo, Loyalty Discount"
-                          required={formData.discount_type === 'custom'}
+                          required={formData.discount_type === 'custom' || formData.discount_type === 'custom_amount'}
                         />
                       </div>
                     </>
@@ -1075,8 +1097,10 @@ function Sales() {
                     <div style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
                       {formData.discount_type === 'pwd' && 'PWD Discount (20% on net of VAT + VAT Exempt)'}
                       {formData.discount_type === 'senior' && 'Senior Citizen Discount (20% on net of VAT + VAT Exempt)'}
-                      {formData.discount_type === 'custom' && formData.custom_discount_percent && 
+                      {formData.discount_type === 'custom' && formData.custom_discount_percent &&
                         `Custom Discount (${formData.custom_discount_percent}%)`}
+                      {formData.discount_type === 'custom_amount' && formData.custom_discount_amount &&
+                        `Custom Discount (₱${formatPrice(parseFloat(formData.custom_discount_amount) || 0)})`}
                       {formData.discount_reason && ` - ${formData.discount_reason}`}
                     </div>
                     {(formData.discount_type === 'pwd' || formData.discount_type === 'senior') && (
@@ -1116,6 +1140,9 @@ function Sales() {
                   const discountPercent = parseFloat(formData.custom_discount_percent) || 0;
                   discountAmount = round2(grossAmount * (discountPercent / 100));
                   finalTotal = round2(grossAmount - discountAmount);
+                } else if (formData.discount_type === 'custom_amount') {
+                  discountAmount = Math.min(round2(parseFloat(formData.custom_discount_amount) || 0), grossAmount);
+                  finalTotal = round2(grossAmount - discountAmount);
                 }
                 
                 return (
@@ -1141,6 +1168,13 @@ function Sales() {
                     {formData.discount_type === 'custom' && discountAmount > 0 && (
                       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', color: '#ef4444' }}>
                         <span style={{ fontSize: '14px' }}>Discount ({formData.custom_discount_percent}%):</span>
+                        <span style={{ fontSize: '14px', fontWeight: 600 }}>-₱{formatPrice(discountAmount)}</span>
+                      </div>
+                    )}
+
+                    {formData.discount_type === 'custom_amount' && discountAmount > 0 && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', color: '#ef4444' }}>
+                        <span style={{ fontSize: '14px' }}>Discount (fixed amount):</span>
                         <span style={{ fontSize: '14px', fontWeight: 600 }}>-₱{formatPrice(discountAmount)}</span>
                       </div>
                     )}
@@ -1421,11 +1455,15 @@ function Sales() {
         } else if (formData.discount_type === 'custom' && formData.custom_discount_percent) {
           discountAmount = round2(grossAmount * (parseFloat(formData.custom_discount_percent) / 100));
           finalTotal = round2(grossAmount - discountAmount);
+        } else if (formData.discount_type === 'custom_amount' && formData.custom_discount_amount) {
+          discountAmount = Math.min(round2(parseFloat(formData.custom_discount_amount) || 0), grossAmount);
+          finalTotal = round2(grossAmount - discountAmount);
         }
         const locationName = locations.find(l => l.id === parseInt(formData.location_id))?.name || '';
         const discountLabel = formData.discount_type === 'pwd' ? 'PWD (20%)' :
           formData.discount_type === 'senior' ? 'Senior (20%)' :
-          formData.discount_type === 'custom' ? `Custom (${formData.custom_discount_percent}%)` : 'None';
+          formData.discount_type === 'custom' ? `Custom (${formData.custom_discount_percent}%)` :
+          formData.discount_type === 'custom_amount' ? `Custom (₱${formatPrice(discountAmount)})` : 'None';
 
         return (
           <ConfirmModal
