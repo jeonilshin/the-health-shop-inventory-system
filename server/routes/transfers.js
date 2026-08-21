@@ -5,7 +5,7 @@ const { auth, authorize } = require('../middleware/auth');
 const { notifyAdmins, notifyLocation } = require('./notifications');
 const { logAudit } = require('../middleware/auditLog');
 const { cleanupZeroInventory } = require('../utils/inventoryCleanup');
-const { restoreTransferToSource } = require('../utils/inventoryRestore');
+const { restoreTransferToSource, restoreToSource } = require('../utils/inventoryRestore');
 
 // Create transfer request (branch manager requests, warehouse/admin creates, STAFF can also create with manager approval)
 router.post('/', auth, authorize('admin', 'warehouse', 'branch_manager', 'branch_staff'), async (req, res) => {
@@ -682,9 +682,10 @@ router.post('/:id/ship', auth, authorize('admin', 'warehouse'), async (req, res)
 // SIMPLIFIED WORKFLOW: Destination branch receives approved transfer and inventory is added
 router.post('/:id/deliver', auth, authorize('admin', 'branch_manager', 'branch_staff'), async (req, res) => {
   const client = await pool.connect();
-  
+
   try {
     const { id } = req.params;
+    const { received_quantity, shortage_reason, shortage_note } = req.body;
 
     await client.query('BEGIN');
 
@@ -703,6 +704,27 @@ router.post('/:id/deliver', auth, authorize('admin', 'branch_manager', 'branch_s
     if (transferData.status !== 'approved') {
       await client.query('ROLLBACK');
       return res.status(400).json({ error: 'Transfer must be approved before receiving. Current status: ' + transferData.status });
+    }
+
+    // Determine how much actually arrived. Defaults to the full sent quantity
+    // (normal receive). If the branch received less, they must say why so we
+    // know whether to return the difference to the source or write it off.
+    const sentQty = parseFloat(transferData.quantity);
+    const receivedQty = received_quantity != null ? parseFloat(received_quantity) : sentQty;
+
+    if (isNaN(receivedQty) || receivedQty < 0) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Received quantity must be zero or more' });
+    }
+    if (receivedQty > sentQty) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: `Received quantity cannot exceed the sent quantity (${sentQty}). Report an overage separately.` });
+    }
+
+    const missingQty = sentQty - receivedQty;
+    if (missingQty > 0 && !['wrong_count', 'lost'].includes(shortage_reason)) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'A reason is required when receiving less than was sent: "wrong_count" or "lost"' });
     }
 
     // Check if user has access to destination location
@@ -749,51 +771,106 @@ router.post('/:id/deliver', auth, authorize('admin', 'branch_manager', 'branch_s
        unitCost, suggestedPrice || 0, expiryDate]
     );
 
-    if (existingBatch.rows.length > 0) {
-      // Add to existing batch
-      await client.query(
-        `UPDATE inventory 
-         SET quantity = quantity + $1,
-             max_quantity = GREATEST(max_quantity, quantity + $1),
-             updated_at = CURRENT_TIMESTAMP
-         WHERE id = $2`,
-        [transferData.quantity, existingBatch.rows[0].id]
-      );
-    } else {
-      // Create new batch
-      const costBatchId = `BATCH-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-      
-      await client.query(
-        `INSERT INTO inventory 
-         (location_id, description, unit, quantity, unit_cost, suggested_selling_price, 
-          batch_number, expiry_date, max_quantity, cost_batch_id, is_new_item, is_new_cost) 
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $4, $9, false, false)`,
-        [
-          transferData.to_location_id, 
-          transferData.description, 
-          transferData.unit, 
-          transferData.quantity, 
-          unitCost, 
-          suggestedPrice,
-          batchNumber, 
+    // Only credit the destination with what actually arrived (may be less than sent)
+    if (receivedQty > 0) {
+      if (existingBatch.rows.length > 0) {
+        // Add to existing batch
+        await client.query(
+          `UPDATE inventory
+           SET quantity = quantity + $1,
+               max_quantity = GREATEST(max_quantity, quantity + $1),
+               updated_at = CURRENT_TIMESTAMP
+           WHERE id = $2`,
+          [receivedQty, existingBatch.rows[0].id]
+        );
+      } else {
+        // Create new batch
+        const costBatchId = `BATCH-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+        await client.query(
+          `INSERT INTO inventory
+           (location_id, description, unit, quantity, unit_cost, suggested_selling_price,
+            batch_number, expiry_date, max_quantity, cost_batch_id, is_new_item, is_new_cost)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $4, $9, false, false)`,
+          [
+            transferData.to_location_id,
+            transferData.description,
+            transferData.unit,
+            receivedQty,
+            unitCost,
+            suggestedPrice,
+            batchNumber,
+            expiryDate,
+            costBatchId
+          ]
+        );
+      }
+    }
+
+    // Handle a short receipt: the source was already deducted the full sent
+    // quantity at approval time, so the missing amount is currently in limbo.
+    //   wrong_count → only `receivedQty` ever physically left the source, so
+    //                 return the difference to the source's inventory.
+    //   lost        → the goods really left but never arrived; write them off
+    //                 (nothing returns to the source — it's a real loss).
+    if (missingQty > 0) {
+      if (shortage_reason === 'wrong_count') {
+        await restoreToSource(client, {
+          locationId: transferData.from_location_id,
+          description: transferData.description,
+          unit: transferData.unit,
+          quantity: missingQty,
+          unitCost,
+          suggestedSellingPrice: suggestedPrice,
+          batchNumber,
           expiryDate,
-          costBatchId
+        });
+      }
+
+      // Record the shortfall so it shows up in discrepancy reports.
+      // wrong_count → 'shortage' (corrected); lost → 'damage' (write-off).
+      const discType = shortage_reason === 'wrong_count' ? 'shortage' : 'damage';
+      const defaultNote = shortage_reason === 'wrong_count'
+        ? 'Sent quantity was recorded wrong; difference returned to source.'
+        : 'Items lost in transit; written off as a loss.';
+      await client.query(
+        `INSERT INTO delivery_discrepancies
+           (type, delivery_id, item_description, unit, unit_cost,
+            expected_quantity, received_quantity, note,
+            branch_location_id, warehouse_location_id,
+            status, reported_by, resolved_by, resolved_at)
+         VALUES ($1, NULL, $2, $3, $4, $5, $6, $7, $8, $9, 'completed', $10, $10, CURRENT_TIMESTAMP)`,
+        [
+          discType,
+          transferData.description,
+          transferData.unit,
+          unitCost,
+          sentQty,
+          receivedQty,
+          (shortage_note && shortage_note.trim()) || defaultNote,
+          transferData.to_location_id,
+          transferData.from_location_id,
+          req.user.id,
         ]
       );
     }
 
-    // Update transfer status to delivered (completed)
+    // Update transfer status to delivered (completed), recording what actually arrived
     const result = await client.query(
-      `UPDATE transfers 
-       SET status = 'delivered', delivered_by = $1, delivered_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-       WHERE id = $2 
+      `UPDATE transfers
+       SET status = 'delivered', delivered_by = $1, delivered_at = CURRENT_TIMESTAMP,
+           received_quantity = $3, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $2
        RETURNING *`,
-      [req.user.id, id]
+      [req.user.id, id, receivedQty]
     );
 
     await client.query('COMMIT');
     
     // Log audit
+    const shortInfo = missingQty > 0
+      ? ` - SHORT: received ${receivedQty}/${sentQty}, ${missingQty} ${shortage_reason === 'wrong_count' ? 'returned to source (wrong count)' : 'written off (lost in transit)'}`
+      : '';
     await logAudit({
       userId: req.user.id,
       username: req.user.username,
@@ -803,21 +880,217 @@ router.post('/:id/deliver', auth, authorize('admin', 'branch_manager', 'branch_s
       newValues: result.rows[0],
       ipAddress: req.ip,
       userAgent: req.get('user-agent'),
-      description: `Received transfer: ${transferData.description} (${transferData.quantity} ${transferData.unit}) - Inventory added to destination`
+      description: `Received transfer: ${transferData.description} (${receivedQty}/${sentQty} ${transferData.unit}) - Inventory added to destination${shortInfo}`
     });
-    
+
     // Notify source location that transfer is complete
+    if (missingQty > 0) {
+      const reasonText = shortage_reason === 'wrong_count'
+        ? `${missingQty} ${transferData.unit} was returned to your inventory (sent count was wrong).`
+        : `${missingQty} ${transferData.unit} was reported lost in transit and written off.`;
+      await notifyLocation(
+        transferData.from_location_id,
+        'transfer_completed',
+        'Transfer Received Short',
+        `${transferData.to_location_name || 'Branch'} received ${receivedQty} of ${sentQty} ${transferData.unit} of ${transferData.description}. ${reasonText}`,
+        '/transfers'
+      );
+    } else {
+      await notifyLocation(
+        transferData.from_location_id,
+        'transfer_completed',
+        'Transfer Completed',
+        `Transfer to ${transferData.to_location_name || 'branch'} has been received and completed`,
+        '/transfers'
+      );
+    }
+
+    const deliverMessage = missingQty > 0
+      ? `Received ${receivedQty} of ${sentQty} ${transferData.unit}. ${shortage_reason === 'wrong_count' ? `${missingQty} returned to source.` : `${missingQty} written off as lost.`}`
+      : 'Transfer received! Inventory added to your location.';
+    res.json({
+      ...result.rows[0],
+      message: deliverMessage
+    });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    res.status(500).json({ error: error.message });
+  } finally {
+    client.release();
+  }
+});
+
+// Correct a completed (delivered) transfer receipt.
+// Used when a branch already accepted the full amount but later realises it
+// received fewer than what the system recorded. Removes the over-received
+// difference from the branch and either returns it to source (wrong count)
+// or writes it off (lost in transit) — mirrors the short-receive flow but
+// applied after the transfer is already delivered.
+router.post('/:id/correct-receipt', auth, authorize('admin', 'branch_manager', 'branch_staff'), async (req, res) => {
+  const client = await pool.connect();
+
+  try {
+    const { id } = req.params;
+    const { corrected_quantity, reason, note } = req.body;
+
+    await client.query('BEGIN');
+
+    const transfer = await client.query('SELECT * FROM transfers WHERE id = $1', [id]);
+    if (transfer.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Transfer not found' });
+    }
+
+    const transferData = transfer.rows[0];
+
+    if (transferData.status !== 'delivered') {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Only completed (received) transfers can be corrected. Current status: ' + transferData.status });
+    }
+
+    // Access: admin, or a manager/staff of the receiving branch
+    if (req.user.role === 'branch_manager') {
+      const { hasLocationAccess } = require('../middleware/auth');
+      const hasAccess = await hasLocationAccess(req.user.id, req.user.role, transferData.to_location_id);
+      if (!hasAccess) {
+        await client.query('ROLLBACK');
+        return res.status(403).json({ error: 'You do not manage the receiving branch' });
+      }
+    }
+    if (req.user.role === 'branch_staff' && req.user.location_id !== transferData.to_location_id) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'You can only correct transfers received by your own branch' });
+    }
+
+    // Baseline = what the branch is currently credited for this transfer.
+    const baseline = transferData.received_quantity != null
+      ? parseFloat(transferData.received_quantity)
+      : parseFloat(transferData.quantity);
+    const corrected = parseFloat(corrected_quantity);
+
+    if (isNaN(corrected) || corrected < 0) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Corrected quantity must be zero or more' });
+    }
+    if (corrected >= baseline) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: `Corrected quantity must be less than what was received (${baseline}). To add more, report an overage.` });
+    }
+    if (!['wrong_count', 'lost'].includes(reason)) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'A reason is required: "wrong_count" or "lost"' });
+    }
+
+    const diff = baseline - corrected; // amount to remove from the branch
+    const unitCost = transferData.unit_cost || 0;
+
+    // Remove the over-received difference from the branch (FIFO)
+    const branchInv = await client.query(
+      `SELECT id, quantity FROM inventory
+        WHERE location_id = $1
+          AND LOWER(TRIM(description)) = LOWER(TRIM($2))
+          AND LOWER(TRIM(unit))        = LOWER(TRIM($3))
+        ORDER BY created_at ASC`,
+      [transferData.to_location_id, transferData.description, transferData.unit]
+    );
+
+    const totalBranch = branchInv.rows.reduce((sum, b) => sum + parseFloat(b.quantity), 0);
+    if (totalBranch < diff) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({
+        error: `Cannot correct: branch only has ${totalBranch} ${transferData.unit} of "${transferData.description}" left (need to remove ${diff}). Some may have already been sold or transferred.`
+      });
+    }
+
+    let remaining = diff;
+    for (const batch of branchInv.rows) {
+      if (remaining <= 0) break;
+      const batchQty = parseFloat(batch.quantity);
+      const deduct = Math.min(batchQty, remaining);
+      if (deduct >= batchQty) {
+        await client.query('DELETE FROM inventory WHERE id = $1', [batch.id]);
+      } else {
+        await client.query(
+          'UPDATE inventory SET quantity = quantity - $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+          [deduct, batch.id]
+        );
+      }
+      remaining -= deduct;
+    }
+
+    // wrong_count → the difference never really left the source, put it back.
+    // lost        → genuinely gone, write it off (nothing returns to source).
+    if (reason === 'wrong_count') {
+      await restoreToSource(client, {
+        locationId: transferData.from_location_id,
+        description: transferData.description,
+        unit: transferData.unit,
+        quantity: diff,
+        unitCost,
+      });
+    }
+
+    // Update the recorded received quantity to the corrected value
+    await client.query(
+      'UPDATE transfers SET received_quantity = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+      [corrected, id]
+    );
+
+    // Record for discrepancy reports
+    const discType = reason === 'wrong_count' ? 'shortage' : 'damage';
+    const defaultNote = reason === 'wrong_count'
+      ? 'Correction after receipt: recorded count was wrong; difference returned to source.'
+      : 'Correction after receipt: items lost in transit; written off as a loss.';
+    await client.query(
+      `INSERT INTO delivery_discrepancies
+         (type, delivery_id, item_description, unit, unit_cost,
+          expected_quantity, received_quantity, note,
+          branch_location_id, warehouse_location_id,
+          status, reported_by, resolved_by, resolved_at)
+       VALUES ($1, NULL, $2, $3, $4, $5, $6, $7, $8, $9, 'completed', $10, $10, CURRENT_TIMESTAMP)`,
+      [
+        discType,
+        transferData.description,
+        transferData.unit,
+        unitCost,
+        baseline,
+        corrected,
+        (note && note.trim()) || defaultNote,
+        transferData.to_location_id,
+        transferData.from_location_id,
+        req.user.id,
+      ]
+    );
+
+    await client.query('COMMIT');
+
+    await logAudit({
+      userId: req.user.id,
+      username: req.user.username,
+      action: 'TRANSFER_CORRECT_RECEIPT',
+      tableName: 'transfers',
+      recordId: id,
+      newValues: { received_quantity: corrected },
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+      description: `Corrected receipt: ${transferData.description} from ${baseline} to ${corrected} ${transferData.unit} - ${diff} ${reason === 'wrong_count' ? 'returned to source (wrong count)' : 'written off (lost in transit)'}`
+    });
+
+    const reasonText = reason === 'wrong_count'
+      ? `${diff} ${transferData.unit} was returned to your inventory (recorded count was wrong).`
+      : `${diff} ${transferData.unit} was reported lost in transit and written off.`;
     await notifyLocation(
       transferData.from_location_id,
       'transfer_completed',
-      'Transfer Completed',
-      `Transfer to ${transferData.to_location_name || 'branch'} has been received and completed`,
+      'Transfer Receipt Corrected',
+      `${transferData.to_location_name || 'Branch'} corrected its receipt of ${transferData.description} to ${corrected} ${transferData.unit}. ${reasonText}`,
       '/transfers'
     );
-    
-    res.json({ 
-      ...result.rows[0], 
-      message: 'Transfer received! Inventory added to your location.' 
+
+    res.json({
+      message: reason === 'wrong_count'
+        ? `Receipt corrected to ${corrected}. ${diff} removed from your branch and returned to source.`
+        : `Receipt corrected to ${corrected}. ${diff} removed from your branch and written off as lost.`
     });
   } catch (error) {
     await client.query('ROLLBACK');

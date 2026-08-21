@@ -50,6 +50,7 @@ function Transfers() {
   const [exportData, setExportData] = useState([]);
   const [discrepancies, setDiscrepancies] = useState([]);
   const [openReturnId, setOpenReturnId] = useState(null);
+  const [reportReceive, setReportReceive] = useState(null); // { transfer, receivedQty, reason, note }
 
   useEffect(() => {
     fetchLocations();
@@ -417,6 +418,74 @@ function Transfers() {
     }
   };
 
+  const openReportReceive = (transfer) => {
+    // For an approved transfer the baseline is what was sent; for an already
+    // completed (delivered) transfer it's what the branch is credited for.
+    const baseline = parseFloat(
+      transfer.status === 'delivered' && transfer.received_quantity != null
+        ? transfer.received_quantity
+        : transfer.quantity
+    );
+    setReportReceive({
+      transfer,
+      baseline,
+      receivedQty: String(baseline),
+      reason: 'wrong_count',
+      note: ''
+    });
+  };
+
+  const submitReportReceive = async () => {
+    const { transfer, baseline, receivedQty, reason, note } = reportReceive;
+    const received = parseFloat(receivedQty);
+    const isCorrection = transfer.status === 'delivered';
+
+    if (isNaN(received) || received < 0) {
+      alert('Enter a valid quantity (0 or more).');
+      return;
+    }
+    if (received > baseline) {
+      alert(`Quantity cannot be more than ${baseline}.`);
+      return;
+    }
+
+    const missing = baseline - received;
+    if (isCorrection && missing <= 0) {
+      alert('Enter a lower quantity to correct the receipt.');
+      return;
+    }
+
+    try {
+      if (isCorrection) {
+        await api.post(`/transfers/${transfer.id}/correct-receipt`, {
+          corrected_quantity: received,
+          reason,
+          note
+        });
+      } else {
+        await api.post(`/transfers/${transfer.id}/deliver`, {
+          received_quantity: received,
+          shortage_reason: missing > 0 ? reason : undefined,
+          shortage_note: missing > 0 ? note : undefined
+        });
+      }
+      setReportReceive(null);
+      await fetchTransfers();
+      await fetchDiscrepancies();
+      if (missing > 0) {
+        alert(
+          reason === 'wrong_count'
+            ? `Set to ${received} of ${baseline}. The difference of ${missing} was returned to the source branch.`
+            : `Set to ${received} of ${baseline}. The difference of ${missing} was written off as lost in transit.`
+        );
+      } else {
+        alert('Transfer received! Inventory has been added to your location.');
+      }
+    } catch (error) {
+      alert(error.response?.data?.error || 'Error reporting receipt');
+    }
+  };
+
   const handleUnreceive = async (id) => {
     if (!window.confirm('Are you sure you want to unreceive this transfer? This will remove the inventory from the destination and return it to the source location.')) return;
     try {
@@ -519,6 +588,19 @@ function Transfers() {
 
   const canUnreceive = (transfer) => {
     return user.role === 'admin' && transfer.status === 'delivered';
+  };
+
+  // Who can correct an already-completed receipt (same access as receiving it)
+  const canReportDelivered = (transfer) => {
+    if (transfer.status !== 'delivered') return false;
+    if (user.role === 'admin') return true;
+    if (user.role === 'branch_manager') {
+      return locations.map(loc => loc.id).includes(transfer.to_location_id);
+    }
+    if (user.role === 'branch_staff') {
+      return transfer.to_location_id === user.location_id;
+    }
+    return false;
   };
 
   // Group transfers by notes and date for multi-item transfers
@@ -1565,13 +1647,33 @@ function Transfers() {
                           </>
                         )}
                         {canDeliver(transfer) && (
+                          <>
+                            <button
+                              className="btn btn-success"
+                              style={{ padding: '4px 8px', fontSize: '12px' }}
+                              onClick={() => handleDeliver(transfer.id)}
+                            >
+                              <FiCheckCircle size={12} />
+                              Receive
+                            </button>
+                            <button
+                              className="btn"
+                              style={{ padding: '4px 8px', fontSize: '12px', backgroundColor: '#f59e0b', color: 'white' }}
+                              onClick={() => openReportReceive(transfer)}
+                            >
+                              <FiAlertCircle size={12} />
+                              Report
+                            </button>
+                          </>
+                        )}
+                        {canReportDelivered(transfer) && (
                           <button
-                            className="btn btn-success"
-                            style={{ padding: '4px 8px', fontSize: '12px' }}
-                            onClick={() => handleDeliver(transfer.id)}
+                            className="btn"
+                            style={{ padding: '4px 8px', fontSize: '12px', backgroundColor: '#f59e0b', color: 'white' }}
+                            onClick={() => openReportReceive(transfer)}
                           >
-                            <FiCheckCircle size={12} />
-                            Receive
+                            <FiAlertCircle size={12} />
+                            Report
                           </button>
                         )}
                         {canUnreceive(transfer) && (
@@ -1631,6 +1733,102 @@ function Transfers() {
       </div>
 
       {/* Rejection Modal */}
+      {reportReceive && (() => {
+        const isCorrection = reportReceive.transfer.status === 'delivered';
+        const baseline = reportReceive.baseline;
+        const received = parseFloat(reportReceive.receivedQty);
+        const missing = !isNaN(received) ? baseline - received : 0;
+        const isShort = missing > 0;
+        return (
+          <div className="modal-overlay" onClick={() => setReportReceive(null)}>
+            <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '520px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <FiAlertCircle size={22} color="#f59e0b" />
+                  {isCorrection ? 'Correct Received Quantity' : 'Report Received Quantity'}
+                </h3>
+                <button
+                  onClick={() => setReportReceive(null)}
+                  style={{ background: 'none', border: 'none', fontSize: '24px', cursor: 'pointer', color: '#6b7280' }}
+                >
+                  ×
+                </button>
+              </div>
+
+              <div style={{ marginBottom: '16px', fontSize: '13px', color: 'var(--text-secondary)' }}>
+                <strong>{reportReceive.transfer.description}</strong><br />
+                {isCorrection ? 'Currently credited' : 'Sent'}: {formatQuantity(baseline)} {reportReceive.transfer.unit}
+              </div>
+
+              <div className="form-group">
+                <label>{isCorrection ? 'Quantity you actually received' : 'Quantity actually received'}</label>
+                <input
+                  type="number"
+                  min="0"
+                  max={baseline}
+                  step="any"
+                  value={reportReceive.receivedQty}
+                  onChange={(e) => setReportReceive({ ...reportReceive, receivedQty: e.target.value })}
+                  style={{ width: '100%' }}
+                />
+              </div>
+
+              {isShort && (
+                <>
+                  <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '6px', padding: '10px 12px', margin: '12px 0', fontSize: '13px', color: '#92400e' }}>
+                    {isCorrection ? 'Remove' : 'Short by'} {formatQuantity(missing)} {reportReceive.transfer.unit}. Why?
+                  </div>
+                  <div className="form-group">
+                    <label style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', cursor: 'pointer', marginBottom: '8px' }}>
+                      <input
+                        type="radio"
+                        name="shortageReason"
+                        checked={reportReceive.reason === 'wrong_count'}
+                        onChange={() => setReportReceive({ ...reportReceive, reason: 'wrong_count' })}
+                        style={{ marginTop: '3px' }}
+                      />
+                      <span><strong>Sent count was wrong</strong> — only {formatQuantity(received)} really left the source. The missing {formatQuantity(missing)} goes back to the source branch's inventory.</span>
+                    </label>
+                    <label style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', cursor: 'pointer' }}>
+                      <input
+                        type="radio"
+                        name="shortageReason"
+                        checked={reportReceive.reason === 'lost'}
+                        onChange={() => setReportReceive({ ...reportReceive, reason: 'lost' })}
+                        style={{ marginTop: '3px' }}
+                      />
+                      <span><strong>Lost in transit</strong> — the items left but never arrived. The missing {formatQuantity(missing)} is written off as a loss.</span>
+                    </label>
+                  </div>
+                  <div className="form-group">
+                    <label>Note (optional)</label>
+                    <textarea
+                      value={reportReceive.note}
+                      onChange={(e) => setReportReceive({ ...reportReceive, note: e.target.value })}
+                      placeholder="Add any detail for the record..."
+                      rows="2"
+                      style={{ width: '100%', resize: 'vertical' }}
+                    />
+                  </div>
+                </>
+              )}
+
+              <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', marginTop: '24px' }}>
+                <button className="btn btn-secondary" onClick={() => setReportReceive(null)}>Cancel</button>
+                <button
+                  className="btn btn-success"
+                  onClick={submitReportReceive}
+                  style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
+                >
+                  <FiCheckCircle size={16} />
+                  {isCorrection ? 'Apply Correction' : (isShort ? 'Confirm Short Receipt' : 'Confirm Receipt')}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {showRejectModal && (
         <div className="modal-overlay" onClick={() => setShowRejectModal(false)}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '500px' }}>
